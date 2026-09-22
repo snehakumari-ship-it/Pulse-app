@@ -38,7 +38,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LogIncomingPodsScreen } from "../log-pods/LogIncomingPodsScreen";
 import { LogIncomingPodsModal } from "../log-pods/components/LogIncomingPodsModal";
 import { PodLrNumberCell, PodLrNumberEditorModal } from "./components/PodLrNumberEditor";
+import { PodTripDetailDrawer } from "./components/PodTripDetailDrawer";
 import { PodValidationView } from "./components/PodValidationView";
+import { PodWorkflowStatusBadge } from "./components/PodWorkflowStatusBadge";
 import { TripCompletionFilterBar } from "@/features/trips/components/TripCompletionFilterBar";
 import { TripCompletionOrPodTags, TripCompletionStatusTag, TripPodStatusTags } from "@/features/trips/components/TripPodStatusTags";
 import {
@@ -55,6 +57,11 @@ import type {
     PodReconciliationTripView,
     PodTab,
 } from "./services/podReconciliationService";
+import {
+  derivePodNextAction,
+  podActionToneColor,
+  type PodNextAction,
+} from "./utils/podWorkflowDisplay.util";
 
 function canAccessPodManagement(
   profile: ReturnType<typeof useAuth>["profile"],
@@ -94,6 +101,7 @@ export function PodReconciliationScreen() {
   const [selectedTrip, setSelectedTrip] =
     useState<PodReconciliationTripView | null>(null);
   const [validationModalOpen, setValidationModalOpen] = useState(false);
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [logIncomingOpen, setLogIncomingOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"cards" | "table">(
     Platform.OS === "web" ? "table" : "cards",
@@ -202,6 +210,49 @@ export function PodReconciliationScreen() {
     return trip.invoice_status_display === "Invoice Pending"
       ? "Pending"
       : trip.invoice_status_display || "Pending";
+  };
+
+  const openTripDetail = (trip: PodReconciliationTripView) => {
+    setSelectedTrip(trip);
+    setDetailDrawerOpen(true);
+  };
+
+  const openPodReview = (trip: PodReconciliationTripView) => {
+    setSelectedTrip(trip);
+    setDetailDrawerOpen(false);
+    setValidationModalOpen(true);
+  };
+
+  const openInvoicingFromPod = () => {
+    router.push(
+      FINANCE_PRO_LAUNCH.pulseInvoiceFromPod(
+        parseSafeReturnTo(searchParams.returnTo),
+      ),
+    );
+  };
+
+  const handlePodAction = (
+    action: PodNextAction,
+    trip: PodReconciliationTripView,
+  ) => {
+    setSelectedTrip(trip);
+    switch (action.handler) {
+      case "log_incoming":
+        setDetailDrawerOpen(false);
+        setLogIncomingOpen(true);
+        break;
+      case "review":
+        openPodReview(trip);
+        break;
+      case "invoicing":
+        setDetailDrawerOpen(false);
+        openInvoicingFromPod();
+        break;
+      case "drawer":
+      default:
+        openTripDetail(trip);
+        break;
+    }
   };
 
   const sortTrips = (items: PodReconciliationTripView[]) => {
@@ -1168,6 +1219,7 @@ export function PodReconciliationScreen() {
 
           <View style={styles.mainColumn}>
               <View style={styles.contentArea}>
+                <View style={styles.listPanel}>
                 <View style={styles.completionFilterStrip}>
                   <Text style={styles.completionFilterLabel}>Trip status</Text>
                   <TripCompletionFilterBar
@@ -1226,6 +1278,7 @@ export function PodReconciliationScreen() {
                             id="id"
                             sortKey={sortKey}
                             sortDirection={sortDirection}
+                            width={168}
                           />
                           <TableHeaderCell
                             label="Trip Date"
@@ -1233,6 +1286,7 @@ export function PodReconciliationScreen() {
                             id="trip_date"
                             sortKey={sortKey}
                             sortDirection={sortDirection}
+                            width={118}
                           />
                           <TableHeaderCell
                             label="Client Name"
@@ -1240,6 +1294,7 @@ export function PodReconciliationScreen() {
                             id="client_name"
                             sortKey={sortKey}
                             sortDirection={sortDirection}
+                            width={148}
                           />
                           <TableHeaderCell
                             label="Supplier / Driver"
@@ -1247,10 +1302,11 @@ export function PodReconciliationScreen() {
                             id="vendor_name"
                             sortKey={sortKey}
                             sortDirection={sortDirection}
+                            width={156}
                           />
-                          <TableHeaderCell label="LR No" />
-                          <TableHeaderCell label="PP Location" />
-                          <TableHeaderCell label="Drop Point" />
+                          <TableHeaderCell label="LR No" width={118} />
+                          <TableHeaderCell label="PP Location" width={140} />
+                          <TableHeaderCell label="Drop Point" width={140} />
                           <TableHeaderCell
                             label="Value (₹)"
                             onPress={() => toggleSort("amount")}
@@ -1258,16 +1314,22 @@ export function PodReconciliationScreen() {
                             id="amount"
                             sortKey={sortKey}
                             sortDirection={sortDirection}
+                            width={108}
                           />
-                          <TableHeaderCell label="Trip Status" wide />
-                          <TableHeaderCell label="Soft / Hard POD" wide />
-                          <TableHeaderCell label="Hard POD date" />
-                          <TableHeaderCell label="Inv Status 1" />
-                          <TableHeaderCell label="Invoice No" />
-                          <TableHeaderCell label="Actions" align="right" />
+                          <TableHeaderCell label="Trip Status" wide width={128} />
+                          <TableHeaderCell label="Soft / Hard POD" wide width={132} />
+                          <TableHeaderCell label="POD Status" wide width={168} />
+                          <TableHeaderCell label="Hard POD date" width={118} />
+                          <TableHeaderCell label="Inv Status 1" width={118} />
+                          <TableHeaderCell label="Invoice No" width={128} />
+                          <TableHeaderCell
+                            label="Action"
+                            align="right"
+                            width={148}
+                          />
                         </View>
                         {paginatedTrips.map((item, index) => (
-                          <View
+                          <Pressable
                             key={item.internal_id}
                             style={[
                               styles.tableRow,
@@ -1275,17 +1337,24 @@ export function PodReconciliationScreen() {
                                 ? styles.tableRowEven
                                 : styles.tableRowOdd,
                             ]}
+                            onPress={() => openTripDetail(item)}
                           >
                             <TableCell
                               text={item.id || "—"}
                               mono
                               strong
                               color={Theme.primary}
+                              width={168}
                             />
                             <TableCell
                               text={safeDateText(item.trip_date || item.date)}
+                              width={118}
                             />
-                            <TableCell text={item.client_name || "—"} strong />
+                            <TableCell
+                              text={item.client_name || "—"}
+                              strong
+                              width={148}
+                            />
                             <TableCell
                               text={
                                 item.vendor_name
@@ -1294,26 +1363,46 @@ export function PodReconciliationScreen() {
                                     : item.vendor_name
                                   : "—"
                               }
+                              width={156}
                             />
                             <PodLrNumberCell
                               trip={item}
                               onPress={() => setLrEditorTrip(item)}
                             />
-                            <TableCell text={item.pp_location || "—"} />
-                            <TableCell text={item.drop_point || "—"} />
+                            <TableCell
+                              text={item.pp_location || "—"}
+                              width={140}
+                            />
+                            <TableCell
+                              text={item.drop_point || "—"}
+                              width={140}
+                            />
                             <TableCell
                               text={(item.amount || 0).toLocaleString()}
                               mono
                               strong
                               align="right"
+                              width={108}
                             />
-                            <View style={[styles.tableCell, styles.tableCellTags]}>
+                            <View
+                              style={[
+                                styles.tableCell,
+                                styles.tableCellTags,
+                                { width: 128 },
+                              ]}
+                            >
                               <TripCompletionStatusTag
                                 compact
                                 completed={tripIsDeliveredStatus(item.trip_status)}
                               />
                             </View>
-                            <View style={[styles.tableCell, styles.tableCellTags]}>
+                            <View
+                              style={[
+                                styles.tableCell,
+                                styles.tableCellTags,
+                                { width: 132 },
+                              ]}
+                            >
                               {tripIsDeliveredStatus(item.trip_status) ? (
                                 <TripPodStatusTags
                                   compact
@@ -1324,27 +1413,33 @@ export function PodReconciliationScreen() {
                                 <Text style={styles.tableStatusMeta}>—</Text>
                               )}
                             </View>
+                            <View
+                              style={[
+                                styles.tableCell,
+                                styles.tableCellTags,
+                                { width: 168 },
+                              ]}
+                            >
+                              <PodWorkflowStatusBadge trip={item} compact />
+                            </View>
                             <TableCell
                               text={safeDateText(item.pod_received_date)}
+                              width={118}
                             />
-                            <TableCell text={getInvStatusLabel(item)} />
-                            <TableCell text={item.invoice_no || "—"} mono />
-          <TableActionCell
+                            <TableCell
+                              text={getInvStatusLabel(item)}
+                              width={118}
+                            />
+                            <TableCell
+                              text={item.invoice_no || "—"}
+                              mono
+                              width={128}
+                            />
+                            <TableActionCell
                               trip={item}
-                              onReview={() => {
-                                setSelectedTrip(item);
-                                setValidationModalOpen(true);
-                              }}
-                              onLog={() => setFinanceTab("LOG_INCOMING")}
-                              onOpenInvoicing={() =>
-                                router.push(
-                                  FINANCE_PRO_LAUNCH.pulseInvoiceFromPod(
-                                    parseSafeReturnTo(searchParams.returnTo),
-                                  ),
-                                )
-                              }
+                              onAction={(action) => handlePodAction(action, item)}
                             />
-                          </View>
+                          </Pressable>
                         ))}
                       </View>
                     </ScrollView>
@@ -1448,16 +1543,15 @@ export function PodReconciliationScreen() {
                         >
                           <TripRowItem
                             trip={item}
-                            onPress={() => {
-                              setSelectedTrip(item);
-                              setValidationModalOpen(true);
-                            }}
+                            onPress={() => openTripDetail(item)}
                             onEditLr={() => setLrEditorTrip(item)}
+                            onAction={(action) => handlePodAction(action, item)}
                           />
                         </View>
                       ))}
                     </View>
                 )}
+                </View>
               </View>
             </View>
         </ScrollView>
@@ -1472,6 +1566,15 @@ export function PodReconciliationScreen() {
           }}
         />
       )}
+
+      <PodTripDetailDrawer
+        trip={selectedTrip}
+        visible={detailDrawerOpen && !!selectedTrip}
+        onClose={() => {
+          setDetailDrawerOpen(false);
+        }}
+        onAction={handlePodAction}
+      />
 
       <LogIncomingPodsModal
         visible={logIncomingOpen}
@@ -1663,11 +1766,13 @@ function TableHeaderCell({
   sortKey,
   sortDirection,
   wide = false,
+  width,
 }: {
   label: string;
   onPress?: () => void;
   align?: "left" | "right";
   wide?: boolean;
+  width?: number;
   id?:
     | "id"
     | "trip_date"
@@ -1718,6 +1823,7 @@ function TableHeaderCell({
         styles.tableHeadCell,
         wide && styles.tableHeadCellTags,
         align === "right" && styles.tableCellRight,
+        width != null ? { width } : null,
       ]}
     >
       {onPress ? (
@@ -1737,16 +1843,22 @@ function TableCell({
   strong,
   color,
   align = "left",
+  width,
 }: {
   text: string;
   mono?: boolean;
   strong?: boolean;
   color?: string;
   align?: "left" | "right";
+  width?: number;
 }) {
   return (
     <View
-      style={[styles.tableCell, align === "right" && styles.tableCellRight]}
+      style={[
+        styles.tableCell,
+        align === "right" && styles.tableCellRight,
+        width != null ? { width } : null,
+      ]}
     >
       <Text
         numberOfLines={1}
@@ -1797,36 +1909,49 @@ function TableStatusCell({ trip }: { trip: PodReconciliationTripView }) {
 
 function TableActionCell({
   trip,
-  onReview,
-  onLog,
-  onOpenInvoicing,
+  onAction,
 }: {
   trip: PodReconciliationTripView;
-  onReview: () => void;
-  onLog: () => void;
-  onOpenInvoicing: () => void;
+  onAction: (action: PodNextAction) => void;
 }) {
-  let label = "View";
-  let onPress = onReview;
-  let toneStyle = styles.tableActionDefault;
-  if (trip.invoice_status_display === "Invoice Pending") {
-    label = "Log";
-    onPress = onLog;
-    toneStyle = styles.tableActionPending;
-  } else if (trip.invoice_status_display === "Received") {
-    label = "Review";
-    onPress = onReview;
-    toneStyle = styles.tableActionReceived;
-  } else if (trip.invoice_status_display === "Invoiced") {
-    label = "View";
-    onPress = onOpenInvoicing;
-    toneStyle = styles.tableActionDefault;
-  }
+  const action = derivePodNextAction(trip);
+  const color = podActionToneColor(action.tone);
+  const filled = action.tone === "urgent" || action.tone === "positive";
 
   return (
-    <View style={[styles.tableCell, styles.tableCellRight]}>
-      <Pressable style={[styles.tableActionBtn, toneStyle]} onPress={onPress}>
-        <Text style={styles.tableActionText}>{label}</Text>
+    <View
+      style={[
+        styles.tableCell,
+        styles.tableCellRight,
+        { width: 148 },
+      ]}
+    >
+      <Pressable
+        style={[
+          styles.tableActionBtn,
+          filled
+            ? { backgroundColor: color, borderColor: color }
+            : {
+                backgroundColor: Theme.brandBlueSoft,
+                borderColor: Theme.brandBlueRing,
+              },
+        ]}
+        onPress={(event) => {
+          event.stopPropagation?.();
+          onAction(action);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={action.label}
+      >
+        <Text
+          style={[
+            styles.tableActionText,
+            { color: filled ? Theme.cardWhite : color },
+          ]}
+          numberOfLines={1}
+        >
+          {action.label}
+        </Text>
       </Pressable>
     </View>
   );
@@ -1905,11 +2030,16 @@ function TripRowItem({
   trip,
   onPress,
   onEditLr,
+  onAction,
 }: {
   trip: PodReconciliationTripView;
   onPress: () => void;
   onEditLr: () => void;
+  onAction: (action: PodNextAction) => void;
 }) {
+  const action = derivePodNextAction(trip);
+  const actionColor = podActionToneColor(action.tone);
+
   return (
     <View style={styles.tripRow}>
       <Pressable onPress={onPress}>
@@ -1951,35 +2081,56 @@ function TripRowItem({
             hardCopyReceived={trip.hard_pod_received}
           />
         </View>
+        <View style={styles.tripRowStatus}>
+          <PodWorkflowStatusBadge trip={trip} compact />
+        </View>
       </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={
-          trip.lr_numbers.length > 0 ? "Edit LR number" : "Add LR number"
-        }
-        onPress={(event) => {
-          event.stopPropagation?.();
-          onEditLr();
-        }}
-        style={styles.lrContainer}
-      >
-        <Text style={styles.lrLabel}>LR</Text>
-        {trip.lr_numbers.length > 0 ? (
-          <Text style={styles.lrText} numberOfLines={1}>
-            {trip.lr_numbers.length > 1
-              ? `${trip.lr_numbers[0]} +${trip.lr_numbers.length - 1}`
-              : trip.lr_numbers[0]}
-            {` · ${trip.trip_pods.length}/${trip.lr_numbers.length} received`}
+      <View style={styles.tripRowActions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            trip.lr_numbers.length > 0 ? "Edit LR number" : "Add LR number"
+          }
+          onPress={(event) => {
+            event.stopPropagation?.();
+            onEditLr();
+          }}
+          style={styles.lrContainer}
+        >
+          <Text style={styles.lrLabel}>LR</Text>
+          {trip.lr_numbers.length > 0 ? (
+            <Text style={styles.lrText} numberOfLines={1}>
+              {trip.lr_numbers.length > 1
+                ? `${trip.lr_numbers[0]} +${trip.lr_numbers.length - 1}`
+                : trip.lr_numbers[0]}
+              {` · ${trip.trip_pods.length}/${trip.lr_numbers.length} received`}
+            </Text>
+          ) : (
+            <Text style={styles.lrAddText}>Add number</Text>
+          )}
+          <FontAwesome
+            name={trip.lr_numbers.length > 0 ? "pencil" : "plus"}
+            size={11}
+            color={Theme.primary}
+          />
+        </Pressable>
+        <Pressable
+          style={[
+            styles.cardActionBtn,
+            {
+              backgroundColor: actionColor,
+              borderColor: actionColor,
+            },
+          ]}
+          onPress={() => onAction(action)}
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+        >
+          <Text style={[styles.cardActionText, { color: Theme.cardWhite }]}>
+            {action.label}
           </Text>
-        ) : (
-          <Text style={styles.lrAddText}>Add number</Text>
-        )}
-        <FontAwesome
-          name={trip.lr_numbers.length > 0 ? "pencil" : "plus"}
-          size={11}
-          color={Theme.primary}
-        />
-      </Pressable>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -2581,12 +2732,22 @@ const styles = StyleSheet.create({
     width: "100%",
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
-    borderColor: METRONIC.border,
-    borderRadius: 10,
+    borderColor: Theme.borderLight,
+    borderRadius: 14,
     overflow: "hidden",
+    shadowColor: Theme.shadow,
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
+    ...Platform.select({
+      web: {
+        cursor: "pointer",
+      },
+    }),
   },
   metricCardCompact: {
-    borderRadius: 10,
+    borderRadius: 14,
   },
   metricHeader: {
     position: "absolute",
@@ -2778,25 +2939,42 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
 
-  contentArea: { backgroundColor: Theme.screenBackground, width: "100%" },
+  contentArea: {
+    backgroundColor: "transparent",
+    width: "100%",
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  listPanel: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+    shadowColor: Theme.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
   completionFilterStrip: {
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 12,
-    paddingBottom: 10,
-    gap: 8,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
+    gap: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
   },
   completionFilterLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   tableWrap: {
-    marginHorizontal: 16,
+    marginHorizontal: 0,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
@@ -2804,7 +2982,7 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   tableInner: {
-    minWidth: 1616,
+    minWidth: 2060,
   },
   tableHeadRow: {
     flexDirection: "row",
@@ -2814,10 +2992,9 @@ const styles = StyleSheet.create({
   },
   tableHeadCell: {
     width: 120,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: Theme.borderLight,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRightWidth: 0,
     justifyContent: "center",
   },
   tableHeadCellTags: {
@@ -2827,11 +3004,11 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
   },
   tableHeadText: {
-    fontSize: 10,
-    fontWeight: "800",
+    fontSize: 11,
+    fontWeight: "700",
     color: Theme.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: 0.2,
+    textTransform: "none",
   },
   tableHeadLabelWrap: {
     flexDirection: "row",
@@ -2845,6 +3022,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.borderLight,
+    ...Platform.select({
+      web: {
+        cursor: "pointer",
+      },
+    }),
   },
   tableRowEven: {
     backgroundColor: Theme.cardWhite,
@@ -2854,12 +3036,11 @@ const styles = StyleSheet.create({
   },
   tableCell: {
     width: 120,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: Theme.borderLight,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRightWidth: 0,
     justifyContent: "center",
-    minHeight: 48,
+    minHeight: 60,
   },
   tableCellTags: {
     width: 148,
@@ -2869,15 +3050,19 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
   },
   tableCellText: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "500",
     color: Theme.textPrimaryDark,
   },
   tableCellMono: {
-    fontFamily: "Menlo",
+    fontFamily: Platform.select({
+      web: "ui-monospace, Menlo, monospace",
+      default: "Menlo",
+    }),
+    fontSize: 12,
   },
   tableCellStrong: {
-    fontWeight: "800",
+    fontWeight: "700",
   },
   textRight: {
     textAlign: "right",
@@ -2894,8 +3079,8 @@ const styles = StyleSheet.create({
   },
   tableStatusMeta: {
     marginTop: 3,
-    fontSize: 9,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "600",
     color: Theme.textMuted,
   },
   tableBadgePending: {
@@ -2911,13 +3096,20 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(79,70,229,0.1)",
   },
   tableActionBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    minHeight: 34,
+    minWidth: 118,
+    alignItems: "center",
+    justifyContent: "center",
   },
   tableActionText: {
-    fontSize: 10,
-    fontWeight: "800",
-    textTransform: "uppercase",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.1,
+    textTransform: "none",
   },
   tableActionPending: {
     backgroundColor: "rgba(79,70,229,0.05)",
@@ -3055,6 +3247,26 @@ const styles = StyleSheet.create({
   tripRowTags: {
     marginTop: 10,
     alignItems: "flex-start",
+  },
+  tripRowStatus: {
+    marginTop: 8,
+    alignItems: "flex-start",
+  },
+  tripRowActions: {
+    marginTop: 4,
+    gap: 8,
+  },
+  cardActionBtn: {
+    minHeight: 42,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  cardActionText: {
+    fontSize: 13,
+    fontWeight: "700",
   },
   routeContainer: {
     flexDirection: "row",

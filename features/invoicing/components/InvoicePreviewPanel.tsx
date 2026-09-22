@@ -36,7 +36,7 @@ import {
   useTripFinanceAdjustmentsMap,
 } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
     Alert,
   Modal,
@@ -46,6 +46,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from "react-native";
@@ -101,10 +102,47 @@ export function InvoicePreviewPanel({
   const insets = useSafeAreaInsets();
   const layout = useLayoutInsets();
   const tabBarScrollProps = useTabBarAwareScrollProps();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   const [paymentTerms, setPaymentTerms] = useState("Net 30");
   const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsAnchor, setTermsAnchor] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const termsTriggerRef = useRef<View>(null);
   const [notes, setNotes] = useState("");
+
+  const closeTermsMenu = useCallback(() => {
+    setShowTermsModal(false);
+    setTermsAnchor(null);
+  }, []);
+
+  const toggleTermsMenu = useCallback(() => {
+    if (showTermsModal) {
+      closeTermsMenu();
+      return;
+    }
+    const node = termsTriggerRef.current;
+    if (!node?.measureInWindow) {
+      setShowTermsModal(true);
+      return;
+    }
+    node.measureInWindow((x, y, width, height) => {
+      setTermsAnchor({ x, y, width, height });
+      setShowTermsModal(true);
+    });
+  }, [closeTermsMenu, showTermsModal]);
+
+  const selectPaymentTerm = useCallback(
+    (term: string) => {
+      setPaymentTerms(term);
+      closeTermsMenu();
+    },
+    [closeTermsMenu],
+  );
 
   const [includeGst, setIncludeGst] = useState(false);
   const [gstRate, setGstRate] = useState(5);
@@ -343,11 +381,39 @@ export function InvoicePreviewPanel({
 
   const globalCharges = additionalCharges.filter((c) => !c.tripId);
   const primaryTrip = selectedTrips[0] ?? null;
-  const routeParts = primaryTrip?.route
-    ? primaryTrip.route.split(/\s*->\s*|\s*→\s*/).map((p) => p.trim())
-    : [];
-  const pickupLabel = routeParts[0] || "—";
-  const deliveryLabel = routeParts[1] || routeParts[0] || "—";
+  const shipment = draft?.shipment;
+  const pickupLabel =
+    (selectedTrips.length === 1 ? shipment?.pickup : null) ||
+    primaryTrip?.pickup ||
+    (primaryTrip?.route
+      ? primaryTrip.route
+          .split(/\s*(?:->|→|➔|⇒)\s*/)
+          .map((p) => p.trim())
+          .filter(Boolean)[0]
+      : null) ||
+    "—";
+  const deliveryLabel =
+    (selectedTrips.length === 1 ? shipment?.delivery : null) ||
+    primaryTrip?.delivery ||
+    (primaryTrip?.route
+      ? primaryTrip.route
+          .split(/\s*(?:->|→|➔|⇒)\s*/)
+          .map((p) => p.trim())
+          .filter(Boolean)[1]
+      : null) ||
+    "—";
+  const truckNoLabel =
+    (selectedTrips.length === 1
+      ? shipment?.truck_no || primaryTrip?.vehicle_number
+      : null) || "—";
+  const loadTypeLabel =
+    (selectedTrips.length === 1
+      ? shipment?.load_type || primaryTrip?.load_type
+      : null) || "—";
+  const lrNumberLabel =
+    (selectedTrips.length === 1
+      ? shipment?.lr_number || primaryTrip?.lr_number
+      : null) || "—";
   const customerLabel =
     draft?.client.legal_name ||
     draft?.client.display_name ||
@@ -357,6 +423,34 @@ export function InvoicePreviewPanel({
     ? displayInvoicePreviewDate(draft.indicative_due_date)
     : "—";
   const invoiceDateLabel = displayInvoicePreviewDate(previewDate);
+
+  const termsMenuWidth = Math.max(termsAnchor?.width ?? 160, 160);
+  const termsMenuEstimatedHeight =
+    PAYMENT_TERMS_OPTIONS.length * Layout.minTouchTargetSize + 12;
+  const termsMenuStyle = useMemo(() => {
+    if (!termsAnchor) return null;
+    const gap = 4;
+    const openBelow =
+      termsAnchor.y + termsAnchor.height + gap + termsMenuEstimatedHeight <=
+      windowHeight - 12;
+    const top = openBelow
+      ? termsAnchor.y + termsAnchor.height + gap
+      : Math.max(12, termsAnchor.y - termsMenuEstimatedHeight - gap);
+    const maxLeft = Math.max(8, windowWidth - termsMenuWidth - 8);
+    const left = Math.min(Math.max(8, termsAnchor.x), maxLeft);
+    return {
+      position: "absolute" as const,
+      top,
+      left,
+      width: termsMenuWidth,
+    };
+  }, [
+    termsAnchor,
+    termsMenuEstimatedHeight,
+    termsMenuWidth,
+    windowHeight,
+    windowWidth,
+  ]);
 
   return (
     <View
@@ -442,9 +536,17 @@ export function InvoicePreviewPanel({
             previewExpanded && styles.documentExpanded,
           ]}
         >
+        <View style={styles.docTitleBlock} accessibilityRole="header">
+          <View style={styles.docTitleRule} />
+          <Text style={styles.docTitle}>Draft Invoice</Text>
+          <View style={styles.docTitleRule} />
+        </View>
+
         {/* Customer Details — form field grid */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Customer Details</Text>
+          <View style={styles.sectionTitleBar}>
+            <Text style={styles.sectionTitle}>Customer Details</Text>
+          </View>
           <View style={styles.customerNameBlock}>
             <View style={styles.fieldLabelRow}>
               <Text style={[styles.fieldLabel, styles.fieldLabelFlush]}>
@@ -464,7 +566,7 @@ export function InvoicePreviewPanel({
               ) : null}
             </View>
             <View style={styles.fieldValueBox}>
-              <Text style={styles.fieldValueText} numberOfLines={1}>
+              <Text style={styles.fieldValueAccent} numberOfLines={1}>
                 {customerLabel}
               </Text>
             </View>
@@ -490,97 +592,30 @@ export function InvoicePreviewPanel({
             </View>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Terms</Text>
-              <View style={styles.settingsSelectWrap}>
+              <View
+                ref={termsTriggerRef}
+                collapsable={false}
+                style={styles.settingsSelectWrap}
+              >
                 <Pressable
-                  style={styles.settingsSelect}
-                  onPress={() => setShowTermsModal((prev) => !prev)}
+                  style={[
+                    styles.settingsSelect,
+                    showTermsModal && styles.settingsSelectOpen,
+                  ]}
+                  onPress={toggleTermsMenu}
                   accessibilityRole="button"
                   accessibilityLabel="Payment terms"
+                  accessibilityState={{ expanded: showTermsModal }}
                 >
-                  <Text style={styles.settingsSelectText}>{paymentTerms}</Text>
+                  <Text style={styles.settingsSelectText} numberOfLines={1}>
+                    {paymentTerms}
+                  </Text>
                   <FontAwesome
                     name={showTermsModal ? "chevron-up" : "chevron-down"}
                     size={12}
                     color={Theme.textMuted}
                   />
                 </Pressable>
-                {Platform.OS === "web" ? (
-                  showTermsModal ? (
-                    <View style={styles.webTermsDropdown}>
-                      {PAYMENT_TERMS_OPTIONS.map((term) => (
-                        <Pressable
-                          key={term}
-                          style={styles.termOption}
-                          onPress={() => {
-                            setPaymentTerms(term);
-                            setShowTermsModal(false);
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.termOptionText,
-                              paymentTerms === term && styles.termOptionActive,
-                            ]}
-                          >
-                            {term}
-                          </Text>
-                          {paymentTerms === term ? (
-                            <FontAwesome
-                              name="check"
-                              size={14}
-                              color={Theme.primary}
-                            />
-                          ) : null}
-                        </Pressable>
-                      ))}
-                    </View>
-                  ) : null
-                ) : (
-                  <Modal
-                    visible={showTermsModal}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => setShowTermsModal(false)}
-                  >
-                    <Pressable
-                      style={styles.modalOverlay}
-                      onPress={() => setShowTermsModal(false)}
-                    >
-                      <Pressable
-                        style={styles.termsModalContent}
-                        onPress={() => {}}
-                      >
-                        {PAYMENT_TERMS_OPTIONS.map((term) => (
-                          <Pressable
-                            key={term}
-                            style={styles.termOption}
-                            onPress={() => {
-                              setPaymentTerms(term);
-                              setShowTermsModal(false);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.termOptionText,
-                                paymentTerms === term &&
-                                  styles.termOptionActive,
-                              ]}
-                            >
-                              {term}
-                            </Text>
-                            {paymentTerms === term ? (
-                              <FontAwesome
-                                name="check"
-                                size={14}
-                                color={Theme.primary}
-                              />
-                            ) : null}
-                          </Pressable>
-                        ))}
-                      </Pressable>
-                    </Pressable>
-                  </Modal>
-                )}
               </View>
             </View>
             <View style={styles.fieldCell}>
@@ -604,7 +639,9 @@ export function InvoicePreviewPanel({
 
         {/* Transport Details */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Transport Details</Text>
+          <View style={styles.sectionTitleBar}>
+            <Text style={styles.sectionTitle}>Transport Details</Text>
+          </View>
           <View style={styles.fieldGrid}>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Consignor</Text>
@@ -639,6 +676,14 @@ export function InvoicePreviewPanel({
               </View>
             </View>
             <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>LR Number</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {lrNumberLabel}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Pickup Location</Text>
               <View style={styles.fieldValueBox}>
                 <Text style={styles.fieldValueText} numberOfLines={1}>
@@ -651,6 +696,22 @@ export function InvoicePreviewPanel({
               <View style={styles.fieldValueBox}>
                 <Text style={styles.fieldValueText} numberOfLines={1}>
                   {primaryTrip ? deliveryLabel : "—"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Truck No</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {truckNoLabel}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Truck Load Type</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {loadTypeLabel}
                 </Text>
               </View>
             </View>
@@ -684,9 +745,11 @@ export function InvoicePreviewPanel({
         {/* Items table */}
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
-            <Text style={[styles.sectionTitle, styles.sectionTitleInline]}>
-              Items
-            </Text>
+            <View style={styles.sectionTitleBarInline}>
+              <Text style={[styles.sectionTitle, styles.sectionTitleInline]}>
+                Items
+              </Text>
+            </View>
             {selectedTrips.length > 0 ? (
               <View style={styles.splitToggleRow}>
                 <Pressable
@@ -735,9 +798,11 @@ export function InvoicePreviewPanel({
             <View style={styles.itemsHead}>
               <Text style={[styles.itemsHeadCell, styles.colIndex]}>#</Text>
               <Text style={[styles.itemsHeadCell, styles.colDesc]}>
-                Description / Trip
+                Item & Description
               </Text>
-              <Text style={[styles.itemsHeadCell, styles.colRoute]}>Route</Text>
+              <Text style={[styles.itemsHeadCell, styles.colRoute]}>
+                Reference
+              </Text>
               <Text style={[styles.itemsHeadCell, styles.colStatus]}>
                 Status
               </Text>
@@ -894,17 +959,19 @@ export function InvoicePreviewPanel({
                       </Text>
                       <View style={[styles.tripItemMeta, styles.colDesc]}>
                         <Text style={styles.tripItemId} numberOfLines={1}>
-                          {trip.id}
+                          {selectedTrips.length > 1
+                            ? `Freight charges · ${trip.id}`
+                            : "Base freight"}
                         </Text>
-                        <Text style={styles.tripItemDate} numberOfLines={1}>
-                          {trip.date}
+                        <Text style={styles.tripItemDate} numberOfLines={2}>
+                          {trip.route}
                         </Text>
                       </View>
                       <Text
                         style={[styles.tripItemRoute, styles.colRoute]}
                         numberOfLines={2}
                       >
-                        {trip.route}
+                        {trip.id}
                       </Text>
                       <View style={[styles.tripItemPodRow, styles.colStatus]}>
                         <TripCompletionOrPodTags
@@ -957,7 +1024,9 @@ export function InvoicePreviewPanel({
 
         {/* Terms & Conditions */}
         <View style={[styles.section, styles.settingsBlock]}>
-          <Text style={styles.sectionTitle}>Terms & Conditions</Text>
+          <View style={styles.sectionTitleBar}>
+            <Text style={styles.sectionTitle}>Terms & Conditions</Text>
+          </View>
           <TextInput
             style={styles.notesInput}
             value={notes}
@@ -1061,12 +1130,12 @@ export function InvoicePreviewPanel({
             </View>
           ))}
           <View style={styles.calcSubtotal} />
-          <View style={styles.calcTotalRow}>
-            <View>
-              <Text style={styles.calcTotalLabel}>Total Amount</Text>
-              <Text style={styles.calcTotalSub}>Draft — not issued</Text>
+          <View style={styles.balanceDueBar}>
+            <View style={styles.balanceDueCopy}>
+              <Text style={styles.balanceDueLabel}>Balance Due</Text>
+              <Text style={styles.balanceDueSub}>Draft — not issued</Text>
             </View>
-            <Text style={styles.calcTotalVal}>
+            <Text style={styles.balanceDueValue}>
               {formatCurrency(draft?.tax.total_amount ?? 0)}
             </Text>
           </View>
@@ -1138,6 +1207,60 @@ export function InvoicePreviewPanel({
           )}
         </Pressable>
       </View>
+      <Modal
+        visible={showTermsModal}
+        transparent
+        animationType="fade"
+        onRequestClose={closeTermsMenu}
+      >
+        <View style={styles.termsMenuRoot} pointerEvents="box-none">
+          <Pressable
+            style={styles.termsMenuBackdrop}
+            onPress={closeTermsMenu}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss payment terms"
+          />
+          <View
+            style={[
+              styles.termsMenuPanel,
+              termsMenuStyle ?? styles.termsMenuPanelFallback,
+            ]}
+            accessibilityRole="menu"
+          >
+            {PAYMENT_TERMS_OPTIONS.map((term) => {
+              const selected = paymentTerms === term;
+              return (
+                <Pressable
+                  key={term}
+                  style={[
+                    styles.termOption,
+                    selected && styles.termOptionSelected,
+                  ]}
+                  onPress={() => selectPaymentTerm(term)}
+                  accessibilityRole="menuitem"
+                  accessibilityState={{ selected }}
+                >
+                  <Text
+                    style={[
+                      styles.termOptionText,
+                      selected && styles.termOptionActive,
+                    ]}
+                  >
+                    {term}
+                  </Text>
+                  {selected ? (
+                    <FontAwesome
+                      name="check"
+                      size={13}
+                      color={Theme.analyticsHeroBg}
+                    />
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </Modal>
       <ProvisionAdjustmentModal
         visible={cnDnTrip != null}
         side="client"
@@ -1224,15 +1347,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
-    backgroundColor: Theme.brandBlueSoft,
+    backgroundColor: Theme.accentBrownWash,
     borderWidth: 1,
-    borderColor: Theme.borderMedium,
+    borderColor: Theme.accentBrownBorder,
   },
   draftBadgeText: {
     fontSize: 11,
-    fontWeight: "700",
-    color: Theme.analyticsHeroBg,
-    letterSpacing: 0.3,
+    fontWeight: "800",
+    color: Theme.accentBrown,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
   },
   headerSub: {
     fontSize: 12,
@@ -1278,16 +1402,48 @@ const styles = StyleSheet.create({
     maxWidth: "100%",
     alignSelf: "stretch",
   },
+  docTitleBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 22,
+  },
+  docTitleRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.accentBrown,
+  },
+  docTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    color: Theme.accentBrown,
+  },
 
   section: {
-    marginBottom: 28,
+    marginBottom: 26,
+  },
+  sectionTitleBar: {
+    marginBottom: 14,
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: Theme.accentBrown,
+  },
+  sectionTitleBarInline: {
+    flex: 1,
+    minWidth: 0,
+    paddingBottom: 6,
+    borderBottomWidth: 2,
+    borderBottomColor: Theme.accentBrown,
+    marginRight: 12,
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    marginBottom: 14,
-    letterSpacing: -0.2,
+    fontSize: 14,
+    fontWeight: "800",
+    color: Theme.accentBrownDeep,
+    marginBottom: 0,
+    letterSpacing: -0.1,
   },
   sectionTitleInline: {
     marginBottom: 0,
@@ -1295,17 +1451,19 @@ const styles = StyleSheet.create({
   sectionTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-end",
     flexWrap: "wrap",
     gap: 10,
     marginBottom: 14,
   },
 
   fieldLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Theme.textSecondary,
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.analyticsHeroBg,
     marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   fieldLabelFlush: {
     marginBottom: 0,
@@ -1323,6 +1481,89 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: Theme.textMuted,
     lineHeight: 15,
+  },
+  multiTripBlock: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: Theme.accentBrownBorder,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: Theme.cardWhite,
+  },
+  multiTripSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Theme.accentBrownWash,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.accentBrownBorder,
+  },
+  multiTripSummaryTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "800",
+    color: Theme.accentBrownDeep,
+  },
+  multiTripSummaryValue: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Theme.accentBrown,
+  },
+  multiTripHint: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    lineHeight: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  multiTripRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  multiTripIndex: {
+    width: 22,
+    fontSize: 12,
+    fontWeight: "800",
+    color: Theme.textMuted,
+    marginTop: 2,
+  },
+  multiTripMain: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  multiTripId: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+  },
+  multiTripRoute: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimary,
+  },
+  multiTripMeta: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
+  multiTripAmount: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    marginTop: 2,
   },
   fieldGrid: {
     flexDirection: "row",
@@ -1391,8 +1632,13 @@ const styles = StyleSheet.create({
   },
   fieldValueText: {
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
+  },
+  fieldValueAccent: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Theme.accentBrown,
   },
   fieldValueMutedText: {
     fontSize: 13,
@@ -1429,7 +1675,7 @@ const styles = StyleSheet.create({
 
   itemsTable: {
     borderWidth: 1,
-    borderColor: Theme.borderMedium,
+    borderColor: Theme.accentBrownBorder,
     borderRadius: 8,
     overflow: "hidden",
     backgroundColor: Theme.cardWhite,
@@ -1437,18 +1683,18 @@ const styles = StyleSheet.create({
   itemsHead: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Theme.brandBlueSoft,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.borderMedium,
+    backgroundColor: Theme.accentBrown,
+    borderBottomWidth: 0,
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 12,
     gap: 8,
   },
   itemsHeadCell: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    letterSpacing: 0.2,
+    fontSize: 10,
+    fontWeight: "800",
+    color: Theme.textOnDark,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
   itemsHeadRight: {
     textAlign: "right",
@@ -1695,13 +1941,15 @@ const styles = StyleSheet.create({
   },
 
   calcBlock: {
-    backgroundColor: Theme.surface,
+    backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.borderMedium,
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
     marginBottom: 8,
+    overflow: "hidden",
   },
   calcRow: {
     flexDirection: "row",
@@ -1763,6 +2011,42 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     color: Theme.textPrimaryDark,
+  },
+  balanceDueBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginHorizontal: -14,
+    marginBottom: -10,
+    marginTop: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: Theme.accentBrown,
+  },
+  balanceDueCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  balanceDueLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Theme.textOnDark,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  balanceDueSub: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "500",
+    color: "rgba(255,255,255,0.75)",
+  },
+  balanceDueValue: {
+    fontSize: 20,
+    fontWeight: "800",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    color: Theme.textOnDark,
+    letterSpacing: -0.3,
   },
 
   settingsBlock: {
@@ -1928,48 +2212,55 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.5 },
 
-  modalOverlay: {
+  termsMenuRoot: {
     flex: 1,
-    backgroundColor: Theme.overlayBackdrop,
-    justifyContent: "center",
-    paddingHorizontal: Layout.screenPaddingHorizontal,
   },
-  termsModalContent: {
+  termsMenuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
+  termsMenuPanel: {
     backgroundColor: Theme.cardWhite,
-    padding: 8,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.borderMedium,
+    paddingVertical: 4,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 12,
+    zIndex: 1000,
+    overflow: "hidden",
+  },
+  termsMenuPanelFallback: {
+    position: "absolute",
+    top: 120,
+    left: 24,
+    right: 24,
+    maxWidth: 320,
+    alignSelf: "center",
   },
   termOption: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     minHeight: Layout.minTouchTargetSize,
   },
+  termOptionSelected: {
+    backgroundColor: Theme.brandBlueSoft,
+  },
   termOptionText: {
-    fontSize: 14,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
   termOptionActive: { color: Theme.analyticsHeroBg, fontWeight: "700" },
-  webTermsDropdown: {
-    position: "absolute" as const,
-    top: 48,
-    left: 0,
-    right: 0,
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 10,
-    padding: 6,
-    borderWidth: 1,
-    borderColor: Theme.borderMedium,
-    shadowColor: Theme.textPrimaryDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 24,
-    zIndex: 9999,
+  settingsSelectOpen: {
+    borderColor: Theme.accentBrown,
   },
 });

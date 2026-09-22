@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Theme from '@/constants/Theme';
 import Layout from '@/constants/Layout';
+import { ROUTES } from '@/lib/routes';
 import { useInvoicingExecuteTripsQuery } from '@/lib/queries/useInvoicingExecuteQueries';
 import { useActiveWorkspace } from '@/contexts/ActiveWorkspaceContext';
 import type { AdditionalCharge, InvoiceConfig, InvoicingTripView } from '@/features/invoicing/services/invoicing.service';
@@ -26,6 +27,7 @@ import {
   mapInvoiceDraftModelToPdfData,
   uniqueTripClientIds,
 } from '@/features/invoicing/services/invoicePreviewModel.service';
+import { fetchInvoiceSettlementFacts } from '@/features/invoicing/services/invoiceSettlementFacts.service';
 import {
   useTripFinanceAdjustmentsMap,
 } from '@/lib/queries/useTripFinanceAdjustmentsQuery';
@@ -81,6 +83,8 @@ export default function InvoicePdfPreviewScreen() {
     companyName: string | null;
     logoUrl: string | null;
   }>({ companyName: null, logoUrl: null });
+  const [bankDetailsLines, setBankDetailsLines] = useState<string[]>([]);
+  const [msmeNumber, setMsmeNumber] = useState<string | null>(null);
 
   const activeClient = params.activeClient || '';
   const paymentTerms = params.paymentTerms || '';
@@ -163,17 +167,27 @@ export default function InvoicePdfPreviewScreen() {
     let mounted = true;
     if (!workspaceId) {
       setBrandingOverlay({ companyName: null, logoUrl: null });
+      setBankDetailsLines([]);
+      setMsmeNumber(null);
       return;
     }
     (async () => {
-      const { settings } = await getInvoiceBrandingSettings(workspaceId);
+      const [{ settings }, settlement] = await Promise.all([
+        getInvoiceBrandingSettings(workspaceId),
+        fetchInvoiceSettlementFacts({
+          organizationId: workspaceId,
+          accountName: activeWorkspace?.name ?? null,
+        }),
+      ]);
       if (!mounted) return;
       setBrandingOverlay(settings);
+      setBankDetailsLines(settlement.facts.bankDetailsLines);
+      setMsmeNumber(settlement.facts.msmeNumber);
     })();
     return () => {
       mounted = false;
     };
-  }, [workspaceId]);
+  }, [activeWorkspace?.name, workspaceId]);
 
   const draftModel = useMemo(() => {
     if (!issuer || selectedTrips.length === 0) return null;
@@ -190,8 +204,11 @@ export default function InvoicePdfPreviewScreen() {
   }, [activeClient, fetchedClients, invoiceConfig, issuer, notes, paymentTerms, previewDate, selectedTrips]);
 
   const invoiceData = useMemo(
-    () => (draftModel ? mapInvoiceDraftModelToPdfData(draftModel) : null),
-    [draftModel],
+    () =>
+      draftModel
+        ? mapInvoiceDraftModelToPdfData(draftModel, { bankDetailsLines, msmeNumber })
+        : null,
+    [bankDetailsLines, draftModel, msmeNumber],
   );
 
   if (!allowed) {
@@ -238,13 +255,34 @@ export default function InvoicePdfPreviewScreen() {
     );
   }
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace(ROUTES.INVOICING_EXECUTE_CREATE as never);
+  };
+
   return (
     <View style={[styles.studio, { paddingTop: insets.top }]}>
-      <InvoicePdf
-        invoiceData={invoiceData}
-        initialShowSplit={params.showSplit !== 'false'}
-        onBack={() => router.back()}
-      />
+      <View style={styles.previewChrome}>
+        <Pressable
+          onPress={handleBack}
+          style={styles.previewBackBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Back to invoice draft"
+          hitSlop={Layout.touchTargetHitSlop}
+        >
+          <Text style={styles.previewBackText}>← Back to draft</Text>
+        </Pressable>
+      </View>
+      <View style={styles.previewBody}>
+        <InvoicePdf
+          invoiceData={invoiceData}
+          initialShowSplit={params.showSplit !== 'false'}
+          onBack={handleBack}
+        />
+      </View>
     </View>
   );
 }
@@ -284,5 +322,31 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     backgroundColor: Theme.analyticsCanvas,
+  },
+  previewChrome: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingVertical: 8,
+    backgroundColor: Theme.screenBackground,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderMedium,
+    zIndex: 20,
+  },
+  previewBackBtn: {
+    minHeight: Layout.minTouchTargetSize,
+    justifyContent: 'center',
+    paddingRight: 12,
+  },
+  previewBackText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.accentBrownDeep,
+  },
+  previewBody: {
+    flex: 1,
+    minHeight: 0,
   },
 });

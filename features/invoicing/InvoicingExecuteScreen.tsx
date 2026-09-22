@@ -10,7 +10,6 @@ import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useActiveWorkspace } from "@/contexts/ActiveWorkspaceContext";
 import { InvoicePreviewPanel } from "@/features/invoicing/components/InvoicePreviewPanel";
-import { IssuedInvoicesPanel } from "@/features/invoicing/components/IssuedInvoicesPanel";
 import { PendingBillingInsightPanel } from "@/features/invoicing/components/PendingBillingInsightPanel";
 import { ClientProfileScreen } from "@/features/clients/components/ClientProfileScreen";
 import { ROUTES } from "@/lib/routes";
@@ -221,44 +220,6 @@ function PodRequiredToggle({
   );
 }
 
-type InvoiceBillingSurface = "pending" | "issued";
-
-function InvoiceBillingSurfaceTabs({
-  value,
-  onChange,
-}: {
-  value: InvoiceBillingSurface;
-  onChange: (next: InvoiceBillingSurface) => void;
-}) {
-  return (
-    <View style={styles.billingTabs} accessibilityRole="tablist">
-      {(
-        [
-          { key: "pending", label: "Pending Billing" },
-          { key: "issued", label: "Issued Invoices" },
-        ] as const
-      ).map((tab) => {
-        const isActive = value === tab.key;
-        return (
-          <Pressable
-            key={tab.key}
-            style={styles.billingTab}
-            onPress={() => onChange(tab.key)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isActive }}
-            accessibilityLabel={tab.label}
-          >
-            <Text style={[styles.billingTabLabel, isActive && styles.billingTabLabelActive]}>
-              {tab.label}
-            </Text>
-            {isActive ? <View style={styles.billingTabUnderline} /> : null}
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 export function InvoicingExecuteScreen({
   mode = "browse",
 }: {
@@ -276,8 +237,11 @@ export function InvoicingExecuteScreen({
   const productShell = usePulseProductShell();
   const inProductShell =
     productShell === "finance-pro" ||
+    productShell === "invoice" ||
     pathname === "/invoicing-execute" ||
-    pathname.startsWith("/invoicing-execute/");
+    pathname.startsWith("/invoicing-execute/") ||
+    pathname === "/pulse-invoice" ||
+    pathname.startsWith("/pulse-invoice/");
   const { profile, user } = useAuth();
   const caps = useCapabilities();
   const { currentOrganization, isLoading: orgLoading } = useOrganization();
@@ -314,16 +278,10 @@ export function InvoicingExecuteScreen({
     invoiceClientIds,
   );
   const clientPolicies = clientPoliciesQuery.data;
-  const {
-    data: issuedInvoices = [],
-    isRefetching: issuedRefetching,
-    refetch: refetchIssued,
-  } = useIssuedInvoicesQuery(orgId);
+  const { data: issuedInvoices = [] } = useIssuedInvoicesQuery(orgId);
   const issueMutation = useExecuteInvoiceMutation(orgId);
   const issueInFlight = useRef(false);
 
-  const [invoiceSurface, setInvoiceSurface] =
-    useState<InvoiceBillingSurface>("pending");
   const [podRequired, setPodRequired] = useState(INVOICE_POD_REQUIRED_DEFAULT);
   const [podSettingHydrated, setPodSettingHydrated] = useState(false);
 
@@ -346,11 +304,6 @@ export function InvoicingExecuteScreen({
       cancelled = true;
     };
   }, [tripScopeId]);
-
-  useEffect(() => {
-    if (invoiceSurface !== "issued") return;
-    void refetchIssued();
-  }, [invoiceSurface, refetchIssued]);
 
   const persistPodRequired = useCallback(
     (next: boolean) => {
@@ -1489,12 +1442,10 @@ export function InvoicingExecuteScreen({
                     </Pressable>
                   ) : null}
                 </View>
-                {invoiceSurface === "pending" ? (
                 <PodRequiredToggle
                   value={podRequired}
                   onChange={persistPodRequired}
                 />
-                ) : null}
               </View>
             </View>
           ) : null}
@@ -1503,29 +1454,17 @@ export function InvoicingExecuteScreen({
       ) : null}
 
       <View style={styles.contentArea}>
-        <View style={styles.billingChrome}>
-          <InvoiceBillingSurfaceTabs
-            value={invoiceSurface}
-            onChange={setInvoiceSurface}
-          />
-          {invoiceSurface === "pending" && inProductShell && isLargeScreen ? (
+        {inProductShell && isLargeScreen ? (
+          <View style={styles.billingChrome}>
+            <Text style={styles.billingChromeTitle}>Pending Billing</Text>
             <PodRequiredToggle
               value={podRequired}
               onChange={persistPodRequired}
               compact
             />
-          ) : null}
-        </View>
-        {invoiceSurface === "issued" ? (
-          <IssuedInvoicesPanel
-            invoices={issuedInvoices}
-            podRequired={podRequired}
-            refreshing={issuedRefetching}
-            onRefresh={() => {
-              void refetchIssued();
-            }}
-          />
-        ) : isLargeScreen ? (
+          </View>
+        ) : null}
+        {isLargeScreen ? (
           <View style={styles.splitLayout}>
             <View style={styles.sidebar}>{renderSidebar()}</View>
             <View
@@ -1631,13 +1570,11 @@ export function InvoicingExecuteScreen({
                     </Text>
                   </View>
                 </View>
-                {invoiceSurface === "pending" ? (
                 <PodRequiredToggle
                   value={podRequired}
                   onChange={persistPodRequired}
                   compact
                 />
-                ) : null}
                 {renderPartnerList()}
               </View>
             )}
@@ -1704,7 +1641,7 @@ export function InvoicingExecuteScreen({
         )}
       </View>
 
-      {!isLargeScreen && invoiceSurface === "pending" && step === 1 && (
+      {!isLargeScreen && step === 1 && (
         <View
           style={[
             styles.footer,
@@ -2483,45 +2420,15 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.screenBackground,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.border,
-    paddingRight: Layout.screenPaddingHorizontal,
-    minHeight: 44,
-  },
-  billingTabs: {
-    flexDirection: "row",
-    flexWrap: "nowrap",
-    alignItems: "flex-end",
-    flexShrink: 0,
     paddingHorizontal: Layout.screenPaddingHorizontal,
     minHeight: 44,
   },
-  billingTab: {
-    position: "relative",
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 10,
-    marginRight: 4,
-    minHeight: 44,
-    justifyContent: "flex-end",
-  },
-  billingTabLabel: {
+  billingChromeTitle: {
     fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-  },
-  billingTabLabelActive: {
-    color: Theme.textPrimary,
     fontWeight: "800",
-  },
-  billingTabUnderline: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 0,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: Theme.primary,
+    letterSpacing: 0.4,
+    color: Theme.textPrimaryDark,
+    textTransform: "uppercase",
   },
   splitLayout: { flex: 1, flexDirection: "row" },
   sidebar: {

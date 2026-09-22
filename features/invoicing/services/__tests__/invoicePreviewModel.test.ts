@@ -42,10 +42,15 @@ function trip(overrides: Partial<InvoicingTripView> = {}): InvoicingTripView {
     client: 'Acme Logistics',
     supplier_name: 'Supplier',
     route: 'Chennai ➔ Bangalore',
+    pickup: 'Chennai',
+    delivery: 'Bangalore',
     date: '2026-09-01',
     amount: 10000,
     status: 'approved',
     details: 'tracking-should-not-appear',
+    vehicle_number: null,
+    load_type: null,
+    lr_number: null,
     checks: { poMatch: true, idConfirmed: true, podReceived: true },
     physicalPodReceived: true,
     digitalPodPresent: true,
@@ -109,6 +114,7 @@ describe('buildInvoiceDraftModel', () => {
     expect(model.client.gstin).toBe('33AAAAA0000A1Z5');
     const pdf = mapInvoiceDraftModelToPdfData(model);
     expect(pdf.bankDetailsLines).toEqual([]);
+    expect(pdf.issuerMsme).toBeNull();
   });
 
   it('GST-not-applicable draft shows zero GST', () => {
@@ -360,6 +366,45 @@ describe('buildInvoiceDraftModel', () => {
     expect(model.lines.every((line) => line.hsn_sac == null)).toBe(true);
     expect(JSON.stringify(model)).not.toContain('996511');
     expect(model.lines.some((line) => line.description.includes('tracking'))).toBe(false);
+  });
+
+  it('maps truck, load type, and LR from trip fields into shipment (read-only)', () => {
+    const model = buildInvoiceDraftModel({
+      issuer: issuer(),
+      trips: [
+        trip({
+          vehicle_number: 'TN29AW6349',
+          load_type: '24 Ton Open Body',
+          lr_number: '1015',
+          pickup: 'Hosur',
+          delivery: 'Ahmedabad',
+          route: 'Hosur ➔ Ahmedabad',
+        }),
+      ],
+      config: gstOnConfig,
+      previewDate: PREVIEW_DATE,
+      paymentTerms: null,
+      notes: null,
+      fetchedClients: [clientRow()],
+    });
+    expect(model.shipment.mode).toBe('single');
+    expect(model.shipment.truck_no).toBe('TN29AW6349');
+    expect(model.shipment.load_type).toBe('24 Ton Open Body');
+    expect(model.shipment.lr_number).toBe('1015');
+    expect(model.shipment.pickup).toBe('Hosur');
+    expect(model.shipment.delivery).toBe('Ahmedabad');
+    const pdf = mapInvoiceDraftModelToPdfData(model, {
+      bankDetailsLines: ['BANK NAME: HSBC'],
+      msmeNumber: 'UDYAM-TN-02-0197543',
+    });
+    expect(pdf.shipment.truck_no).toBe('TN29AW6349');
+    expect(pdf.amountInWords).toMatch(/Indian Rupee/i);
+    expect(pdf.notes).toMatch(/GST applied/i);
+    expect(pdf.issuerMsme).toBe('UDYAM-TN-02-0197543');
+    expect(pdf.bankDetailsLines).toEqual(['BANK NAME: HSBC']);
+    expect(pdf.taxRows.some((r) => r.label === 'Taxable amount')).toBe(true);
+    expect(JSON.stringify(pdf)).not.toContain('996511');
+    expect(JSON.stringify(pdf).toLowerCase()).not.toContain('reverse charge');
   });
 
   it('omits missing client tax fields instead of faking them', () => {

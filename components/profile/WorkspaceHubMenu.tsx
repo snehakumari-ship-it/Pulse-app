@@ -267,7 +267,7 @@ export function WorkspaceHubMenu({
 
   const productRows: HubRow[] = useMemo(() => {
     if (!canSurface("workspace.products")) return [];
-    return [
+    const rows: HubRow[] = [
       {
         id: "ws-scan",
         label: "Pulse Scan",
@@ -276,23 +276,27 @@ export function WorkspaceHubMenu({
         accessibilityLabel:
           "Pulse Scan. Scan documents and track your organization's scan usage.",
       },
-      activeShell
-        ? {
-            id: "ws-core",
-            label: "Pulse Core",
-            icon: hubLucideIcon(Zap),
-            onPress: openPulseCore,
-            accessibilityLabel:
-              "Pulse Core. Return to trips, customers, and day-to-day operations.",
-          }
-        : {
-            id: "ws-finance-pro",
-            label: "Pulse Finance Pro",
-            icon: hubLucideIcon(Landmark),
-            onPress: openFinancePro,
-            accessibilityLabel:
-              "Pulse Finance Pro. Billing, collections, and trip-linked receivables for this workspace.",
-          },
+      {
+        id: "ws-finance-pro",
+        label: "Pulse Finance Pro",
+        icon: hubLucideIcon(Landmark),
+        onPress: openFinancePro,
+        accessibilityLabel:
+          "Pulse Finance Pro. Billing, collections, and trip-linked receivables for this workspace.",
+      },
+    ];
+    // When already inside Invoice / POD / Finance Pro, offer Core as a return path.
+    if (activeShell) {
+      rows.push({
+        id: "ws-core",
+        label: "Pulse Core",
+        icon: hubLucideIcon(Zap),
+        onPress: openPulseCore,
+        accessibilityLabel:
+          "Pulse Core. Return to trips, customers, and day-to-day operations.",
+      });
+    }
+    rows.push(
       {
         id: "ws-products",
         label: "Open Pulse products",
@@ -305,7 +309,8 @@ export function WorkspaceHubMenu({
         icon: hubLucideIcon(Store),
         onPress: openCommerce,
       },
-    ];
+    );
+    return rows;
   }, [activeShell, openCommerce, openFinancePro, openPulseCore, canSurface]);
 
   const partyRows: HubRow[] = useMemo(() => {
