@@ -38,6 +38,8 @@ import { TripMarginHero } from "@/features/trips/components/trip-detail/TripMarg
 import { TripLedgerTransactionPreviewModal } from "@/features/trips/components/trip-detail/TripLedgerTransactionPreviewModal";
 import { TripAuditLogPanel } from "@/features/trips/components/trip-detail/TripAuditLogPanel";
 import { TripPodStatusSection } from "@/features/trips/components/trip-detail/TripPodStatusSection";
+import { LogHardCopyPodModal } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
+import { HardCopyPodStatusCard } from "@/features/trips/components/trip-detail/HardCopyPodStatusCard";
 import { ComplianceSection } from "@/features/tripCompliance/components/ComplianceSection";
 import { useWorkspaceProductsQuery } from "@/lib/queries/useWorkspaceProductsQuery";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
@@ -236,7 +238,13 @@ const TripExpensesScreen = lazy(() =>
 import { isAssetExecutionTrip, shouldShowTripExpenseHub } from "@/features/trips/domain/tripExecutionModel";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getMoverAssetTripIdForIndent } from "@/features/trips/services/trips.service";
-import { tripIsDeliveredStatus, tripPodIsReceived } from "@/features/trips/services/tripDocumentLrPod.service";
+import {
+  fetchTripHardCopyPodState,
+  resolveHardCopyPodStatus,
+  tripIsDeliveredStatus,
+  tripPodIsReceived,
+  type TripHardCopyPodState,
+} from "@/features/trips/services/tripDocumentLrPod.service";
 import { FeedbackPlaceholder } from "./parts/FeedbackPlaceholder";
 import { ManifestPulseStepIcon } from "./parts/ManifestPulseStepIcon";
 import { ExpenseListCard } from "./parts/ExpenseListCard";
@@ -625,6 +633,7 @@ export default function TripDetailScreen({
     (p) => p.product_id === "pulse_compliance" && (p.status === "active" || p.status === "trial"),
   );
   const canViewCompliance = complianceEnabled && canSurface("trip_compliance.tab");
+  const canManageHardCopyPod = canSurface("trip_compliance.pod.manage");
   const { memberPlatformRole } = useOptionalActiveWorkspace() ?? {};
   const isGroundOpsOnly = memberPlatformRole === "ground_ops";
   const groundOpsDocUploadQuery = useQuery({
@@ -934,6 +943,46 @@ export default function TripDetailScreen({
   ]);
 
   const [tripRoomOpen, setTripRoomOpen] = useState(false);
+  const [hardCopyPodModalVisible, setHardCopyPodModalVisible] = useState(false);
+  const [hardCopyPodModalMode, setHardCopyPodModalMode] = useState<
+    "create" | "view" | "mark_received"
+  >("create");
+  const [hardCopyPodState, setHardCopyPodState] =
+    useState<TripHardCopyPodState | null>(null);
+
+  const refreshHardCopyPodState = useCallback(async (tripId: string) => {
+    const { state } = await fetchTripHardCopyPodState(tripId);
+    setHardCopyPodState(state);
+  }, []);
+
+  useEffect(() => {
+    const id = detail.trip?.id;
+    if (!id) {
+      setHardCopyPodState(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchTripHardCopyPodState(id).then(({ state }) => {
+      if (!cancelled) setHardCopyPodState(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    detail.trip?.id,
+    detail.trip?.pod_received_at,
+    detail.trip?.pod_hard_copy_courier,
+    detail.trip?.pod_hard_copy_awb_number,
+    detail.trip?.pod_hard_copy_received_by,
+  ]);
+
+  const openHardCopyPodModal = useCallback(
+    (mode: "create" | "view" | "mark_received" = "create") => {
+      setHardCopyPodModalMode(mode);
+      setHardCopyPodModalVisible(true);
+    },
+    [],
+  );
 
   const openOdometerVerification = useCallback(
     (side: "start" | "end") => {
@@ -2815,6 +2864,16 @@ export default function TripDetailScreen({
   };
 
   const tripCompleted = isTripCompleted(trip);
+  const hardCopyPodStatusResolved =
+    hardCopyPodState?.status ??
+    resolveHardCopyPodStatus({
+      pod_received_at: trip.pod_received_at,
+      pod_hard_copy_courier: trip.pod_hard_copy_courier,
+      pod_hard_copy_awb_number: trip.pod_hard_copy_awb_number,
+    });
+  /** Log action only after delivery/completion; view/update remain available once logged. */
+  const hardCopyPodLogLocked =
+    hardCopyPodStatusResolved === "PENDING" && !tripCompleted;
   const canChangeManifestAssets =
     detail.canAssign && canTripReassign && !tripCompleted;
   const canOpenReassign =
@@ -3539,7 +3598,7 @@ export default function TripDetailScreen({
                 style={neoStyles.manifestBackBtn}
                 activeOpacity={0.8}
               >
-                <FontAwesome name="chevron-left" size={13} color="#0f172a" />
+                <FontAwesome name="chevron-left" size={13} color={Theme.textPrimaryDark} />
               </TouchableOpacity>
               <View style={neoStyles.manifestNavDivider} />
               <View>
@@ -3585,9 +3644,78 @@ export default function TripDetailScreen({
                 accessibilityRole="button"
                 accessibilityLabel="Open trip activity"
               >
-                <Feather name="clock" size={16} color="#94a3b8" />
+                <Feather name="clock" size={16} color={Theme.textMuted} />
                 <Text style={neoStyles.auditBtnText}>Activity</Text>
               </TouchableOpacity>
+              {canManageHardCopyPod ||
+              hardCopyPodStatusResolved !== "PENDING" ? (
+                <TouchableOpacity
+                  style={[
+                    neoStyles.auditBtn,
+                    neoStyles.hardCopyPodBtn,
+                    hardCopyPodStatusResolved === "RECEIVED" &&
+                      neoStyles.hardCopyPodBtnReceived,
+                    hardCopyPodStatusResolved === "IN_TRANSIT" &&
+                      neoStyles.hardCopyPodBtnInTransit,
+                    hardCopyPodLogLocked && neoStyles.hardCopyPodBtnLocked,
+                  ]}
+                  activeOpacity={hardCopyPodLogLocked ? 1 : 0.85}
+                  disabled={hardCopyPodLogLocked}
+                  onPress={() => {
+                    if (hardCopyPodLogLocked) return;
+                    openHardCopyPodModal(
+                      hardCopyPodStatusResolved === "PENDING"
+                        ? "create"
+                        : "view",
+                    );
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: hardCopyPodLogLocked }}
+                  accessibilityLabel={
+                    hardCopyPodLogLocked
+                      ? "Log Hard Copy POD locked until trip is completed"
+                      : hardCopyPodStatusResolved !== "PENDING"
+                        ? `Hard copy POD ${hardCopyPodStatusResolved === "IN_TRANSIT" ? "in transit" : hardCopyPodStatusResolved.toLowerCase()}`
+                        : "Log Hard Copy POD"
+                  }
+                  accessibilityHint={
+                    hardCopyPodLogLocked
+                      ? "Available after the trip is completed"
+                      : "Log Hard Copy POD"
+                  }
+                >
+                  <Feather
+                    name="file-text"
+                    size={15}
+                    color={
+                      hardCopyPodLogLocked
+                        ? Theme.textMuted
+                        : hardCopyPodStatusResolved === "RECEIVED"
+                          ? Theme.positive
+                          : hardCopyPodStatusResolved === "IN_TRANSIT"
+                            ? Theme.warning
+                            : Theme.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      neoStyles.auditBtnText,
+                      hardCopyPodStatusResolved === "RECEIVED" &&
+                        neoStyles.hardCopyPodBtnTextReceived,
+                      hardCopyPodStatusResolved === "IN_TRANSIT" &&
+                        neoStyles.hardCopyPodBtnTextInTransit,
+                      hardCopyPodLogLocked && neoStyles.hardCopyPodBtnTextLocked,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {hardCopyPodStatusResolved === "PENDING"
+                      ? "Log Hard Copy POD"
+                      : hardCopyPodStatusResolved === "IN_TRANSIT"
+                        ? "POD · IN TRANSIT"
+                        : "POD · RECEIVED"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 style={neoStyles.manifestChatBtn}
                 activeOpacity={0.85}
@@ -3631,6 +3759,50 @@ export default function TripDetailScreen({
                 <Feather name="help-circle" size={15} color="#2874F0" />
                 <Text style={styles.navHelpText}>Help</Text>
               </TouchableOpacity>
+              {canManageHardCopyPod ||
+              hardCopyPodStatusResolved !== "PENDING" ? (
+                <TouchableOpacity
+                  style={[
+                    styles.navIconHit,
+                    hardCopyPodStatusResolved === "RECEIVED" &&
+                      neoStyles.hardCopyPodMobileReceived,
+                    hardCopyPodStatusResolved === "IN_TRANSIT" &&
+                      neoStyles.hardCopyPodMobileInTransit,
+                    hardCopyPodLogLocked && neoStyles.hardCopyPodBtnLocked,
+                  ]}
+                  activeOpacity={hardCopyPodLogLocked ? 1 : 0.85}
+                  disabled={hardCopyPodLogLocked}
+                  onPress={() => {
+                    if (hardCopyPodLogLocked) return;
+                    openHardCopyPodModal(
+                      hardCopyPodStatusResolved === "PENDING"
+                        ? "create"
+                        : "view",
+                    );
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: hardCopyPodLogLocked }}
+                  accessibilityLabel={
+                    hardCopyPodLogLocked
+                      ? "Log Hard Copy POD locked until trip is completed"
+                      : "Log Hard Copy POD"
+                  }
+                >
+                  <Feather
+                    name="file-text"
+                    size={16}
+                    color={
+                      hardCopyPodLogLocked
+                        ? Theme.textMuted
+                        : hardCopyPodStatusResolved === "RECEIVED"
+                          ? Theme.positive
+                          : hardCopyPodStatusResolved === "IN_TRANSIT"
+                            ? Theme.warning
+                            : Theme.analyticsHeroBg
+                    }
+                  />
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 style={styles.navIconHit}
                 activeOpacity={0.85}
@@ -3676,8 +3848,8 @@ export default function TripDetailScreen({
           styles.scrollContent,
           isDesktop && styles.scrollContentDesktop,
           {
-            padding: isDesktop ? 24 : isMobile ? 0 : 18,
-            gap: isDesktop ? 24 : isMobile ? 0 : 16,
+            padding: isDesktop ? 20 : isMobile ? 0 : 18,
+            gap: isDesktop ? 16 : isMobile ? 0 : 16,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -4112,8 +4284,6 @@ export default function TripDetailScreen({
 
         {isDesktop ? (
           <View style={neoStyles.shell}>
-            <View style={neoStyles.grid}>
-              <View style={neoStyles.mainCol}>
                 <View style={neoStyles.hero}>
                   <View style={neoStyles.heroGlow} />
                   <View style={neoStyles.heroBridge}>
@@ -4251,14 +4421,16 @@ export default function TripDetailScreen({
                     <View style={neoStyles.heroMetricDivider} />
                     <View style={neoStyles.heroMetric}>
                       <Text style={neoStyles.heroMetricLabel}>Status</Text>
-                      <Text
+                      <View
                         style={[
-                          neoStyles.heroMetricValue,
-                          { color: statusColor },
+                          neoStyles.heroMetricStatusPill,
+                          { backgroundColor: statusColor },
                         ]}
                       >
-                        {statusLabel.toUpperCase()}
-                      </Text>
+                        <Text style={neoStyles.heroMetricStatusPillText}>
+                          {statusLabel.toUpperCase()}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -4314,7 +4486,7 @@ export default function TripDetailScreen({
                         <Feather
                           name={tab.icon}
                           size={15}
-                          color={active ? "#818cf8" : "#94a3b8"}
+                          color={active ? Theme.cardWhite : Theme.textMuted}
                         />
                         <Text
                           style={[
@@ -4329,6 +4501,8 @@ export default function TripDetailScreen({
                   })}
                 </View>
 
+            <View style={neoStyles.grid}>
+              <View style={neoStyles.mainCol}>
                 {activeTab === "trip" ? (
                   <View
                     style={[
@@ -4368,7 +4542,7 @@ export default function TripDetailScreen({
                           ]}
                         >
                           <View style={neoStyles.manifestPulseTitleGroup}>
-                            <Activity size={24} color="#5856D6" strokeWidth={2.5} />
+                            <Activity size={18} color={Theme.analyticsHeroBg} strokeWidth={2.4} />
                             <Text
                               style={[
                                 neoStyles.cardTitleDark,
@@ -4391,9 +4565,9 @@ export default function TripDetailScreen({
                                 disabled={simulating || revokingSimulation}
                               >
                                 {revokingSimulation ? (
-                                  <LoadingIndicator size="small" color="#f59e0b" />
+                                  <LoadingIndicator size="small" color={Theme.warning} />
                                 ) : (
-                                  <Feather name="rotate-ccw" size={13} color="#f59e0b" />
+                                  <Feather name="rotate-ccw" size={13} color={Theme.warning} />
                                 )}
                                 <Text
                                   style={[
@@ -4412,7 +4586,7 @@ export default function TripDetailScreen({
                                 activeOpacity={0.85}
                                 disabled={revokingSimulation}
                               >
-                                <Zap size={14} color="#f59e0b" fill="#f59e0b" />
+                                <Zap size={14} color={Theme.warning} fill={Theme.warning} />
                                 <Text
                                   style={[
                                     neoStyles.simBtnText,
@@ -4455,7 +4629,7 @@ export default function TripDetailScreen({
                                 <View
                                   style={[
                                     neoStyles.timelineConnector,
-                                    { backgroundColor: "#40B876" },
+                                    { backgroundColor: Theme.driverEmerald },
                                   ]}
                                 />
                               ) : null}
@@ -4463,6 +4637,7 @@ export default function TripDetailScreen({
                                 style={[
                                   neoStyles.timelineItem,
                                   isMobile && neoStyles.timelineItemMobile,
+                                  isCurrent && neoStyles.timelineItemCurrent,
                                   expanded && neoStyles.timelineItemActive,
                                 ]}
                                 onPress={() =>
@@ -4479,6 +4654,7 @@ export default function TripDetailScreen({
                                       style={[
                                         neoStyles.timelineStatus,
                                         isMobile && neoStyles.timelineStatusMobile,
+                                        isCurrent && neoStyles.timelineStatusCurrent,
                                       ]}
                                     >
                                       {log.status}
@@ -4533,7 +4709,7 @@ export default function TripDetailScreen({
                                       <Feather
                                         name="zap"
                                         size={10}
-                                        color="#f59e0b"
+                                        color={Theme.warning}
                                       />
                                       <View style={{ flex: 1, minWidth: 0 }}>
                                         <Text
@@ -5530,7 +5706,7 @@ export default function TripDetailScreen({
                 <View style={neoStyles.sideCard}>
                   <View style={neoStyles.sideSection}>
                     <View style={neoStyles.sideHeading}>
-                      <Feather name="activity" size={16} color="#cbd5e1" />
+                      <Feather name="activity" size={15} color={Theme.textMuted} />
                       <Text style={neoStyles.sideHeadingText}>
                         Manifest Assets
                       </Text>
@@ -5562,6 +5738,14 @@ export default function TripDetailScreen({
                       showChange={canChangeManifestAssets}
                       onChange={() => openAssignmentFlow("vehicle")}
                       style={neoStyles.assetCardWrap}
+                    />
+                    <HardCopyPodStatusCard
+                      state={hardCopyPodState}
+                      canManage={canManageHardCopyPod}
+                      tripCompleted={tripCompleted}
+                      onViewDetails={() => openHardCopyPodModal("view")}
+                      onUpdatePod={() => openHardCopyPodModal("mark_received")}
+                      onLogPod={() => openHardCopyPodModal("create")}
                     />
                   </View>
                 </View>
@@ -6589,6 +6773,30 @@ export default function TripDetailScreen({
         timelineRows={detail.driverActivityTimelineRows ?? []}
         tripLedgerEntries={detail.tripLedgerEntries}
         driverDisplayName={detail.driverName}
+      />
+
+      <LogHardCopyPodModal
+        visible={hardCopyPodModalVisible}
+        onClose={() => setHardCopyPodModalVisible(false)}
+        tripId={trip.id}
+        organizationId={currentOrganization?.id ?? trip.organization_id}
+        canManage={canManageHardCopyPod}
+        initialMode={hardCopyPodModalMode}
+        summary={{
+          manifestId: getTripDisplayNumber(trip, currentOrganization?.id),
+          clientName:
+            detail.displayClientName?.trim() ||
+            trip.client_name?.trim() ||
+            "—",
+          pickup: trip.pickup_area?.trim() || "—",
+          delivery: trip.drop_location?.trim() || "—",
+          driverName: allocatedDriverName,
+          vehicleLabel: allocatedVehicleLabel,
+        }}
+        onUpdated={() => {
+          void detail.load();
+          void refreshHardCopyPodState(trip.id);
+        }}
       />
 
       {vaultChatPreviewNode}

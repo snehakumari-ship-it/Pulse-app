@@ -7,7 +7,7 @@ import {
   type TripHardCopyPodReceipt,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { TripCompletionOrPodTags } from "@/features/trips/components/TripPodStatusTags";
-import { queryKeys } from "@/lib/queryKeys";
+import { invalidateHardCopyPodCaches } from "@/lib/queries/invalidateHardCopyPodCaches";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
@@ -107,11 +107,10 @@ export function TripPodStatusSection({
     if (alreadyReceived) {
       Alert.alert("Hard copy POD", "This trip's hard-copy POD was already recorded as received.");
     }
-    void queryClient.invalidateQueries({ queryKey: ["q", "trips"] });
-    if (organizationId) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.logPods.trips(organizationId) });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.invoicing.trips(organizationId) });
-    }
+    invalidateHardCopyPodCaches(queryClient, {
+      tripId,
+      organizationId,
+    });
     onUpdated?.();
   }, [
     canRecordHardCopy,

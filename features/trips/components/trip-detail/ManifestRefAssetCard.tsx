@@ -350,13 +350,23 @@ const styles = StyleSheet.create({
   cardDesktop: {
     flex: undefined,
     width: "100%",
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderRadius: 22,
-    gap: 12,
-    backgroundColor: "rgba(248,250,252,0.72)",
-    borderColor: "#f1f5f9",
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderRadius: 12,
+    gap: 10,
+    backgroundColor: Theme.surfaceGray,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    ...Platform.select({
+      web: {
+        boxShadow: "none",
+      } as ViewStyle,
+      default: {
+        shadowOpacity: 0,
+        elevation: 0,
+      },
+    }),
   },
   headerRow: {
     flexDirection: "row",
@@ -375,9 +385,11 @@ const styles = StyleSheet.create({
     lineHeight: 11,
   },
   roleLabelDesktop: {
-    fontSize: 10,
-    letterSpacing: 0.55,
-    lineHeight: 13,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+    lineHeight: 12,
+    textTransform: "uppercase",
   },
   changeBtn: {
     flexShrink: 0,
@@ -387,13 +399,13 @@ const styles = StyleSheet.create({
   changeBtnText: {
     fontSize: 8,
     fontWeight: "700",
-    color: Theme.pulseIndigo,
+    color: Theme.analyticsHeroBg,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   changeBtnTextDesktop: {
     fontSize: 10,
-    letterSpacing: 0.55,
+    letterSpacing: 0.4,
   },
   contentRow: {
     flexDirection: "row",
@@ -415,7 +427,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   primaryTextDesktop: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
     lineHeight: 21,
     letterSpacing: -0.2,
