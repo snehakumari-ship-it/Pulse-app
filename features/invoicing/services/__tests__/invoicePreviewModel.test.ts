@@ -70,6 +70,8 @@ function clientRow(overrides: Partial<InvoiceDraftClientRow> = {}): InvoiceDraft
     billing_address: '12 Industrial Estate',
     state: 'Tamil Nadu',
     email: 'ap@acme.example',
+    contact_person: 'Mazumdhar',
+    phone: '+919876543212',
     ...overrides,
   };
 }
@@ -423,6 +425,8 @@ describe('buildInvoiceDraftModel', () => {
           billing_address: null,
           state: null,
           email: null,
+          contact_person: null,
+          phone: null,
         }),
       ],
     });
@@ -432,6 +436,37 @@ describe('buildInvoiceDraftModel', () => {
     const pdf = mapInvoiceDraftModelToPdfData(model);
     expect(pdf.billingLines.join(' ')).not.toMatch(/GSTIN/);
     expect(pdf.billingLines.join(' ')).not.toMatch(/\bPAN\b/);
+  });
+
+  it('resolves ledger GSTIN/PAN/contact by client name when trip has no client_id', () => {
+    const model = buildInvoiceDraftModel({
+      issuer: issuer(),
+      trips: [trip({ client_id: null, client: 'berger india pvt ltd' })],
+      config: gstOnConfig,
+      previewDate: PREVIEW_DATE,
+      paymentTerms: 'Net 30',
+      notes: null,
+      fetchedClients: [
+        clientRow({
+          name: 'BERGER INDIA PVT LTD',
+          legal_name: 'BERGER INDIA PVT LTD',
+          gstin: '33AACHGJ1774N1Z',
+          pan: null,
+          contact_person: 'Mazumdhar',
+          phone: '+919876543212',
+          billing_address: null,
+        }),
+      ],
+      displayNameFallback: 'berger india pvt ltd',
+    });
+    expect(model.client.client_id).toBe(CLIENT_A);
+    expect(model.client.gstin).toBe('33AACHGJ1774N1Z');
+    expect(model.client.contact_person).toBe('Mazumdhar');
+    expect(model.client.phone).toBe('+919876543212');
+    expect(model.client.display_name).toBe('BERGER INDIA PVT LTD');
+    const pdf = mapInvoiceDraftModelToPdfData(model);
+    expect(pdf.billingLines.join(' ')).toContain('GSTIN 33AACHGJ1774N1Z');
+    expect(pdf.billingLines.join(' ')).toContain('Mazumdhar');
   });
 
   it('groups GST-on by client_id not display name', () => {

@@ -1088,11 +1088,13 @@ export function InvoicingExecuteScreen({
     );
   }
 
-  if (orgLoading || !orgId)
+  if (orgLoading && !tripScopeId)
     return (
-      <CenteredLoadingView
-        message={orgLoading ? "Loading..." : "No organization"}
-      />
+      <CenteredLoadingView message="Loading..." />
+    );
+  if (!tripScopeId)
+    return (
+      <CenteredLoadingView message="No organization" />
     );
   if (isLoading)
     return <CenteredLoadingView message="Syncing with Supabase..." />;

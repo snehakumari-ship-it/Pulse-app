@@ -3,8 +3,6 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
 import { InvoiceTripCnDnGroup } from "@/features/invoicing/components/InvoiceTripCnDnGroup";
-import { TripCompletionOrPodTags } from "@/features/trips/components/TripPodStatusTags";
-import { tripIsDeliveredStatus } from "@/features/trips/services/tripDocumentLrPod.service";
 import { useInvoiceDraftClientsQuery } from "@/features/invoicing/hooks/useInvoiceDraftClients";
 import {
   invoiceOnlyCharges,
@@ -23,6 +21,7 @@ import {
   formatInvoicePreviewDate,
   invoiceDraftTaxDisplay,
   uniqueTripClientIds,
+  uniqueTripClientNames,
 } from "@/features/invoicing/services/invoicePreviewModel.service";
 import { ProvisionAdjustmentModal } from "@/features/trips/components/trip-detail/adjustment/ProvisionAdjustmentModal";
 import {
@@ -36,7 +35,7 @@ import {
   useTripFinanceAdjustmentsMap,
 } from "@/lib/queries/useTripFinanceAdjustmentsQuery";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Alert,
   Modal,
@@ -155,11 +154,54 @@ export function InvoicePreviewPanel({
   const [cnDnTrip, setCnDnTrip] = useState<InvoicingTripView | null>(null);
   const [cnDnEdit, setCnDnEdit] = useState<TripAdjustment | null>(null);
   const [showSplit, setShowSplit] = useState(true);
+  /** Draft-only freight overrides — does not write back to trip records. */
+  const [tripAmountOverrides, setTripAmountOverrides] = useState<
+    Record<string, number>
+  >({});
+  const [tripAmountDraftText, setTripAmountDraftText] = useState<
+    Record<string, string>
+  >({});
 
   const selectedTripInternalIds = useMemo(
     () => selectedTrips.map((t) => t.internal_id).filter(Boolean),
     [selectedTrips],
   );
+
+  useEffect(() => {
+    const allowed = new Set(
+      selectedTrips.map((t) => t.internal_id || t.id).filter(Boolean),
+    );
+    setTripAmountOverrides((prev) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (allowed.has(key)) next[key] = value;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+    setTripAmountDraftText((prev) => {
+      let changed = false;
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (allowed.has(key)) next[key] = value;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [selectedTrips]);
+
+  const billingTrips = useMemo(
+    () =>
+      selectedTrips.map((trip) => {
+        const key = trip.internal_id || trip.id;
+        const override = tripAmountOverrides[key];
+        if (override == null || !Number.isFinite(override)) return trip;
+        return { ...trip, amount: Math.max(0, override) };
+      }),
+    [selectedTrips, tripAmountOverrides],
+  );
+
   const { record: tripAdjustmentsRecord } = useTripFinanceAdjustmentsMap(
     workspaceOrgId,
     selectedTripInternalIds,
@@ -170,9 +212,14 @@ export function InvoicePreviewPanel({
     () => uniqueTripClientIds(selectedTrips),
     [selectedTrips],
   );
+  const clientNames = useMemo(
+    () => uniqueTripClientNames(selectedTrips),
+    [selectedTrips],
+  );
   const { data: fetchedClients = [] } = useInvoiceDraftClientsQuery(
     workspaceOrgId,
     clientIds,
+    clientNames,
   );
 
   const invoiceConfig = useMemo(
@@ -183,26 +230,26 @@ export function InvoicePreviewPanel({
       fuelRate,
       additionalCharges: mergeInvoiceChargesWithTripCnDn(
         additionalCharges,
-        selectedTrips,
+        billingTrips,
         tripAdjustmentsRecord,
       ),
     }),
     [
       additionalCharges,
+      billingTrips,
       fuelRate,
       gstRate,
       includeFuel,
       includeGst,
-      selectedTrips,
       tripAdjustmentsRecord,
     ],
   );
 
   const draft = useMemo(() => {
-    if (!issuer || selectedTrips.length === 0) return null;
+    if (!issuer || billingTrips.length === 0) return null;
     return buildInvoiceDraftModel({
       issuer,
-      trips: selectedTrips,
+      trips: billingTrips,
       config: invoiceConfig,
       previewDate,
       paymentTerms,
@@ -212,16 +259,62 @@ export function InvoicePreviewPanel({
     });
   }, [
     activeClient,
+    billingTrips,
     fetchedClients,
     invoiceConfig,
     issuer,
     notes,
     paymentTerms,
     previewDate,
-    selectedTrips,
   ]);
 
   const taxDisplay = draft ? invoiceDraftTaxDisplay(draft.tax) : null;
+
+  const handleUpdateTripAmount = useCallback(
+    (tripKey: string, raw: string) => {
+      setTripAmountDraftText((prev) => ({ ...prev, [tripKey]: raw }));
+      const cleaned = raw.replace(/,/g, "").trim();
+      if (cleaned === "" || cleaned === ".") {
+        setTripAmountOverrides((prev) => ({ ...prev, [tripKey]: 0 }));
+        return;
+      }
+      const parsed = Number.parseFloat(cleaned);
+      if (!Number.isFinite(parsed)) return;
+      setTripAmountOverrides((prev) => ({
+        ...prev,
+        [tripKey]: Math.max(0, parsed),
+      }));
+    },
+    [],
+  );
+
+  const handleBlurTripAmount = useCallback(
+    (tripKey: string, fallbackAmount: number) => {
+      setTripAmountDraftText((prev) => {
+        if (!(tripKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[tripKey];
+        return next;
+      });
+      setTripAmountOverrides((prev) => {
+        const current = prev[tripKey];
+        if (current == null) return prev;
+        if (!Number.isFinite(current)) {
+          const next = { ...prev };
+          delete next[tripKey];
+          return next;
+        }
+        // Clear override when it matches the original trip amount.
+        if (Math.abs(current - fallbackAmount) < 0.005) {
+          const next = { ...prev };
+          delete next[tripKey];
+          return next;
+        }
+        return { ...prev, [tripKey]: Math.max(0, current) };
+      });
+    },
+    [],
+  );
 
   const handleAddCharge = useCallback((tripId?: string) => {
     setAdditionalCharges((prev) => {
@@ -250,6 +343,13 @@ export function InvoicePreviewPanel({
   const handleRemoveCharge = useCallback((id: string) => {
     setAdditionalCharges((prev) => prev.filter((c) => c.id !== id));
   }, []);
+
+  const cnDnBillingAmount = useMemo(() => {
+    if (!cnDnTrip) return 0;
+    const key = cnDnTrip.internal_id || cnDnTrip.id;
+    const billed = billingTrips.find((t) => (t.internal_id || t.id) === key);
+    return billed?.amount ?? cnDnTrip.amount ?? 0;
+  }, [billingTrips, cnDnTrip]);
 
   const closeCnDnModal = useCallback(() => {
     setCnDnTrip(null);
@@ -542,7 +642,7 @@ export function InvoicePreviewPanel({
           <View style={styles.docTitleRule} />
         </View>
 
-        {/* Customer Details — form field grid */}
+        {/* Customer Details — auto-filled from client finance ledger */}
         <View style={styles.section}>
           <View style={styles.sectionTitleBar}>
             <Text style={styles.sectionTitle}>Customer Details</Text>
@@ -570,18 +670,56 @@ export function InvoicePreviewPanel({
                 {customerLabel}
               </Text>
             </View>
-            {draft?.client.billing_address || draft?.client.gstin ? (
-              <Text style={styles.fieldHint} numberOfLines={2}>
-                {[
-                  draft.client.billing_address,
-                  draft.client.gstin ? `GSTIN ${draft.client.gstin}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Text>
-            ) : null}
           </View>
           <View style={styles.fieldGridMeta}>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>GSTIN</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {draft?.client.gstin || "—"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>PAN</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {draft?.client.pan || "—"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Contact</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {draft?.client.contact_person || "—"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Phone</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {draft?.client.phone || "—"}
+                </Text>
+              </View>
+            </View>
+            <View style={[styles.fieldCell, styles.fieldCellWide]}>
+              <Text style={styles.fieldLabel}>Billing Address</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={2}>
+                  {draft?.client.billing_address || "—"}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.fieldCell}>
+              <Text style={styles.fieldLabel}>Email</Text>
+              <View style={styles.fieldValueBox}>
+                <Text style={styles.fieldValueText} numberOfLines={1}>
+                  {draft?.client.email || "—"}
+                </Text>
+              </View>
+            </View>
             <View style={styles.fieldCell}>
               <Text style={styles.fieldLabel}>Invoice Number</Text>
               <View style={[styles.fieldValueBox, styles.fieldValueMuted]}>
@@ -724,7 +862,7 @@ export function InvoicePreviewPanel({
               </View>
             </View>
             <View style={styles.fieldCell}>
-              <Text style={styles.fieldLabel}>GSTIN</Text>
+              <Text style={styles.fieldLabel}>Issuer GSTIN</Text>
               <View style={styles.fieldValueBox}>
                 <Text style={styles.fieldValueText} numberOfLines={1}>
                   {issuer?.gstNotApplicable
@@ -802,9 +940,6 @@ export function InvoicePreviewPanel({
               </Text>
               <Text style={[styles.itemsHeadCell, styles.colRoute]}>
                 Reference
-              </Text>
-              <Text style={[styles.itemsHeadCell, styles.colStatus]}>
-                Status
               </Text>
               <Text
                 style={[
@@ -941,16 +1076,25 @@ export function InvoicePreviewPanel({
               </View>
             ) : (
               selectedTrips.map((trip, index) => {
+                const tripKey = trip.internal_id || trip.id;
+                const billingTrip =
+                  billingTrips.find(
+                    (t) => (t.internal_id || t.id) === tripKey,
+                  ) ?? trip;
                 const tripNotes = adjustmentsForTripId(
                   tripAdjustmentsRecord,
                   trip.internal_id,
                 );
+                const baseAmount = billingTrip.amount;
                 const revised = invoiceTripAdjustedAmount(
-                  trip.amount,
+                  baseAmount,
                   tripNotes,
                 );
-                const hasSplit = Math.abs(revised - trip.amount) >= 0.005;
+                const hasSplit = Math.abs(revised - baseAmount) >= 0.005;
                 const rowNum = globalCharges.length + index + 1;
+                const amountText =
+                  tripAmountDraftText[tripKey] ??
+                  (Number.isFinite(baseAmount) ? String(baseAmount) : "0");
                 return (
                   <View key={trip.id} style={styles.tripItemWrapper}>
                     <View style={styles.tripItem}>
@@ -973,27 +1117,32 @@ export function InvoicePreviewPanel({
                       >
                         {trip.id}
                       </Text>
-                      <View style={[styles.tripItemPodRow, styles.colStatus]}>
-                        <TripCompletionOrPodTags
-                          compact
-                          tripCompleted={tripIsDeliveredStatus(trip.tripStatus)}
-                          softCopyReceived={Boolean(trip.digitalPodPresent)}
-                          hardCopyReceived={Boolean(trip.physicalPodReceived)}
-                        />
-                      </View>
                       <View style={[styles.tripItemAmounts, styles.colAmount]}>
-                        <Text style={styles.tripItemAmount}>
-                          {formatCurrency(revised)}
-                        </Text>
+                        <View style={styles.tripAmountEdit}>
+                          <Text style={styles.tripAmountCurrency}>₹</Text>
+                          <TextInput
+                            style={styles.tripAmountInput}
+                            value={amountText}
+                            onChangeText={(t) =>
+                              handleUpdateTripAmount(tripKey, t)
+                            }
+                            onBlur={() =>
+                              handleBlurTripAmount(tripKey, trip.amount)
+                            }
+                            keyboardType="decimal-pad"
+                            accessibilityLabel={`Edit freight amount for ${trip.id}`}
+                            selectTextOnFocus
+                          />
+                        </View>
                         {showSplit && hasSplit ? (
                           <Text style={styles.tripItemBaseAmount}>
-                            Freight {formatCurrency(trip.amount)}
+                            With CN/DN {formatCurrency(revised)}
                           </Text>
                         ) : null}
                       </View>
                     </View>
                     <InvoiceTripCnDnGroup
-                      trip={trip}
+                      trip={billingTrip}
                       adjustments={tripNotes}
                       showBreakdown={showSplit}
                       onAdd={() => {
@@ -1272,9 +1421,9 @@ export function InvoicePreviewPanel({
         partyLabel={activeClient}
         clientName={activeClient || cnDnTrip?.client || "Client"}
         supplierName={cnDnTrip?.supplier_name || "Supplier"}
-        sales={cnDnTrip?.amount ?? 0}
+        sales={cnDnBillingAmount}
         adjSales={invoiceTripAdjustedAmount(
-          cnDnTrip?.amount ?? 0,
+          cnDnBillingAmount,
           cnDnTrip
             ? adjustmentsForTripId(tripAdjustmentsRecord, cnDnTrip.internal_id)
             : [],
@@ -1284,9 +1433,9 @@ export function InvoicePreviewPanel({
         revenueSideDelta={
           cnDnTrip
             ? invoiceTripAdjustedAmount(
-                cnDnTrip.amount,
+                cnDnBillingAmount,
                 adjustmentsForTripId(tripAdjustmentsRecord, cnDnTrip.internal_id),
-              ) - cnDnTrip.amount
+              ) - cnDnBillingAmount
             : 0
         }
         costSideDelta={0}
@@ -1713,15 +1862,11 @@ const styles = StyleSheet.create({
     minWidth: 100,
   },
   colRoute: {
-    flex: 1.3,
-    minWidth: 90,
-  },
-  colStatus: {
-    flex: 0.9,
-    minWidth: 72,
+    flex: 1.4,
+    minWidth: 100,
   },
   colAmount: {
-    width: 96,
+    width: 128,
     flexShrink: 0,
     alignItems: "flex-end",
   },
@@ -1902,6 +2047,7 @@ const styles = StyleSheet.create({
   tripItemAmounts: {
     alignItems: "flex-end",
     justifyContent: "flex-start",
+    gap: 4,
   },
   tripItemId: {
     fontSize: 13,
@@ -1921,19 +2067,40 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     minWidth: 0,
   },
-  tripItemPodRow: {
-    minWidth: 0,
-    paddingTop: 2,
+  tripAmountEdit: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    minHeight: 36,
+    minWidth: 110,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
   },
-  tripItemAmount: {
+  tripAmountCurrency: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textMuted,
+  },
+  tripAmountInput: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 14,
     fontWeight: "700",
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     color: Theme.textPrimaryDark,
     textAlign: "right",
+    paddingVertical: 4,
+    ...Platform.select({
+      web: {
+        outlineStyle: "none",
+      } as ViewStyle,
+    }),
   },
   tripItemBaseAmount: {
-    marginTop: 4,
     fontSize: 11,
     fontWeight: "400",
     color: Theme.textMuted,

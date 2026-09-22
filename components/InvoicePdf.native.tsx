@@ -1,8 +1,11 @@
-import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import type { InvoicePdfData } from '@/components/InvoicePdf.types';
 import Theme from '@/constants/Theme';
 import Layout from '@/constants/Layout';
+import { resolveInvoiceHeaderLogo } from '@/features/invoicing/utils/invoiceLogo.util';
+
+const BUNDLED_GOGOX_MARK = require('@/assets/invoicing/gogox-invoice-mark.png');
 
 interface InvoicePdfNativeProps {
   invoiceData: InvoicePdfData;
@@ -29,6 +32,17 @@ export default function InvoicePdfNative({
   onBack,
 }: InvoicePdfNativeProps) {
   const shipment = invoiceData.shipment;
+  const headerLogo = useMemo(
+    () =>
+      resolveInvoiceHeaderLogo({
+        brandingLogoUrl: invoiceData.brandingLogoUrl,
+        companyName: invoiceData.brandingCompanyName,
+      }),
+    [invoiceData.brandingCompanyName, invoiceData.brandingLogoUrl],
+  );
+  const showMsmeText =
+    Boolean(invoiceData.issuerMsme) && !headerLogo?.includesMsmeCaption;
+
   return (
     <View style={{ flex: 1, backgroundColor: Theme.analyticsCanvas }}>
       {onBack ? (
@@ -64,10 +78,54 @@ export default function InvoicePdfNative({
             padding: 16,
           }}
         >
-          <Text style={{ fontSize: 13, fontWeight: '800', textAlign: 'right', color: Theme.textPrimaryDark }}>
-            DRAFT TAX INVOICE
-          </Text>
-          <Text style={{ marginTop: 8, fontSize: 16, fontWeight: '800', color: Theme.textPrimaryDark }}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
+            <View style={{ alignItems: 'center', width: 120 }}>
+              {headerLogo?.kind === 'remote' ? (
+                <Image
+                  source={{ uri: headerLogo.src }}
+                  style={{ width: 110, height: 48, resizeMode: 'contain' }}
+                />
+              ) : headerLogo?.kind === 'bundled' ? (
+                <Image
+                  source={BUNDLED_GOGOX_MARK}
+                  style={{ width: 118, height: 64, resizeMode: 'contain' }}
+                />
+              ) : null}
+              {showMsmeText ? (
+                <Text
+                  style={{
+                    marginTop: 4,
+                    fontSize: 9,
+                    fontWeight: '700',
+                    color: Theme.textPrimaryDark,
+                    textAlign: 'center',
+                  }}
+                >
+                  MSME Reg No: {invoiceData.issuerMsme}
+                </Text>
+              ) : null}
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: '800',
+                  textAlign: 'right',
+                  color: Theme.textPrimaryDark,
+                }}
+              >
+                DRAFT TAX INVOICE
+              </Text>
+            </View>
+          </View>
+          <Text style={{ marginTop: 4, fontSize: 16, fontWeight: '800', color: Theme.textPrimaryDark }}>
             {invoiceData.brandingCompanyName}
           </Text>
           {invoiceData.issuerAddressLines.map((line) => (

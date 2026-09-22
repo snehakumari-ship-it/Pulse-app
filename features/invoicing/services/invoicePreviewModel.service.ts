@@ -30,6 +30,8 @@ export type InvoiceDraftClientView = {
   billing_address: string | null;
   state: string | null;
   email: string | null;
+  contact_person: string | null;
+  phone: string | null;
 };
 
 export type InvoiceDraftModel = {
@@ -421,6 +423,60 @@ function buildDraftLines(
   return lines;
 }
 
+function emptyDraftClient(display_name: string): InvoiceDraftClientView {
+  return {
+    client_id: null,
+    legal_name: null,
+    display_name,
+    gstin: null,
+    pan: null,
+    billing_address: null,
+    state: null,
+    email: null,
+    contact_person: null,
+    phone: null,
+  };
+}
+
+function normalizeClientNameKey(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function viewFromClientRow(
+  row: InvoiceDraftClientRow,
+  fallbackName: string,
+): InvoiceDraftClientView {
+  return {
+    client_id: row.id,
+    legal_name: row.legal_name ?? null,
+    display_name: row.legal_name || row.name || fallbackName,
+    gstin: row.gstin ?? null,
+    pan: row.pan ?? null,
+    billing_address: row.billing_address ?? null,
+    state: row.state ?? null,
+    email: row.email ?? null,
+    contact_person: row.contact_person ?? null,
+    phone: row.phone ?? null,
+  };
+}
+
+function findFetchedClientByName(
+  fetched: InvoiceDraftClientRow[],
+  name: string | null,
+): InvoiceDraftClientRow | null {
+  const key = normalizeClientNameKey(name);
+  if (!key) return null;
+  return (
+    fetched.find((row) => {
+      const candidates = [
+        normalizeClientNameKey(row.name),
+        normalizeClientNameKey(row.legal_name),
+      ];
+      return candidates.includes(key);
+    }) ?? null
+  );
+}
+
 function resolveDraftClient(args: {
   trips: InvoicingTripView[];
   fetched: InvoiceDraftClientRow[];
@@ -436,43 +492,33 @@ function resolveDraftClient(args: {
     'Select a client';
 
   if (ids.length > 1) {
-    return {
-      client_id: null,
-      legal_name: null,
-      display_name: 'Multiple clients',
-      gstin: null,
-      pan: null,
-      billing_address: null,
-      state: null,
-      email: null,
-    };
+    return emptyDraftClient('Multiple clients');
   }
 
   if (ids.length === 1) {
     const row = byId.get(ids[0]);
     const tripName = args.trips.find((t) => t.client_id === ids[0])?.client;
+    if (row) {
+      return viewFromClientRow(row, trimOrNull(tripName) || fallbackName);
+    }
+    // client_id present but row missing — try name match from ledger fetch
+    const byName =
+      findFetchedClientByName(args.fetched, tripName) ||
+      findFetchedClientByName(args.fetched, fallbackName);
+    if (byName) return viewFromClientRow(byName, trimOrNull(tripName) || fallbackName);
     return {
+      ...emptyDraftClient(trimOrNull(tripName) || fallbackName),
       client_id: ids[0],
-      legal_name: row?.legal_name ?? null,
-      display_name: row?.legal_name || row?.name || trimOrNull(tripName) || fallbackName,
-      gstin: row?.gstin ?? null,
-      pan: row?.pan ?? null,
-      billing_address: row?.billing_address ?? null,
-      state: row?.state ?? null,
-      email: row?.email ?? null,
     };
   }
 
-  return {
-    client_id: null,
-    legal_name: null,
-    display_name: fallbackName,
-    gstin: null,
-    pan: null,
-    billing_address: null,
-    state: null,
-    email: null,
-  };
+  // No client_id on trips — resolve from ledger by customer name
+  const byName =
+    findFetchedClientByName(args.fetched, fallbackName) ||
+    findFetchedClientByName(args.fetched, args.trips[0]?.client ?? null);
+  if (byName) return viewFromClientRow(byName, fallbackName);
+
+  return emptyDraftClient(fallbackName);
 }
 
 function taxClientsForEngine(
@@ -484,11 +530,15 @@ function taxClientsForEngine(
   const clients: InvoiceTaxClientInput[] = [];
   for (const trip of trips) {
     const id = trimOrNull(trip.client_id);
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const row = byId.get(id);
+    let row = id ? byId.get(id) : undefined;
+    if (!row) {
+      row = findFetchedClientByName(fetched, trip.client) ?? undefined;
+    }
+    const resolvedId = id || row?.id || null;
+    if (!resolvedId || seen.has(resolvedId)) continue;
+    seen.add(resolvedId);
     clients.push({
-      client_id: id,
+      client_id: resolvedId,
       gstin: row?.gstin ?? null,
       state: row?.state ?? null,
       organization_id: row?.organization_id ?? trip.organization_id ?? null,
@@ -564,10 +614,12 @@ function billingLinesFromClient(client: InvoiceDraftClientView): string[] {
   const lines: string[] = [];
   const name = trimOrNull(client.legal_name) || trimOrNull(client.display_name);
   if (name) lines.push(name);
+  if (client.contact_person) lines.push(client.contact_person);
   if (client.billing_address) lines.push(client.billing_address);
   if (client.state) lines.push(client.state);
   if (client.gstin) lines.push(`GSTIN ${client.gstin}`);
   if (client.pan) lines.push(`PAN ${client.pan}`);
+  if (client.phone) lines.push(client.phone);
   if (client.email) lines.push(client.email);
   return lines;
 }
@@ -689,5 +741,11 @@ export function mapInvoiceDraftModelToPdfData(
 export function uniqueTripClientIds(trips: InvoicingTripView[]): string[] {
   return Array.from(
     new Set(trips.map((t) => trimOrNull(t.client_id)).filter((id): id is string => Boolean(id))),
+  );
+}
+
+export function uniqueTripClientNames(trips: InvoicingTripView[]): string[] {
+  return Array.from(
+    new Set(trips.map((t) => trimOrNull(t.client)).filter((name): name is string => Boolean(name))),
   );
 }

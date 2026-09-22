@@ -26,6 +26,7 @@ import {
   formatInvoicePreviewDate,
   mapInvoiceDraftModelToPdfData,
   uniqueTripClientIds,
+  uniqueTripClientNames,
 } from '@/features/invoicing/services/invoicePreviewModel.service';
 import { fetchInvoiceSettlementFacts } from '@/features/invoicing/services/invoiceSettlementFacts.service';
 import {
@@ -118,9 +119,11 @@ export default function InvoicePdfPreviewScreen() {
   );
 
   const clientIds = useMemo(() => uniqueTripClientIds(selectedTrips), [selectedTrips]);
-  const { data: fetchedClients = [], isLoading: isLoadingClients } = useInvoiceDraftClientsQuery(
+  const clientNames = useMemo(() => uniqueTripClientNames(selectedTrips), [selectedTrips]);
+  const { data: fetchedClients = [] } = useInvoiceDraftClientsQuery(
     workspaceId,
     clientIds,
+    clientNames,
   );
 
   const { record: tripAdjustmentsRecord } = useTripFinanceAdjustmentsMap(
@@ -223,10 +226,10 @@ export default function InvoicePdfPreviewScreen() {
     );
   }
 
-  if (!workspaceId || isLoadingTrips || (clientIds.length > 0 && isLoadingClients)) {
+  if (!workspaceId || isLoadingTrips) {
     return (
       <CenteredLoadingView
-        message={!workspaceId ? 'Loading workspace...' : isLoadingTrips ? 'Loading trips...' : 'Loading client...'}
+        message={!workspaceId ? 'Loading workspace...' : 'Loading trips...'}
       />
     );
   }
