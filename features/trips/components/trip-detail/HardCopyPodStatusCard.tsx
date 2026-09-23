@@ -7,7 +7,7 @@ import type {
   TripHardCopyPodState,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import Feather from "@expo/vector-icons/Feather";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
 function statusColor(status: HardCopyPodStatus): string {
   if (status === "RECEIVED") return Theme.positive;
@@ -41,6 +41,7 @@ export function HardCopyPodStatusCard({
   onViewDetails,
   onUpdatePod,
   onLogPod,
+  style,
 }: {
   state: TripHardCopyPodState | null;
   canManage: boolean;
@@ -48,13 +49,14 @@ export function HardCopyPodStatusCard({
   onViewDetails: () => void;
   onUpdatePod: () => void;
   onLogPod: () => void;
+  style?: StyleProp<ViewStyle>;
 }) {
   const status = state?.status ?? "PENDING";
   const color = statusColor(status);
   const canLog = canManage && tripCompleted;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, style]}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Feather name="file-text" size={13} color={Theme.textMuted} />
@@ -161,12 +163,13 @@ export function HardCopyPodStatusCard({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12,
+    borderRadius: 8,
     backgroundColor: Theme.surfaceGray,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    padding: 12,
-    gap: 8,
+    padding: 8,
+    gap: 4,
+    width: "100%",
   },
   header: {
     flexDirection: "row",
@@ -199,7 +202,7 @@ const styles = StyleSheet.create({
   pillText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
   body: { gap: 3 },
   meta: {
-    fontSize: 12,
+    fontSize: 11,
     color: Theme.textSecondary,
     fontWeight: "500",
   },
@@ -222,7 +225,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   linkBtn: {
-    minHeight: 36,
+    minHeight: 28,
     justifyContent: "center",
   },
   linkBtnLocked: {

@@ -1,4 +1,7 @@
-import { loadHubPodReceiptFlags } from "../tripDocumentLrPod.service";
+import {
+  loadHubPodReceiptFlags,
+  __resetTripDocumentLrPodRpcProbeForTests,
+} from "../tripDocumentLrPod.service";
 
 const mockFrom = jest.fn();
 const mockRpc = jest.fn();
@@ -25,6 +28,7 @@ function thenable(result: QueryResult) {
 describe("loadHubPodReceiptFlags", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __resetTripDocumentLrPodRpcProbeForTests();
     mockRpc.mockResolvedValue({
       data: null,
       error: { message: "function missing" },

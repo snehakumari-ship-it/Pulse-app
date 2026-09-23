@@ -18,8 +18,8 @@ import {
 } from "react-native";
 
 const AVATAR_SIZE = 32;
-const AVATAR_SIZE_DESKTOP = 44;
-const VEHICLE_ICON_SIZE_DESKTOP = 44;
+const AVATAR_SIZE_DESKTOP = 28;
+const VEHICLE_ICON_SIZE_DESKTOP = 28;
 
 type Props = {
   roleLabel: string;
@@ -255,7 +255,7 @@ export function ManifestRefAssetCard({
           >
             <Feather
               name="truck"
-              size={desktop ? 18 : 14}
+              size={14}
               color={Theme.textOnPrimary}
             />
           </View>
@@ -348,16 +348,17 @@ const styles = StyleSheet.create({
     }),
   },
   cardDesktop: {
-    flex: undefined,
+    flex: 1,
     width: "100%",
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderRadius: 12,
-    gap: 10,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
+    borderRadius: 8,
+    gap: 4,
     backgroundColor: Theme.surfaceGray,
     borderWidth: 1,
     borderColor: Theme.borderLight,
+    justifyContent: "center",
     ...Platform.select({
       web: {
         boxShadow: "none",
@@ -427,9 +428,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   primaryTextDesktop: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "700",
-    lineHeight: 21,
+    lineHeight: 16,
     letterSpacing: -0.2,
   },
   phoneText: {

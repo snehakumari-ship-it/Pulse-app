@@ -7,8 +7,6 @@
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PartyAvatar as SharedPartyAvatar } from "@/components/PartyAvatar";
 import { TripFeedbackModal } from '@/components/TripFeedbackModal';
-import type { TripPartyAvatarFields } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
-import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import { FinanceTxnTypography } from '@/constants/FinanceTxnTypography';
 import Theme from '@/constants/Theme';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -21,14 +19,16 @@ import {
     getDriverById,
     getDriversByOrganization,
 } from '@/features/drivers/services/drivers.service';
+import { getTripOperationalDisplay } from "@/features/operations/display";
 import {
     getLinkedOrgProfileForSupplier,
     getSupplierById,
     getSupplierDetails,
 } from '@/features/suppliers/services/suppliers.service';
+import type { TripPartyAvatarFields } from "@/features/trips/components/trip-detail/hooks/useTripDetail";
 import type { TripRow } from '@/features/trips/services/trips.service';
-import { getTripOperationalDisplay } from "@/features/operations/display";
 import { getSignedAvatarUrl } from '@/lib/avatarUpload';
+import type { PartyEntityType } from "@/lib/partyAvatarDisplay";
 import { VALIDATION } from '@/lib/validation';
 import Feather from '@expo/vector-icons/Feather';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
@@ -1426,6 +1426,7 @@ export function TripRatingsBlock({
         <TouchableOpacity
           style={[
             styles.regCardMain,
+            isRegistrySidebar && styles.regCardMainSidebar,
             !hasFeedbackBody && styles.regCardMainTight,
           ]}
           activeOpacity={hasExistingRating ? 1 : auditDisabled ? 1 : 0.82}
@@ -1438,7 +1439,7 @@ export function TripRatingsBlock({
             <SharedPartyAvatar
               name={partyName}
               entityType={entityType}
-              size={isRegistrySidebar ? 44 : 40}
+              size={isRegistrySidebar ? 32 : 40}
               avatarUrl={avatarUrl}
               avatarSeed={partyAvatar?.avatarSeed ?? entitySeed ?? undefined}
               initialsColorSeed={entitySeed ?? partyAvatar?.avatarSeed ?? undefined}
@@ -2529,6 +2530,9 @@ const styles = StyleSheet.create({
   },
   wsWrapperSidebar: {
     marginBottom: 0,
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
   },
   wsCard: {
     backgroundColor: Theme.screenBackground,
@@ -2930,6 +2934,8 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderWidth: 0,
     backgroundColor: 'transparent',
+    flex: 1,
+    minHeight: 0,
     ...Platform.select({
       web: { boxShadow: 'none' },
       default: {},
@@ -2940,13 +2946,23 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     gap: 10,
   },
-  regWrapSidebar: { gap: 12 },
+  regWrapSidebar: {
+    gap: 0,
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+  },
   regStack: {
     width: "100%",
     alignSelf: "stretch",
     gap: 10,
   },
-  regStackSidebar: { gap: 12 },
+  regStackSidebar: {
+    gap: 6,
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+  },
   regCard: {
     width: "100%",
     alignSelf: "stretch",
@@ -2967,14 +2983,23 @@ const styles = StyleSheet.create({
     }),
   },
   regCardSidebar: {
-    borderRadius: 12,
+    borderRadius: 8,
     borderColor: Theme.borderLight,
+    flex: 1,
+    minHeight: 0,
+    justifyContent: "space-between",
   },
   regCardMain: {
     paddingHorizontal: 14,
     paddingTop: 12,
     paddingBottom: 10,
     gap: 10,
+  },
+  regCardMainSidebar: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 6,
+    gap: 6,
   },
   regCardMainTight: {
     paddingBottom: 10,
@@ -3097,7 +3122,9 @@ const styles = StyleSheet.create({
   regCardFootSidebar: {
     marginTop: 0,
     paddingTop: 0,
-    paddingVertical: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    minHeight: 40,
   },
   regFootSide: {
     width: 76,
