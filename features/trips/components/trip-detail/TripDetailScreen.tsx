@@ -4284,6 +4284,7 @@ export default function TripDetailScreen({
 
         {isDesktop ? (
           <View style={neoStyles.shell}>
+                {activeTab !== "trip" ? (
                 <View style={neoStyles.hero}>
                   <View style={neoStyles.heroGlow} />
                   <View style={neoStyles.heroBridge}>
@@ -4322,7 +4323,7 @@ export default function TripDetailScreen({
                       </View>
                     </View>
                     <View style={neoStyles.swapIcon}>
-                      <FontAwesome name="exchange" size={11} color="#64748b" />
+                      <FontAwesome name="exchange" size={11} color={Theme.textMuted} />
                     </View>
                     {showManifestHeroDriver ? (
                       <NeoManifestHeroBridgePartyEnd
@@ -4374,7 +4375,7 @@ export default function TripDetailScreen({
                     <View style={neoStyles.routeVector}>
                       <View style={neoStyles.routeVectorLine} />
                       <View style={neoStyles.routeVectorTruck}>
-                        <Feather name="truck" size={15} color="#cbd5e1" />
+                        <Feather name="truck" size={14} color={Theme.textMuted} />
                       </View>
                       <View style={neoStyles.routeVectorLine} />
                     </View>
@@ -4434,6 +4435,8 @@ export default function TripDetailScreen({
                     </View>
                   </View>
                 </View>
+
+                ) : null}
 
                 <View style={neoStyles.tabShell}>
                   {(
@@ -4510,6 +4513,440 @@ export default function TripDetailScreen({
                       isMobile && neoStyles.journeyGridMobile,
                     ]}
                   >
+                    <View
+                      style={[
+                        neoStyles.trackingMapCol,
+                        isMobile && neoStyles.trackingMapColMobile,
+                      ]}
+                    >
+                      <View style={[neoStyles.hero, neoStyles.heroCompact]}>
+                        <View style={neoStyles.heroGlow} />
+                  <View style={neoStyles.heroBridge}>
+                    <View style={neoStyles.heroParty}>
+                      <PartyAvatar
+                        name={clientNameForParty}
+                        entityType="client"
+                        size={MANIFEST_HERO_AVATAR_DESKTOP}
+                        organizationImageUrl={
+                          detail.clientPartyAvatarFields
+                            ?.organizationImageUrl ?? undefined
+                        }
+                        organizationAvatarSeed={
+                          detail.clientPartyAvatarFields
+                            ?.organizationAvatarSeed ?? undefined
+                        }
+                        avatarUrl={
+                          detail.clientPartyAvatarFields?.avatarUrl ?? undefined
+                        }
+                        avatarSeed={
+                          detail.clientPartyAvatarFields?.avatarSeed ??
+                          undefined
+                        }
+                        isIntegrated={clientPartyIntegrated}
+                        showIntegrationBadge={false}
+                      />
+                      <View style={neoStyles.heroPartyText}>
+                        <Text style={neoStyles.heroKicker}>CLIENT</Text>
+                        <Text
+                          style={neoStyles.heroPartyName}
+                          numberOfLines={2}
+                          ellipsizeMode="tail"
+                        >
+                          {clientNameCard}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={neoStyles.swapIcon}>
+                      <FontAwesome name="exchange" size={11} color={Theme.textMuted} />
+                    </View>
+                    {showManifestHeroDriver ? (
+                      <NeoManifestHeroBridgePartyEnd
+                        roleLabel="DRIVER"
+                        partyName={allocatedDriverName}
+                        partyPhone={detail.driverPhone}
+                        entityType="driver"
+                        avatarSize={MANIFEST_HERO_AVATAR_DESKTOP}
+                        avatarUrl={detail.driverAvatarUri}
+                        avatarSeed={trip.driver_id}
+                        vehicleLabel={allocatedVehicleLabel}
+                        vehicleId={trip.vehicle_id}
+                        styles={neoStyles}
+                        partyStyles={manifestHeroBridgePartyStyles}
+                      />
+                    ) : (
+                      <NeoManifestHeroBridgePartyEnd
+                        roleLabel="SUPPLIER"
+                        partyName={supplierName}
+                        entityType="supplier"
+                        avatarSize={MANIFEST_HERO_AVATAR_DESKTOP}
+                        avatarUrl={detail.supplierPartyAvatarFields?.avatarUrl}
+                        avatarSeed={
+                          detail.supplierPartyAvatarFields?.avatarSeed
+                        }
+                        organizationImageUrl={
+                          detail.supplierPartyAvatarFields?.organizationImageUrl
+                        }
+                        organizationAvatarSeed={
+                          detail.supplierPartyAvatarFields
+                            ?.organizationAvatarSeed
+                        }
+                        isIntegrated={supplierPartyIntegrated}
+                        styles={neoStyles}
+                        partyStyles={manifestHeroBridgePartyStyles}
+                      />
+                    )}
+                  </View>
+
+                  <View style={neoStyles.routeHeroRow}>
+                    <View style={neoStyles.routeHeroSide}>
+                      <Text style={neoStyles.routeHeroCity} numberOfLines={2}>
+                        {originSplit.primary.toUpperCase()}
+                      </Text>
+                      <Text style={neoStyles.routeHeroSub}>
+                        {originStateLabel.toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={neoStyles.routeVector}>
+                      <View style={neoStyles.routeVectorLine} />
+                      <View style={neoStyles.routeVectorTruck}>
+                        <Feather name="truck" size={14} color={Theme.textMuted} />
+                      </View>
+                      <View style={neoStyles.routeVectorLine} />
+                    </View>
+                    <View
+                      style={[
+                        neoStyles.routeHeroSide,
+                        neoStyles.routeHeroSideRight,
+                      ]}
+                    >
+                      <Text
+                        style={[neoStyles.routeHeroCity, neoStyles.alignRight]}
+                        numberOfLines={2}
+                      >
+                        {destinationSplit.primary.toUpperCase()}
+                      </Text>
+                      <Text
+                        style={[neoStyles.routeHeroSub, neoStyles.alignRight]}
+                      >
+                        {destinationStateLabel.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={neoStyles.heroMetrics}>
+                    <View style={neoStyles.heroMetric}>
+                      <Text style={neoStyles.heroMetricLabel}>
+                        Manifest Range
+                      </Text>
+                      <Text style={neoStyles.heroMetricValue}>
+                        {resolvedDistanceLabel
+                          ? resolvedDistanceLabel.replace(/\s*km$/i, " KM")
+                          : "—"}
+                      </Text>
+                    </View>
+                    <View style={neoStyles.heroMetricDivider} />
+                    <View style={neoStyles.heroMetric}>
+                      <Text style={neoStyles.heroMetricLabel}>
+                        ETA Manifest
+                      </Text>
+                      <Text style={neoStyles.heroMetricValue}>
+                        {liveTrackingPresentation?.eta.label ?? '—'}
+                      </Text>
+                    </View>
+                    <View style={neoStyles.heroMetricDivider} />
+                    <View style={neoStyles.heroMetric}>
+                      <Text style={neoStyles.heroMetricLabel}>Status</Text>
+                      <View
+                        style={[
+                          neoStyles.heroMetricStatusPill,
+                          { backgroundColor: statusColor },
+                        ]}
+                      >
+                        <Text style={neoStyles.heroMetricStatusPillText}>
+                          {statusLabel.toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+                    <View style={[neoStyles.radarCard, neoStyles.trackingMapPane]}>
+                      <View style={neoStyles.radarMapLayer}>
+                        <WaitingForDriverLocationOverlay
+                          visible={detail.waitingForNewDriverLocation}
+                        />
+                        <DeferredTripMap
+                          source={(trip.pickup_area ?? "").trim() || undefined}
+                          destination={
+                            (trip.drop_location ?? "").trim() || undefined
+                          }
+                          sourceCoords={
+                            detail.trackingMapOriginCoordinate ?? undefined
+                          }
+                          destCoords={
+                            detail.trackingMapDestinationCoordinate ?? undefined
+                          }
+                          truckLocation={mapTruckLocation}
+                          dbLocationTrail={mapDbLocationTrail}
+                          truckStatus={mapTruckStatus}
+                          height="100%"
+                          onDistanceCalculated={setMapRouteDistanceKm}
+                          tripId={trip.id}
+                          trackingEnabled={trackingState?.broadcastActive ?? false}
+                          fitPaddingBottom={driverMapTrackingEligible ? 168 : 96}
+                          driverAvatarUri={detail.driverAvatarUri}
+                          driverAvatarSeed={trip.driver_id}
+                          driverOnline={trackingState?.broadcastActive ?? false}
+                        />
+                        {showDriverTrackingOfflineOverlay ? (
+                          <DriverTrackingOfflineOverlay
+                            variant="map"
+                            showReassign={detail.canAssign}
+                            onSendLoginReminder={detail.requestDriverPing}
+                            onReassignDriver={() => setShowReassignSheet(true)}
+                          />
+                        ) : null}
+                      </View>
+                      {trackingState?.broadcastActive ? (
+                        <View style={neoStyles.radarLive} pointerEvents="none">
+                          <View style={neoStyles.radarLiveDot} />
+                          <Text style={neoStyles.radarLiveText}>
+                            Live Telemetry
+                          </Text>
+                        </View>
+                      ) : driverMapTrackingEligible ? (
+                        <View
+                          style={[neoStyles.radarLive, neoStyles.radarHistory]}
+                          pointerEvents="none"
+                        >
+                          <Text style={neoStyles.radarHistoryText}>
+                            Route history
+                          </Text>
+                        </View>
+                      ) : null}
+                      <View
+                        style={neoStyles.radarBottom}
+                        pointerEvents="box-none"
+                      >
+                        <View style={neoStyles.radarBottomMetaRow}>
+                          <View style={neoStyles.radarBottomLeft}>
+                            <Text style={neoStyles.radarMetaLabel}>
+                              Driver location
+                            </Text>
+                            <Text
+                              style={neoStyles.radarMetaValue}
+                              numberOfLines={2}
+                            >
+                              {driverLastPingDisplay.locationLabel?.trim() ||
+                                driverLastPingDisplay.cityLabel?.trim() ||
+                                (driverMapTrackingEligible
+                                  ? "Waiting for first ping"
+                                  : "—")}
+                            </Text>
+                            {detail.driverName?.trim() ? (
+                              <Text style={neoStyles.radarDriverName} numberOfLines={1}>
+                                {detail.driverName.trim()}
+                                {detail.vehicleLabel?.trim()
+                                  ? ` · ${detail.vehicleLabel.trim()}`
+                                  : ""}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <View style={neoStyles.radarBottomRight}>
+                            <Text style={neoStyles.radarMetaLabel}>
+                              {driverLastPingDisplay.recordedAtLabel
+                                ? "Last ping"
+                                : "Distance / ETA"}
+                            </Text>
+                            {driverLastPingDisplay.recordedAtLabel ? (
+                              <Text style={neoStyles.radarMetaTime}>
+                                {driverLastPingDisplay.recordedAtLabel}
+                              </Text>
+                            ) : (
+                              <Text style={neoStyles.radarSpeed}>
+                                {resolvedDistanceLabel ?? "Calculating"}{" "}
+                                <Text style={neoStyles.radarSpeedUnit}>
+                                  · {liveTrackingPresentation?.eta.label ?? "—"}
+                                </Text>
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        {driverMapTrackingEligible ? (
+                          <View style={neoStyles.radarBottomActions}>
+                            <TouchableOpacity
+                              style={neoStyles.radarBottomActionBtn}
+                              onPress={() => detail.setShowTrackingModal(true)}
+                              activeOpacity={0.75}
+                              accessibilityRole="button"
+                              accessibilityLabel="Open live tracking"
+                            >
+                              <Feather name="map-pin" size={14} color={Theme.buttonDarkText} />
+                              <Text style={neoStyles.radarBottomActionTextLive}>
+                                Live Tracking
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                neoStyles.radarBottomActionBtn,
+                                neoStyles.radarBottomActionBtnPing,
+                                isPingTimedOut && neoStyles.radarBottomActionBtnTimedOut,
+                                (trackingState?.isPinging ?? false) &&
+                                  neoStyles.radarBottomActionBtnActive,
+                              ]}
+                              onPress={detail.requestDriverPing}
+                              disabled={trackingState?.isPinging ?? false}
+                              activeOpacity={0.75}
+                              accessibilityRole="button"
+                              accessibilityLabel="Ping driver"
+                            >
+                              {(trackingState?.isPinging ?? false) ? (
+                                <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+                              ) : isPingTimedOut ? (
+                                <Feather name="alert-circle" size={14} color={Theme.buttonDarkText} />
+                              ) : (
+                                <Feather name="navigation" size={14} color={Theme.buttonDarkText} />
+                              )}
+                              <Text
+                                style={[
+                                  neoStyles.radarBottomActionTextPing,
+                                  isPingTimedOut && neoStyles.radarPingTextTimedOut,
+                                ]}
+                              >
+                                {(trackingState?.isPinging ?? false)
+                                  ? "Pinging…"
+                                  : isPingTimedOut
+                                    ? "No response"
+                                    : "Ping Driver"}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+                    </View>
+                    <View
+                      style={[
+                        neoStyles.trackingInfoRail,
+                        isMobile && neoStyles.trackingInfoRailMobile,
+                      ]}
+                    >
+                    <View
+                      style={[
+                        neoStyles.trackingAssetsColumn,
+                        isMobile && neoStyles.trackingAssetsColumnMobile,
+                      ]}
+                    >
+                      <View style={neoStyles.trackingAssetsCard}>
+                        <View style={neoStyles.trackingPanelHeader}>
+                          <Feather
+                            name="activity"
+                            size={13}
+                            color={Theme.textMuted}
+                          />
+                          <Text style={neoStyles.sideHeadingText}>
+                            Manifest Assets
+                          </Text>
+                        </View>
+                        <View style={neoStyles.trackingAssetsStack}>
+                          <View style={neoStyles.trackingAssetSlot}>
+                            <ManifestRefAssetCard
+                              desktop
+                              roleLabel="Driver"
+                              primaryText={allocatedDriverName}
+                              variant="driver"
+                              phone={detail.driverPhone}
+                              ratingAvg={manifestDriverInsights.ratingAvg}
+                              docsIssue={manifestDriverInsights.docsIssue}
+                              insightsLoading={manifestRefAssetInsights.isLoading}
+                              driverName={detail.driverName}
+                              driverAvatarUrl={detail.driverAvatarUri}
+                              driverId={trip.driver_id}
+                              showChange={canChangeManifestAssets}
+                              onChange={() => openAssignmentFlow("driver")}
+                              style={neoStyles.assetCardWrap}
+                            />
+                          </View>
+                          <View style={neoStyles.trackingAssetSlot}>
+                            <ManifestRefAssetCard
+                              desktop
+                              roleLabel="Vehicle"
+                              primaryText={allocatedVehicleLabel}
+                              variant="vehicle"
+                              vehicleType={vehicleTypeLabel}
+                              docsIssue={manifestVehicleInsights.docsIssue}
+                              insightsLoading={manifestRefAssetInsights.isLoading}
+                              showChange={canChangeManifestAssets}
+                              onChange={() => openAssignmentFlow("vehicle")}
+                              style={neoStyles.assetCardWrap}
+                            />
+                          </View>
+                          <View style={neoStyles.trackingAssetSlot}>
+                            <HardCopyPodStatusCard
+                              state={hardCopyPodState}
+                              canManage={canManageHardCopyPod}
+                              tripCompleted={tripCompleted}
+                              onViewDetails={() => openHardCopyPodModal("view")}
+                              onUpdatePod={() =>
+                                openHardCopyPodModal("mark_received")
+                              }
+                              onLogPod={() => openHardCopyPodModal("create")}
+                              style={neoStyles.trackingAssetFill}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                      {canTripRatings ? (
+                        <View
+                          style={[
+                            neoStyles.sideCard,
+                            neoStyles.trackingRatingsCard,
+                          ]}
+                        >
+                          <View
+                            style={neoStyles.trackingPanelHeader}
+                            accessibilityElementsHidden
+                            importantForAccessibility="no-hide-descendants"
+                          >
+                            <Feather
+                              name="star"
+                              size={13}
+                              color={Theme.textMuted}
+                            />
+                            <Text style={neoStyles.sideHeadingText}>
+                              Reviews
+                            </Text>
+                          </View>
+                          <View style={neoStyles.trackingRatingsBody}>
+                            <TripRatingsBlock
+                              trip={trip}
+                              organizationId={currentOrganization?.id ?? null}
+                              partnerName={detail.partnerName}
+                              driverName={detail.driverName}
+                              driverAvatarUri={detail.driverAvatarUri}
+                              clientName={
+                                detail.displayClientName ??
+                                trip.client_name ??
+                                null
+                              }
+                              clientPartyAvatarFields={
+                                detail.clientPartyAvatarFields
+                              }
+                              supplierPartyAvatarFields={
+                                detail.supplierPartyAvatarFields
+                              }
+                              paymentCaptured={detail.tripLedgerEntries.some(
+                                (row) =>
+                                  row.contact_type === "client" &&
+                                  Number(row.amount_in ?? 0) > 0,
+                              )}
+                              layoutVariant="registry"
+                              embeddedSidebar
+                              skipHistoricalPartyRatings={tripCompleted}
+                            />
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
                     <View
                       style={[
                         neoStyles.timelineCard,
@@ -4841,159 +5278,7 @@ export default function TripDetailScreen({
                       </Modal>
                     ) : null}
 
-                    <View style={neoStyles.radarCard}>
-                      <View style={neoStyles.radarMapLayer}>
-                        <WaitingForDriverLocationOverlay
-                          visible={detail.waitingForNewDriverLocation}
-                        />
-                        <DeferredTripMap
-                          source={(trip.pickup_area ?? "").trim() || undefined}
-                          destination={
-                            (trip.drop_location ?? "").trim() || undefined
-                          }
-                          sourceCoords={
-                            detail.trackingMapOriginCoordinate ?? undefined
-                          }
-                          destCoords={
-                            detail.trackingMapDestinationCoordinate ?? undefined
-                          }
-                          truckLocation={mapTruckLocation}
-                          dbLocationTrail={mapDbLocationTrail}
-                          truckStatus={mapTruckStatus}
-                          height="100%"
-                          onDistanceCalculated={setMapRouteDistanceKm}
-                          tripId={trip.id}
-                          trackingEnabled={trackingState?.broadcastActive ?? false}
-                          fitPaddingBottom={driverMapTrackingEligible ? 168 : 96}
-                          driverAvatarUri={detail.driverAvatarUri}
-                          driverAvatarSeed={trip.driver_id}
-                          driverOnline={trackingState?.broadcastActive ?? false}
-                        />
-                        {showDriverTrackingOfflineOverlay ? (
-                          <DriverTrackingOfflineOverlay
-                            variant="map"
-                            showReassign={detail.canAssign}
-                            onSendLoginReminder={detail.requestDriverPing}
-                            onReassignDriver={() => setShowReassignSheet(true)}
-                          />
-                        ) : null}
-                      </View>
-                      {trackingState?.broadcastActive ? (
-                        <View style={neoStyles.radarLive} pointerEvents="none">
-                          <View style={neoStyles.radarLiveDot} />
-                          <Text style={neoStyles.radarLiveText}>
-                            Live Telemetry
-                          </Text>
-                        </View>
-                      ) : driverMapTrackingEligible ? (
-                        <View
-                          style={[neoStyles.radarLive, neoStyles.radarHistory]}
-                          pointerEvents="none"
-                        >
-                          <Text style={neoStyles.radarHistoryText}>
-                            Route history
-                          </Text>
-                        </View>
-                      ) : null}
-                      <View
-                        style={neoStyles.radarBottom}
-                        pointerEvents="box-none"
-                      >
-                        <View style={neoStyles.radarBottomMetaRow}>
-                          <View style={neoStyles.radarBottomLeft}>
-                            <Text style={neoStyles.radarMetaLabel}>
-                              Driver location
-                            </Text>
-                            <Text
-                              style={neoStyles.radarMetaValue}
-                              numberOfLines={2}
-                            >
-                              {driverLastPingDisplay.locationLabel?.trim() ||
-                                driverLastPingDisplay.cityLabel?.trim() ||
-                                (driverMapTrackingEligible
-                                  ? "Waiting for first ping"
-                                  : "—")}
-                            </Text>
-                            {detail.driverName?.trim() ? (
-                              <Text style={neoStyles.radarDriverName} numberOfLines={1}>
-                                {detail.driverName.trim()}
-                                {detail.vehicleLabel?.trim()
-                                  ? ` · ${detail.vehicleLabel.trim()}`
-                                  : ""}
-                              </Text>
-                            ) : null}
-                          </View>
-                          <View style={neoStyles.radarBottomRight}>
-                            <Text style={neoStyles.radarMetaLabel}>
-                              {driverLastPingDisplay.recordedAtLabel
-                                ? "Last ping"
-                                : "Distance / ETA"}
-                            </Text>
-                            {driverLastPingDisplay.recordedAtLabel ? (
-                              <Text style={neoStyles.radarMetaTime}>
-                                {driverLastPingDisplay.recordedAtLabel}
-                              </Text>
-                            ) : (
-                              <Text style={neoStyles.radarSpeed}>
-                                {resolvedDistanceLabel ?? "Calculating"}{" "}
-                                <Text style={neoStyles.radarSpeedUnit}>
-                                  · {liveTrackingPresentation?.eta.label ?? "—"}
-                                </Text>
-                              </Text>
-                            )}
-                          </View>
-                        </View>
-                        {driverMapTrackingEligible ? (
-                          <View style={neoStyles.radarBottomActions}>
-                            <TouchableOpacity
-                              style={neoStyles.radarBottomActionBtn}
-                              onPress={() => detail.setShowTrackingModal(true)}
-                              activeOpacity={0.75}
-                              accessibilityRole="button"
-                              accessibilityLabel="Open live tracking"
-                            >
-                              <Feather name="map-pin" size={14} color={Theme.buttonDarkText} />
-                              <Text style={neoStyles.radarBottomActionTextLive}>
-                                Live Tracking
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={[
-                                neoStyles.radarBottomActionBtn,
-                                neoStyles.radarBottomActionBtnPing,
-                                isPingTimedOut && neoStyles.radarBottomActionBtnTimedOut,
-                                (trackingState?.isPinging ?? false) &&
-                                  neoStyles.radarBottomActionBtnActive,
-                              ]}
-                              onPress={detail.requestDriverPing}
-                              disabled={trackingState?.isPinging ?? false}
-                              activeOpacity={0.75}
-                              accessibilityRole="button"
-                              accessibilityLabel="Ping driver"
-                            >
-                              {(trackingState?.isPinging ?? false) ? (
-                                <ActivityIndicator size="small" color={Theme.buttonDarkText} />
-                              ) : isPingTimedOut ? (
-                                <Feather name="alert-circle" size={14} color={Theme.buttonDarkText} />
-                              ) : (
-                                <Feather name="navigation" size={14} color={Theme.buttonDarkText} />
-                              )}
-                              <Text
-                                style={[
-                                  neoStyles.radarBottomActionTextPing,
-                                  isPingTimedOut && neoStyles.radarPingTextTimedOut,
-                                ]}
-                              >
-                                {(trackingState?.isPinging ?? false)
-                                  ? "Pinging…"
-                                  : isPingTimedOut
-                                    ? "No response"
-                                    : "Ping Driver"}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : null}
-                      </View>
+
                     </View>
                   </View>
                 ) : activeTab === "finance" ? (
@@ -5702,6 +5987,7 @@ export default function TripDetailScreen({
                 )}
               </View>
 
+              {activeTab !== "trip" ? (
               <View style={neoStyles.sideCol}>
                 <View style={neoStyles.sideCard}>
                   <View style={neoStyles.sideSection}>
@@ -5775,6 +6061,7 @@ export default function TripDetailScreen({
                 </View>
                 ) : null}
               </View>
+              ) : null}
             </View>
           </View>
         ) : null}
