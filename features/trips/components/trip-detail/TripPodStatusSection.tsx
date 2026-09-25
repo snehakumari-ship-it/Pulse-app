@@ -1,23 +1,23 @@
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
-import {
-  markTripHardCopyPodReceived,
-  tripPodIsReceived,
-} from "@/features/trips/services/tripDocumentLrPod.service";
 import { TripCompletionOrPodTags } from "@/features/trips/components/TripPodStatusTags";
+import {
+    markTripHardCopyPodReceived,
+    tripPodIsReceived,
+} from "@/features/trips/services/tripDocumentLrPod.service";
 import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
 import { useTripHardCopyPodQuery } from "@/lib/queries/useTripHardCopyPodQuery";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Alert,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 
 function formatReceivedAt(iso: string | null | undefined): string | null {

@@ -56,11 +56,13 @@ export function HardCopyPodStatusCard({
   const canLog = canManage && tripCompleted;
 
   return (
-    <View style={[styles.card, style]}>
+    <View style={[styles.card, status === "RECEIVED" && styles.cardReceived, style]}>
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Feather name="file-text" size={13} color={Theme.textMuted} />
-          <Text style={styles.title}>Hard Copy POD</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            Hard Copy POD
+          </Text>
         </View>
         <View style={[styles.pill, { backgroundColor: `${color}18` }]}>
           <View style={[styles.dot, { backgroundColor: color }]} />
@@ -70,18 +72,33 @@ export function HardCopyPodStatusCard({
 
       {status === "RECEIVED" ? (
         <View style={styles.body}>
-          {state?.receiptMethod === "courier" ? (
-            <Text style={styles.meta}>Courier · {state.courier ?? "—"}</Text>
+          <Fact
+            label="Method"
+            value={
+              state?.receiptMethod === "courier"
+                ? "Received by Courier"
+                : state?.receiptMethod === "person"
+                  ? "Received by Person"
+                  : "—"
+            }
+          />
+          {state?.receiptMethod === "courier" && state.courier ? (
+            <Fact label="Courier" value={state.courier} />
           ) : null}
-          {state?.receivedBy ? (
-            <Text style={styles.meta}>Received by · {state.receivedBy}</Text>
+          {state?.receiptMethod === "courier" && state.awbNumber ? (
+            <Fact label="AWB" value={state.awbNumber} />
           ) : null}
-          <Text style={styles.meta}>
-            Date ·{" "}
-            {formatDate(state?.receivedDate) !== "—"
-              ? formatDate(state?.receivedDate)
-              : formatDate(state?.receivedAt)}
-          </Text>
+          {state?.receivedBy ? <Fact label="Received" value={state.receivedBy} /> : null}
+          <Fact
+            label="Date"
+            value={
+              formatDate(state?.receivedDate) !== "—"
+                ? formatDate(state?.receivedDate)
+                : formatDate(state?.receivedAt)
+            }
+          />
+          {state?.receivedTime ? <Fact label="Time" value={state.receivedTime} /> : null}
+          {state?.remarks ? <Fact label="Remarks" value={state.remarks} /> : null}
           <Pressable
             onPress={onViewDetails}
             style={styles.linkBtn}
@@ -95,17 +112,13 @@ export function HardCopyPodStatusCard({
 
       {status === "IN_TRANSIT" ? (
         <View style={styles.body}>
-          <Text style={styles.metaStrong}>{state?.courier ?? "Courier"}</Text>
-          <Text style={styles.awb}>AWB · {state?.awbNumber ?? "—"}</Text>
+          <Fact label="Courier" value={state?.courier ?? "—"} />
+          <Fact label="AWB" value={state?.awbNumber ?? "—"} />
           {state?.dispatchDate ? (
-            <Text style={styles.meta}>
-              Dispatch · {formatDate(state.dispatchDate)}
-            </Text>
+            <Fact label="Dispatch" value={formatDate(state.dispatchDate)} />
           ) : null}
           {state?.expectedDeliveryDate ? (
-            <Text style={styles.meta}>
-              Expected · {formatDate(state.expectedDeliveryDate)}
-            </Text>
+            <Fact label="Expected" value={formatDate(state.expectedDeliveryDate)} />
           ) : null}
           <View style={styles.actionsRow}>
             <Pressable
@@ -161,15 +174,36 @@ export function HardCopyPodStatusCard({
   );
 }
 
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.fact}>
+      <View style={styles.factLabelCol}>
+        <Text style={styles.factLabel} numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+      <Text style={styles.factValue}>{value || "—"}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     borderRadius: 8,
     backgroundColor: Theme.surfaceGray,
     borderWidth: 1,
     borderColor: Theme.borderLight,
-    padding: 8,
-    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
     width: "100%",
+    alignSelf: "stretch",
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  cardReceived: {
+    backgroundColor: Theme.positiveMuted,
+    borderColor: Theme.positiveMutedDarkBorder,
   },
   header: {
     flexDirection: "row",
@@ -184,9 +218,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   title: {
+    flexShrink: 1,
     fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
@@ -200,7 +235,39 @@ const styles = StyleSheet.create({
   },
   dot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
-  body: { gap: 3 },
+  body: {
+    width: "100%",
+    alignSelf: "stretch",
+    gap: 5,
+  },
+  fact: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    width: "100%",
+    minWidth: 0,
+  },
+  factLabelCol: {
+    width: 76,
+    flexGrow: 0,
+    flexShrink: 0,
+    marginRight: 8,
+  },
+  factLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    lineHeight: 16,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  factValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+    color: Theme.textPrimaryDark,
+  },
   meta: {
     fontSize: 11,
     color: Theme.textSecondary,
@@ -226,7 +293,9 @@ const styles = StyleSheet.create({
   },
   linkBtn: {
     minHeight: 28,
+    marginTop: 2,
     justifyContent: "center",
+    alignSelf: "flex-start",
   },
   linkBtnLocked: {
     opacity: 0.45,

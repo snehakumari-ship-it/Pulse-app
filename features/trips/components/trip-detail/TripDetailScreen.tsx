@@ -4852,7 +4852,7 @@ export default function TripDetailScreen({
                               style={neoStyles.assetCardWrap}
                             />
                           </View>
-                          <View style={neoStyles.trackingAssetSlot}>
+                          <View style={neoStyles.trackingPodSlot}>
                             <HardCopyPodStatusCard
                               state={hardCopyPodState}
                               canManage={canManageHardCopyPod}
@@ -4862,7 +4862,6 @@ export default function TripDetailScreen({
                                 openHardCopyPodModal("mark_received")
                               }
                               onLogPod={() => openHardCopyPodModal("create")}
-                              style={neoStyles.trackingAssetFill}
                             />
                           </View>
                         </View>

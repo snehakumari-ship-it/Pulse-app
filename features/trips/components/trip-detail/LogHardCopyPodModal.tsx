@@ -15,10 +15,10 @@ import {
   type HardCopyPodStatus,
   type TripHardCopyPodState,
 } from "@/features/trips/services/tripDocumentLrPod.service";
-import { invalidateHardCopyPodCaches } from "@/lib/queries/invalidateHardCopyPodCaches";
+import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
 import Feather from "@expo/vector-icons/Feather";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -34,7 +34,23 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-export type HardCopyPodManifestSummary = {
+const HARD_COPY_POD_COURIERS = [
+  "BlueDart",
+  "DHL",
+  "DTDC",
+  "Delhivery",
+  "FedEx",
+  "Ecom Express",
+  "Professional Couriers",
+  "India Post",
+] as const;
+
+function courierNameOptions(current: string): string[] {
+  const saved = current.trim();
+  const base = [...HARD_COPY_POD_COURIERS];
+  if (!saved || base.includes(saved)) return base;
+  return [saved, ...base];
+}
   manifestId: string;
   clientName: string;
   pickup: string;
@@ -154,8 +170,8 @@ export function LogHardCopyPodModal({
     });
   }, [visible, initialMode, refreshState]);
 
-  const invalidate = useCallback(() => {
-    invalidateHardCopyPodCaches(queryClient, {
+  const invalidate = useCallback(async () => {
+    await syncHardCopyPodRecord(queryClient, {
       tripId,
       organizationId,
     });
@@ -194,7 +210,16 @@ export function LogHardCopyPodModal({
   }, [receivedBy, receivedDate]);
 
   const handleSaveCreate = useCallback(async () => {
-    if (!canManage || saving || !validateCreate() || !method) return;
+    if (!canManage || saving) return;
+    if (!validateCreate() || !method) {
+      Alert.alert(
+        "Hard Copy POD",
+        method === "courier"
+          ? "Enter the courier name, tracking number, and dispatch date."
+          : "Enter who received the POD and the received date.",
+      );
+      return;
+    }
     setSaving(true);
     if (method === "person") {
       const { error, alreadyReceived } = await markTripHardCopyPodReceived(tripId, {
@@ -218,26 +243,42 @@ export function LogHardCopyPodModal({
         );
       }
     } else {
-      const { error, alreadyReceived } = await logTripHardCopyPodCourier(tripId, {
+      const comment = encodeHardCopyPodComment({
+        remarks,
+        receiptMethod: "courier",
+        dispatchDate,
+        expectedDeliveryDate,
+      });
+      const logged = await logTripHardCopyPodCourier(tripId, {
         courier: courierName.trim(),
         awbNumber: awbNumber.trim(),
         dispatchDate,
         expectedDeliveryDate: expectedDeliveryDate || null,
         remarks: remarks || null,
       });
+      const recorded = await markTripHardCopyPodReceived(tripId, {
+        courier: courierName.trim(),
+        awbNumber: awbNumber.trim(),
+        comment,
+      });
       setSaving(false);
-      if (error) {
-        Alert.alert("Hard Copy POD", error.message);
+      if (recorded.error && logged.error) {
+        Alert.alert("Hard Copy POD", recorded.error.message);
         return;
       }
-      if (alreadyReceived) {
+      if (recorded.error && !logged.error) {
+        await invalidate();
+        onClose();
+        return;
+      }
+      if (recorded.alreadyReceived && logged.alreadyReceived) {
         Alert.alert(
           "Hard Copy POD",
           "This trip's hard-copy POD was already marked received.",
         );
       }
     }
-    invalidate();
+    await invalidate();
     onClose();
   }, [
     awbNumber,
@@ -281,7 +322,7 @@ export function LogHardCopyPodModal({
         "This trip's hard-copy POD was already recorded as received.",
       );
     }
-    invalidate();
+    await invalidate();
     onClose();
   }, [
     awbNumber,
@@ -604,13 +645,17 @@ export function LogHardCopyPodModal({
 
                 {method === "courier" ? (
                   <View style={styles.fields}>
-                    <Field
-                      label="Courier Name"
-                      required
+                    <CourierNameField
                       value={courierName}
-                      onChangeText={setCourierName}
-                      placeholder="e.g. DHL, BlueDart"
                       error={errors.courierName}
+                      onChange={(name) => {
+                        markDraftDirty();
+                        setCourierName(name);
+                        setErrors((current) => {
+                          const { courierName: _removed, ...rest } = current;
+                          return rest;
+                        });
+                      }}
                     />
                     <Field
                       label="Tracking / AWB Number"
@@ -784,6 +829,129 @@ function DetailRow({
       >
         {value}
       </Text>
+    </View>
+  );
+}
+
+function CourierNameField({
+  value,
+  onChange,
+  error,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+  error?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const options = courierNameOptions(value);
+  const selected = value.trim();
+
+  const choose = (name: string) => {
+    onChange(name);
+    setOpen(false);
+  };
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>
+        Courier Name
+        <Text style={styles.req}> *</Text>
+      </Text>
+      {Platform.OS === "web" ? (
+        <View style={[styles.input, styles.courierSelect, error ? styles.inputError : null]}>
+          {createElement(
+            "select",
+            {
+              value: selected,
+              "aria-label": "Courier Name",
+              "aria-required": true,
+              "aria-invalid": Boolean(error),
+              onChange: (event: { target: { value: string } }) => {
+                choose(event.target.value);
+              },
+              style: {
+                flex: 1,
+                minWidth: 0,
+                width: "100%",
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontSize: 14,
+                fontWeight: "500",
+                color: selected ? Theme.textPrimaryDark : Theme.textMuted,
+                fontFamily: "inherit",
+                padding: 0,
+                margin: 0,
+                cursor: "pointer",
+                appearance: "none",
+                WebkitAppearance: "none",
+              },
+            },
+            createElement("option", { value: "", disabled: true }, "Select courier"),
+            ...options.map((name) =>
+              createElement("option", { key: name, value: name }, name),
+            ),
+          )}
+          <View pointerEvents="none">
+            <Feather name="chevron-down" size={16} color={Theme.textMuted} />
+          </View>
+        </View>
+      ) : (
+        <Pressable
+          onPress={() => setOpen(true)}
+          style={[styles.input, styles.courierSelect, error ? styles.inputError : null]}
+          accessibilityRole="button"
+          accessibilityLabel="Courier Name"
+          accessibilityHint="Opens the courier list"
+          accessibilityState={{ expanded: open }}
+        >
+          <Text
+            style={[styles.courierValue, !selected && styles.courierPlaceholder]}
+            numberOfLines={1}
+          >
+            {selected || "Select courier"}
+          </Text>
+          <Feather name="chevron-down" size={16} color={Theme.textMuted} />
+        </Pressable>
+      )}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {Platform.OS === "web" ? null : (
+        <Modal
+          visible={open}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setOpen(false)}
+        >
+          <Pressable style={styles.courierBackdrop} onPress={() => setOpen(false)}>
+            <View style={styles.courierSheet} onStartShouldSetResponder={() => true}>
+              <Text style={styles.courierSheetTitle}>Courier Name</Text>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {options.map((name) => {
+                  const active = name === selected;
+                  return (
+                    <Pressable
+                      key={name}
+                      onPress={() => choose(name)}
+                      style={[styles.courierOption, active && styles.courierOptionActive]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                    >
+                      <Text
+                        style={[
+                          styles.courierOptionText,
+                          active && styles.courierOptionTextActive,
+                        ]}
+                      >
+                        {name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -1028,6 +1196,59 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   inputError: { borderColor: Theme.warning },
+  courierSelect: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  courierValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+  },
+  courierPlaceholder: {
+    color: Theme.textMuted,
+  },
+  courierBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15, 23, 42, 0.35)",
+  },
+  courierSheet: {
+    maxHeight: "70%",
+    backgroundColor: Theme.cardWhite,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  courierSheetTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  courierOption: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  courierOptionActive: {
+    backgroundColor: Theme.surfaceGray,
+  },
+  courierOptionText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+  },
+  courierOptionTextActive: {
+    color: Theme.analyticsHeroBg,
+  },
   errorText: {
     fontSize: 11,
     color: Theme.warning,

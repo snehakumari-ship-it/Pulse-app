@@ -220,6 +220,8 @@ type HardCopyPodCommentPayload = {
   received_date?: string | null;
   received_time?: string | null;
   receipt_method?: HardCopyPodReceiptMethod | null;
+  dispatch_date?: string | null;
+  expected_delivery_date?: string | null;
 };
 
 export function resolveHardCopyPodStatus(trip: {
@@ -239,18 +241,33 @@ export function encodeHardCopyPodComment(input: {
   receivedDate?: string | null;
   receivedTime?: string | null;
   receiptMethod?: HardCopyPodReceiptMethod | null;
+  dispatchDate?: string | null;
+  expectedDeliveryDate?: string | null;
 }): string | null {
   const remarks = String(input.remarks ?? "").trim() || null;
   const receivedDate = String(input.receivedDate ?? "").trim() || null;
   const receivedTime = String(input.receivedTime ?? "").trim() || null;
   const receiptMethod = input.receiptMethod ?? null;
-  if (!remarks && !receivedDate && !receivedTime && !receiptMethod) return null;
+  const dispatchDate = String(input.dispatchDate ?? "").trim() || null;
+  const expectedDeliveryDate = String(input.expectedDeliveryDate ?? "").trim() || null;
+  if (
+    !remarks &&
+    !receivedDate &&
+    !receivedTime &&
+    !receiptMethod &&
+    !dispatchDate &&
+    !expectedDeliveryDate
+  ) {
+    return null;
+  }
   const payload: HardCopyPodCommentPayload = {
     v: 1,
     remarks,
     received_date: receivedDate,
     received_time: receivedTime,
     receipt_method: receiptMethod,
+    dispatch_date: dispatchDate,
+    expected_delivery_date: expectedDeliveryDate,
   };
   return JSON.stringify(payload);
 }
@@ -260,11 +277,19 @@ export function decodeHardCopyPodComment(raw: string | null | undefined): {
   receivedDate: string | null;
   receivedTime: string | null;
   receiptMethod: HardCopyPodReceiptMethod | null;
+  dispatchDate: string | null;
+  expectedDeliveryDate: string | null;
 } {
+  const empty = {
+    remarks: null,
+    receivedDate: null,
+    receivedTime: null,
+    receiptMethod: null,
+    dispatchDate: null,
+    expectedDeliveryDate: null,
+  };
   const text = String(raw ?? "").trim();
-  if (!text) {
-    return { remarks: null, receivedDate: null, receivedTime: null, receiptMethod: null };
-  }
+  if (!text) return empty;
   if (text.startsWith("{")) {
     try {
       const parsed = JSON.parse(text) as HardCopyPodCommentPayload;
@@ -276,13 +301,16 @@ export function decodeHardCopyPodComment(raw: string | null | undefined): {
           receivedTime: String(parsed.received_time ?? "").trim() || null,
           receiptMethod:
             method === "person" || method === "courier" ? method : null,
+          dispatchDate: String(parsed.dispatch_date ?? "").trim() || null,
+          expectedDeliveryDate:
+            String(parsed.expected_delivery_date ?? "").trim() || null,
         };
       }
     } catch {
       // plain-text legacy comment
     }
   }
-  return { remarks: text, receivedDate: null, receivedTime: null, receiptMethod: null };
+  return { ...empty, remarks: text };
 }
 
 /**
@@ -425,6 +453,8 @@ export async function fetchTripHardCopyPodState(
     remarks = decoded.remarks;
     receivedDate = decoded.receivedDate;
     receivedTime = decoded.receivedTime;
+    dispatchDate = decoded.dispatchDate;
+    expectedDeliveryDate = decoded.expectedDeliveryDate;
     receiptMethod =
       decoded.receiptMethod ??
       (courier || awbNumber || payload.courier || payload.awb_number
@@ -450,9 +480,11 @@ export async function fetchTripHardCopyPodState(
         courier_contact?: string | null;
         remarks?: string | null;
       };
-      dispatchDate = String(dispatchPayload.dispatch_date ?? "").trim() || null;
+      dispatchDate =
+        String(dispatchPayload.dispatch_date ?? "").trim() || dispatchDate;
       expectedDeliveryDate =
-        String(dispatchPayload.expected_delivery_date ?? "").trim() || null;
+        String(dispatchPayload.expected_delivery_date ?? "").trim() ||
+        expectedDeliveryDate;
       courierContact = String(dispatchPayload.courier_contact ?? "").trim() || null;
       if (!remarks && dispatchPayload.remarks) {
         remarks = String(dispatchPayload.remarks).trim() || null;

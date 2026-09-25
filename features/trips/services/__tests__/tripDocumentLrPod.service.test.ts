@@ -256,12 +256,16 @@ describe("encodeHardCopyPodComment / decodeHardCopyPodComment", () => {
       receivedDate: "2026-09-22",
       receivedTime: "14:30",
       receiptMethod: "person",
+      dispatchDate: null,
+      expectedDeliveryDate: null,
     });
     expect(decodeHardCopyPodComment("Checked at gate")).toEqual({
       remarks: "Checked at gate",
       receivedDate: null,
       receivedTime: null,
       receiptMethod: null,
+      dispatchDate: null,
+      expectedDeliveryDate: null,
     });
   });
 });

@@ -936,6 +936,11 @@ export const neoStyles = StyleSheet.create({
     width: "100%",
     justifyContent: "center",
   },
+  trackingPodSlot: {
+    width: "100%",
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   trackingRatingsCard: {
     flex: 1,
     minWidth: 0,

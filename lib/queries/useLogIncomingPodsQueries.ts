@@ -13,7 +13,7 @@ import {
   type MarkHardCopyPodsReceivedInput,
 } from '@/features/log-pods/services/logPods.service';
 import { queryKeys } from '@/lib/queryKeys';
-import { invalidateHardCopyPodCachesForTrips } from '@/lib/queries/invalidateHardCopyPodCaches';
+import { syncHardCopyPodRecord } from '@/lib/queries/invalidateHardCopyPodCaches';
 import { STALE } from '@/lib/queryClient';
 
 export function useLogIncomingPodsTripsQuery(
@@ -119,10 +119,14 @@ export function useLogIncomingPodsMutation(orgId: string | null) {
       const affectedTripIds = Object.keys(payload.selectedLRs).filter(
         (id) => payload.selectedLRs[id].length > 0,
       );
-      invalidateHardCopyPodCachesForTrips(queryClient, {
-        tripIds: affectedTripIds,
-        organizationId: orgId,
-      });
+      void Promise.all(
+        affectedTripIds.map((tripId) =>
+          syncHardCopyPodRecord(queryClient, {
+            tripId,
+            organizationId: orgId,
+          }),
+        ),
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.logPods.courierPartners() });
     },
   });
@@ -138,10 +142,14 @@ export function useMarkHardCopyPodsReceivedMutation(orgId: string | null) {
       return result;
     },
     onSuccess: (_result, input) => {
-      invalidateHardCopyPodCachesForTrips(queryClient, {
-        tripIds: input.tripInternalIds,
-        organizationId: orgId,
-      });
+      void Promise.all(
+        input.tripInternalIds.map((tripId) =>
+          syncHardCopyPodRecord(queryClient, {
+            tripId,
+            organizationId: orgId,
+          }),
+        ),
+      );
     },
   });
 }
