@@ -6,6 +6,7 @@
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
+import { HardCopyPodPhotoUpload } from "@/features/trips/components/trip-detail/HardCopyPodPhotoUpload";
 import {
   encodeHardCopyPodComment,
   fetchTripHardCopyPodState,
@@ -51,6 +52,8 @@ function courierNameOptions(current: string): string[] {
   if (!saved || base.includes(saved)) return base;
   return [saved, ...base];
 }
+
+export type HardCopyPodManifestSummary = {
   manifestId: string;
   clientName: string;
   pickup: string;
@@ -464,7 +467,7 @@ export function LogHardCopyPodModal({
                       value={formatDisplayDate(podState.dispatchDate)}
                     />
                     <DetailRow
-                      label="Expected Delivery"
+                      label="Received Delivery Date"
                       value={formatDisplayDate(podState.expectedDeliveryDate)}
                     />
                   </>
@@ -488,6 +491,8 @@ export function LogHardCopyPodModal({
                 {podState.remarks ? (
                   <DetailRow label="Remarks" value={podState.remarks} />
                 ) : null}
+
+                <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
 
                 {canManage && podState.status === "IN_TRANSIT" ? (
                   <Pressable
@@ -678,7 +683,7 @@ export function LogHardCopyPodModal({
                       </View>
                       <View style={styles.dateTimeCol}>
                         <HardCopyPodDateField
-                          label="Expected Delivery Date"
+                          label="Received Delivery Date"
                           value={expectedDeliveryDate}
                           onChange={setExpectedDeliveryDate}
                         />
@@ -692,6 +697,10 @@ export function LogHardCopyPodModal({
                       multiline
                     />
                   </View>
+                ) : null}
+
+                {method ? (
+                  <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
                 ) : null}
               </View>
             ) : null}
@@ -730,6 +739,7 @@ export function LogHardCopyPodModal({
                     placeholder="Optional"
                     multiline
                   />
+                  <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
                 </View>
               </View>
             ) : null}

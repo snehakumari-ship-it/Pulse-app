@@ -118,7 +118,7 @@ export function HardCopyPodStatusCard({
             <Fact label="Dispatch" value={formatDate(state.dispatchDate)} />
           ) : null}
           {state?.expectedDeliveryDate ? (
-            <Fact label="Expected" value={formatDate(state.expectedDeliveryDate)} />
+            <Fact label="Delivery" value={formatDate(state.expectedDeliveryDate)} />
           ) : null}
           <View style={styles.actionsRow}>
             <Pressable
