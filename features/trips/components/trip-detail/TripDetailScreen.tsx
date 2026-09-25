@@ -239,12 +239,11 @@ import { isAssetExecutionTrip, shouldShowTripExpenseHub } from "@/features/trips
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getMoverAssetTripIdForIndent } from "@/features/trips/services/trips.service";
 import {
-  fetchTripHardCopyPodState,
   resolveHardCopyPodStatus,
   tripIsDeliveredStatus,
   tripPodIsReceived,
-  type TripHardCopyPodState,
 } from "@/features/trips/services/tripDocumentLrPod.service";
+import { useTripHardCopyPodQuery } from "@/lib/queries/useTripHardCopyPodQuery";
 import { FeedbackPlaceholder } from "./parts/FeedbackPlaceholder";
 import { ManifestPulseStepIcon } from "./parts/ManifestPulseStepIcon";
 import { ExpenseListCard } from "./parts/ExpenseListCard";
@@ -947,34 +946,7 @@ export default function TripDetailScreen({
   const [hardCopyPodModalMode, setHardCopyPodModalMode] = useState<
     "create" | "view" | "mark_received"
   >("create");
-  const [hardCopyPodState, setHardCopyPodState] =
-    useState<TripHardCopyPodState | null>(null);
-
-  const refreshHardCopyPodState = useCallback(async (tripId: string) => {
-    const { state } = await fetchTripHardCopyPodState(tripId);
-    setHardCopyPodState(state);
-  }, []);
-
-  useEffect(() => {
-    const id = detail.trip?.id;
-    if (!id) {
-      setHardCopyPodState(null);
-      return;
-    }
-    let cancelled = false;
-    void fetchTripHardCopyPodState(id).then(({ state }) => {
-      if (!cancelled) setHardCopyPodState(state);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    detail.trip?.id,
-    detail.trip?.pod_received_at,
-    detail.trip?.pod_hard_copy_courier,
-    detail.trip?.pod_hard_copy_awb_number,
-    detail.trip?.pod_hard_copy_received_by,
-  ]);
+  const { state: hardCopyPodState } = useTripHardCopyPodQuery(detail.trip?.id);
 
   const openHardCopyPodModal = useCallback(
     (mode: "create" | "view" | "mark_received" = "create") => {
@@ -6299,7 +6271,11 @@ export default function TripDetailScreen({
                   tripDocuments={detail.tripDocuments}
                   tripDelivered={tripIsDeliveredStatus(trip.status)}
                   complianceVerifiedAt={trip.compliance_verified_at ?? null}
-                  hardCopyPodReceived={tripPodIsReceived({ pod_received_at: trip.pod_received_at })}
+                  hardCopyPodReceived={
+                    hardCopyPodState
+                      ? hardCopyPodState.status === "RECEIVED"
+                      : tripPodIsReceived({ pod_received_at: trip.pod_received_at })
+                  }
                   canVerifyDocuments={canSurface("trip_compliance.documents.verify")}
                   canMarkVerified={canSurface("trip_compliance.trip.mark_verified")}
                   canManagePod={canSurface("trip_compliance.pod.manage")}
@@ -7060,6 +7036,7 @@ export default function TripDetailScreen({
         timelineRows={detail.driverActivityTimelineRows ?? []}
         tripLedgerEntries={detail.tripLedgerEntries}
         driverDisplayName={detail.driverName}
+        hardCopyPod={hardCopyPodState}
       />
 
       <LogHardCopyPodModal
@@ -7082,7 +7059,6 @@ export default function TripDetailScreen({
         }}
         onUpdated={() => {
           void detail.load();
-          void refreshHardCopyPodState(trip.id);
         }}
       />
 

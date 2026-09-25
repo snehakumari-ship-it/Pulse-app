@@ -1,16 +1,15 @@
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import {
-  fetchTripHardCopyPodReceipt,
   markTripHardCopyPodReceived,
   tripPodIsReceived,
-  type TripHardCopyPodReceipt,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { TripCompletionOrPodTags } from "@/features/trips/components/TripPodStatusTags";
-import { invalidateHardCopyPodCaches } from "@/lib/queries/invalidateHardCopyPodCaches";
+import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
+import { useTripHardCopyPodQuery } from "@/lib/queries/useTripHardCopyPodQuery";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -58,24 +57,22 @@ export function TripPodStatusSection({
   const [confirming, setConfirming] = useState(false);
   const [checked, setChecked] = useState(false);
   const [comment, setComment] = useState("");
-  const [receipt, setReceipt] = useState<TripHardCopyPodReceipt | null>(null);
-  const hardCopyReceived = tripPodIsReceived({ pod_received_at: podReceivedAt });
-  const receivedLabel = formatReceivedAt(podReceivedAt);
+  const podQuery = useTripHardCopyPodQuery(tripId);
+  const hardCopyReceived = podQuery.state
+    ? podQuery.state.status === "RECEIVED"
+    : tripPodIsReceived({ pod_received_at: podReceivedAt });
+  const receivedLabel = formatReceivedAt(
+    podQuery.state?.status === "RECEIVED"
+      ? podQuery.state.receivedAt ?? podReceivedAt
+      : podReceivedAt,
+  );
+  const receipt = hardCopyReceived
+    ? {
+        receivedBy: podQuery.state?.receivedBy ?? null,
+        comment: podQuery.state?.remarks ?? null,
+      }
+    : null;
   const canRecordHardCopy = canMutate && tripCompleted && !hardCopyReceived;
-
-  useEffect(() => {
-    if (!hardCopyReceived) {
-      setReceipt(null);
-      return;
-    }
-    let cancelled = false;
-    void fetchTripHardCopyPodReceipt(tripId).then(({ receipt: r }) => {
-      if (!cancelled) setReceipt(r);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [tripId, hardCopyReceived, podReceivedAt]);
 
   const openConfirm = useCallback(() => {
     if (!canRecordHardCopy) return;
@@ -107,7 +104,7 @@ export function TripPodStatusSection({
     if (alreadyReceived) {
       Alert.alert("Hard copy POD", "This trip's hard-copy POD was already recorded as received.");
     }
-    invalidateHardCopyPodCaches(queryClient, {
+    await syncHardCopyPodRecord(queryClient, {
       tripId,
       organizationId,
     });

@@ -14,7 +14,7 @@ import { describeStopProofDocument } from "@/features/driver/job-card/deliveryPr
 import { type TripDocumentRow } from "@/features/trips/services/tripDocuments.service";
 import { resolveTripDocumentPreviewUrl } from "@/features/tripCompliance/services/vehicleDocumentReuse.service";
 import { markTripHardCopyPodReceived } from "@/features/trips/services/tripDocumentLrPod.service";
-import { invalidateHardCopyPodCaches } from "@/lib/queries/invalidateHardCopyPodCaches";
+import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import {
@@ -320,7 +320,7 @@ export function ComplianceSection({
             receivedBy: values.receivedBy,
           });
           if (error) throw error;
-          invalidateHardCopyPodCaches(queryClient, {
+          await syncHardCopyPodRecord(queryClient, {
             tripId,
             organizationId,
           });

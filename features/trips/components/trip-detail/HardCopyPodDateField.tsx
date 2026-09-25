@@ -66,10 +66,12 @@ export function HardCopyPodDateField({
             type: "date",
             value: isoValue,
             "aria-label": label,
-            onChange: (e: { target: { value: string } }) => {
-              onChange(e.target.value ?? "");
+            onChange: (e: { target?: { value?: string } }) => {
+              onChange(String(e?.target?.value ?? ""));
             },
             style: {
+              flex: "1 1 0",
+              minWidth: 0,
               width: "100%",
               boxSizing: "border-box",
               border: "none",
@@ -85,7 +87,9 @@ export function HardCopyPodDateField({
               cursor: "pointer",
             },
           })}
-          <Calendar size={15} color={Theme.textMuted} strokeWidth={2.2} />
+          <View pointerEvents="none">
+            <Calendar size={15} color={Theme.textMuted} strokeWidth={2.2} />
+          </View>
         </View>
       ) : (
         <>
