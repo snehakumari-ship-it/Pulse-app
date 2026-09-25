@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
 import { ComplianceDocumentReviewSheet } from "@/features/tripCompliance/components/ComplianceDocumentReviewSheet";
 import { CompliancePaymentConfirmModal } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
-import { ComplianceTripCard } from "@/features/tripCompliance/components/ComplianceTripCard";
+import { ComplianceDocumentWorkspace } from "@/features/tripCompliance/components/ComplianceDocumentWorkspace";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import {
@@ -32,7 +32,7 @@ import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useRouter } from "expo-router";
 import { Download, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type TextStyle, type ViewStyle } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type TextStyle } from "react-native";
 
 function StageChip({
   label,
@@ -88,7 +88,7 @@ function StageChip({
 
 export default function ComplianceScreen() {
   const layout = useLayoutInsets();
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const router = useRouter();
   const { can: canSurface, isLoading: accessLoading } = useMemberAccess();
   const { enabled: complianceEnabled, isLoading: productsLoading } = useComplianceProductEnabled();
@@ -166,25 +166,6 @@ export default function ComplianceScreen() {
   const isCompact = width < 760;
   const stackToolbar = width < 980;
   const compactActions = width < 700;
-  const columns = width >= 1100 ? 3 : width >= 760 ? 2 : 1;
-  const cardGap = 16;
-  const usableWidth = Math.max(280, width - pagePad * 2);
-  const nativeCardWidth =
-    columns === 1 ? usableWidth : Math.floor((usableWidth - cardGap * (columns - 1)) / columns);
-  const cardGridStyle =
-    Platform.OS === "web"
-      ? {
-          display: "grid" as const,
-          width: "100%" as const,
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-          gap: cardGap,
-          alignItems: "stretch" as const,
-        }
-      : { gap: cardGap };
-  const cardSlotStyle: ViewStyle =
-    Platform.OS === "web"
-      ? { minWidth: 0, width: "100%", height: "100%" }
-      : { width: nativeCardWidth, minWidth: 0, alignSelf: "stretch" };
   const searchWidthStyle = stackToolbar
     ? undefined
     : { width: Math.min(300, Math.max(180, Math.floor(width * 0.22))) };
@@ -236,17 +217,18 @@ export default function ComplianceScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.screen, { paddingTop: contentTopInset }]}
-      contentContainerStyle={[
-        styles.content,
+    <View
+      style={[
+        styles.screen,
         {
-          paddingBottom: layout.scrollBottomPadding(24),
+          paddingTop: contentTopInset,
+          paddingBottom: layout.scrollBottomPadding(12),
           paddingHorizontal: pagePad,
+          maxHeight: windowHeight,
         },
       ]}
-      keyboardShouldPersistTaps="handled"
     >
+      <View style={styles.chrome}>
       <View style={styles.header}>
         <View style={[styles.headerTop, isCompact && styles.headerTopStack]}>
           <View style={styles.titleBlock}>
@@ -270,7 +252,7 @@ export default function ComplianceScreen() {
                 <LayoutGrid
                   size={14}
                   color={viewMode === "card" ? Theme.buttonDarkText : Theme.textPrimary}
-                  strokeWidth={2.2}
+                  strokeWidth={2}
                 />
                 {!compactActions ? (
                   <Text style={[styles.toggleBtnText, viewMode === "card" && styles.toggleBtnTextActive]}>
@@ -292,7 +274,7 @@ export default function ComplianceScreen() {
                 <Table2
                   size={14}
                   color={viewMode === "table" ? Theme.buttonDarkText : Theme.textPrimary}
-                  strokeWidth={2.2}
+                  strokeWidth={2}
                 />
                 {!compactActions ? (
                   <Text style={[styles.toggleBtnText, viewMode === "table" && styles.toggleBtnTextActive]}>
@@ -309,7 +291,7 @@ export default function ComplianceScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Export Report"
               >
-                <Download size={14} color={Theme.textPrimary} strokeWidth={2.2} />
+                <Download size={14} color={Theme.textPrimary} strokeWidth={2} />
                 {!isNarrow ? (
                   <Text style={styles.reportBtnText}>{compactActions ? "Export" : "Export Report"}</Text>
                 ) : null}
@@ -323,7 +305,7 @@ export default function ComplianceScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Bulk Payment"
               >
-                <Wallet size={14} color={Theme.complianceBulkText} strokeWidth={2.2} />
+                <Wallet size={14} color={Theme.complianceBulkText} strokeWidth={2} />
                 {!isNarrow ? (
                   <Text style={styles.bulkBtnText}>{compactActions ? "Bulk" : "Bulk Payment"}</Text>
                 ) : null}
@@ -341,7 +323,7 @@ export default function ComplianceScreen() {
             isNarrow && styles.searchRowNarrow,
           ]}
         >
-          <Search size={15} color={Theme.textSecondary} strokeWidth={2.2} />
+          <Search size={15} color={Theme.textSecondary} strokeWidth={2} />
           <TextInput
             value={search}
             onChangeText={setSearch}
@@ -378,7 +360,9 @@ export default function ComplianceScreen() {
           </View>
         </View>
       </View>
+      </View>
 
+      <View style={styles.queueBody}>
       {isFetching && summaries.length > 0 ? (
         <Text style={styles.stale}>Updating queue…</Text>
       ) : null}
@@ -401,34 +385,33 @@ export default function ComplianceScreen() {
               : "No Loading→Completed trips in the Compliance queue yet."}
         </Text>
       ) : viewMode === "table" ? (
-        <ComplianceTripsTable
-          summaries={visible}
-          onOpenTrip={openTrip}
-          onOpenDetails={openDetails}
-          onReview={(tripId, documentKey, scope = "trip") => setReview({ tripId, documentKey, scope })}
-          onMarkComplianceVerified={markTripVerified}
-          onPay={(tripId) => {
-            const summary = visible.find((s) => s.trip.id === tripId) ?? summaries.find((s) => s.trip.id === tripId);
-            if (summary) openPay(summary);
-          }}
-          canManageFinance={canManageFinance}
-        />
+        <ScrollView style={styles.queueScroll} contentContainerStyle={styles.queueScrollContent} keyboardShouldPersistTaps="handled">
+          <ComplianceTripsTable
+            summaries={visible}
+            onOpenTrip={openTrip}
+            onOpenDetails={openDetails}
+            onReview={(tripId, documentKey, scope = "trip") => setReview({ tripId, documentKey, scope })}
+            onMarkComplianceVerified={markTripVerified}
+            onPay={(tripId) => {
+              const summary = visible.find((s) => s.trip.id === tripId) ?? summaries.find((s) => s.trip.id === tripId);
+              if (summary) openPay(summary);
+            }}
+            canManageFinance={canManageFinance}
+          />
+        </ScrollView>
       ) : (
-        <View style={[styles.cardGrid, cardGridStyle]}>
-          {visible.map((summary) => (
-            <View key={summary.trip.id} style={cardSlotStyle}>
-              <ComplianceTripCard
-                summary={summary}
-                onReviewDocuments={(scope) => setReview({ tripId: summary.trip.id, documentKey: null, scope })}
-                onViewTrip={() => openTrip(summary.trip.id)}
-                onOpenDetails={() => openDetails(summary.trip.id)}
-                onPay={() => openPay(summary)}
-                onMarkComplianceVerified={() => markTripVerified(summary.trip.id)}
-                canManageFinance={canManageFinance}
-              />
-            </View>
-          ))}
-        </View>
+        <ComplianceDocumentWorkspace
+          style={styles.workspaceFill}
+          summaries={visible}
+          organizationId={currentOrganization?.id ?? ""}
+          actorId={user?.uid ?? null}
+          canVerify={canVerifyDocuments}
+          canViewDocuments={canViewDocuments}
+          canManageFinance={canManageFinance}
+          onPay={openPay}
+          stacked={isNarrow}
+          onChanged={(tripId) => invalidate(tripId)}
+        />
       )}
 
       {filteredTotal > pageSize ? (
@@ -437,6 +420,7 @@ export default function ComplianceScreen() {
             style={[styles.pagerBtn, !hasPrev && styles.pagerBtnDisabled]}
             disabled={!hasPrev}
             onPress={() => setPage((p) => Math.max(0, p - 1))}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
             accessibilityRole="button"
             accessibilityLabel="Previous page"
           >
@@ -449,6 +433,7 @@ export default function ComplianceScreen() {
             style={[styles.pagerBtn, !hasNext && styles.pagerBtnDisabled]}
             disabled={!hasNext}
             onPress={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
             accessibilityRole="button"
             accessibilityLabel="Next page"
           >
@@ -456,6 +441,7 @@ export default function ComplianceScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+      </View>
 
       {reviewingSummary ? (
         <ComplianceDocumentReviewSheet
@@ -513,24 +499,28 @@ export default function ComplianceScreen() {
           invalidate(pay.summary.trip.id);
         }}
       />
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Theme.compliancePageBg },
-  content: { paddingTop: Layout.spacingMedium, gap: Layout.spacingMedium },
+  screen: { flex: 1, minHeight: 0, overflow: "hidden", backgroundColor: Theme.compliancePageBg },
+  chrome: { flexShrink: 0, gap: Layout.spacingMedium, paddingTop: Layout.spacingMedium },
+  queueBody: { flex: 1, minHeight: 0, marginTop: Layout.spacingMedium, gap: 12 },
+  queueScroll: { flex: 1 },
+  queueScrollContent: { paddingBottom: 8 },
+  workspaceFill: { flex: 1, minHeight: 0 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Theme.compliancePageBg },
   header: { gap: 14 },
-  headerTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 16 },
+  headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   headerTopStack: { flexDirection: "column", alignItems: "stretch" },
   titleBlock: { flex: 1, minWidth: 0 },
   title: {
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "600",
     color: Theme.textPrimaryDark,
-    lineHeight: 30,
-    letterSpacing: -0.3,
+    lineHeight: 28,
+    letterSpacing: -0.2,
   },
   titleCompact: {
     fontSize: 20,
@@ -568,10 +558,10 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     minWidth: 0,
-    height: 36,
+    height: "100%",
     paddingVertical: 0,
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "400",
     color: Theme.textPrimary,
     ...(Platform.OS === "web" ? { outlineStyle: "none" as const } : null),
   },
@@ -601,13 +591,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     minWidth: 36,
   },
-  bulkBtnText: { fontSize: 13, fontWeight: "700", color: Theme.complianceBulkText },
-  reportBtnText: { fontSize: 13, fontWeight: "600", color: Theme.textPrimary },
+  bulkBtnText: { fontSize: 13, fontWeight: "600", color: Theme.complianceBulkText },
+  reportBtnText: { fontSize: 13, fontWeight: "500", color: Theme.textPrimary },
   toolbarRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
+    alignItems: "center",
+    gap: 8,
   },
   toolbarStack: {
     flexDirection: "column",
@@ -651,24 +641,24 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
   },
-  chipText: { fontSize: 13, fontWeight: "600", color: Theme.textPrimary, lineHeight: 16 },
+  chipText: { fontSize: 13, fontWeight: "500", color: Theme.textPrimary, lineHeight: 16 },
   chipTextCompact: { fontSize: 12, lineHeight: 15 },
-  chipTextActive: { color: Theme.buttonDarkText },
+  chipTextActive: { color: Theme.buttonDarkText, fontWeight: "600" },
   chipCountBadge: {
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 6,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
   chipCountBadgeCompact: {
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 5,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
   },
-  chipCount: { fontSize: 11, fontWeight: "800", lineHeight: 14 },
-  chipCountCompact: { fontSize: 10, lineHeight: 12 },
+  chipCount: { fontSize: 10, fontWeight: "600", lineHeight: 12, textAlign: "center" },
+  chipCountCompact: { fontSize: 9, lineHeight: 11 },
   viewToggle: {
     flexShrink: 0,
     height: 36,
@@ -699,22 +689,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   toggleBtnActive: { backgroundColor: Theme.buttonDark },
-  toggleBtnText: { fontSize: 13, fontWeight: "600", color: Theme.textPrimary, lineHeight: 16 },
-  toggleBtnTextActive: { color: Theme.buttonDarkText },
+  toggleBtnText: { fontSize: 13, fontWeight: "500", color: Theme.textPrimary, lineHeight: 16 },
+  toggleBtnTextActive: { color: Theme.buttonDarkText, fontWeight: "600" },
   cardGrid: { flexDirection: "row", flexWrap: "wrap", alignItems: "stretch" },
   message: { fontSize: 14, color: Theme.textSecondary, textAlign: "center", paddingVertical: 28, lineHeight: 20 },
   stale: { fontSize: 12, color: Theme.textSecondary },
   pagerRow: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 16,
-    paddingVertical: 8,
+    gap: 10,
+    paddingVertical: 2,
   },
   pagerBtn: {
-    minHeight: Layout.minTouchTargetSize,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
@@ -722,7 +713,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pagerBtnDisabled: { opacity: 0.45 },
-  pagerBtnText: { fontSize: 13, fontWeight: "700", color: Theme.textPrimary },
+  pagerBtnText: { fontSize: 12, fontWeight: "500", lineHeight: 14, color: Theme.textPrimary },
   pagerBtnTextDisabled: { color: Theme.textMuted },
-  pagerMeta: { fontSize: 12, fontWeight: "600", color: Theme.textMuted },
+  pagerMeta: { fontSize: 11, fontWeight: "500", lineHeight: 14, color: Theme.textMuted },
 });

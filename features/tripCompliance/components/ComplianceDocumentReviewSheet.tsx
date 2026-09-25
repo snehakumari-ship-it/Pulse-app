@@ -1097,11 +1097,39 @@ export function ComplianceDocumentReviewSheet({
                 </View>
               ) : null}
               {scope === "trip" &&
-              canMarkVerified &&
-              summary?.complianceVerifiedAt &&
-              summary?.complianceDecision !== "approved_with_exception" ? (
-                <View style={styles.verifiedBanner}>
-                  <Text style={styles.verifiedBannerText}>Compliance Verified ✓</Text>
+              ((canMarkVerified &&
+                summary?.complianceVerifiedAt &&
+                summary?.complianceDecision !== "approved_with_exception") ||
+                (canManageFinance && readiness?.paymentReady && onPay)) ? (
+                <View
+                  style={
+                    canMarkVerified &&
+                    summary?.complianceVerifiedAt &&
+                    summary?.complianceDecision !== "approved_with_exception" &&
+                    canManageFinance &&
+                    readiness?.paymentReady &&
+                    onPay
+                      ? styles.verifiedPayRow
+                      : undefined
+                  }
+                >
+                  {canMarkVerified &&
+                  summary?.complianceVerifiedAt &&
+                  summary?.complianceDecision !== "approved_with_exception" ? (
+                    <View style={[styles.verifiedBanner, styles.verifiedPayItem]}>
+                      <Text style={styles.verifiedBannerText}>Compliance Verified ✓</Text>
+                    </View>
+                  ) : null}
+                  {canManageFinance && readiness?.paymentReady && onPay ? (
+                    <TouchableOpacity
+                      style={[styles.primaryCta, styles.verifiedPayItem]}
+                      onPress={onPay}
+                    >
+                      <Text style={styles.primaryCtaText}>
+                        Pay {readiness.readyCategory === "compliance_balance" ? "balance" : "advance"}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ) : null}
               {scope === "trip" && canMarkVerified && !summary?.complianceVerifiedAt && !tripVerifyCheck.ok ? (
@@ -1171,13 +1199,6 @@ export function ComplianceDocumentReviewSheet({
                     </View>
                   )}
                 </View>
-              ) : null}
-              {scope === "trip" && canManageFinance && readiness?.paymentReady && onPay ? (
-                <TouchableOpacity style={styles.primaryCta} onPress={onPay}>
-                  <Text style={styles.primaryCtaText}>
-                    Pay {readiness.readyCategory === "compliance_balance" ? "balance" : "advance"}
-                  </Text>
-                </TouchableOpacity>
               ) : null}
             </ScrollView>
           ) : (
@@ -1673,12 +1694,26 @@ const styles = StyleSheet.create({
   inlineStatus: { fontSize: 12, color: Theme.textMuted, fontWeight: "600" },
   footerActionsBlock: { gap: 10, marginTop: 4 },
   verifiedBanner: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
     backgroundColor: Theme.complianceVerifiedPillBg,
     borderWidth: 1,
     borderColor: Theme.complianceVerifiedPillBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  verifiedPayRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+  },
+  verifiedPayItem: {
+    flex: 1,
+    minWidth: 0,
   },
   verifiedBannerText: {
     fontSize: 13,
