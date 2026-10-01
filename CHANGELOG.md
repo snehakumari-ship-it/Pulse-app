@@ -72,6 +72,13 @@
 
 # Changelog — V1 (v0.0.01)
 
+## sneha/V1.0.3 — 2026-10-01
+- **What:** Fixed "Couldn't post payment: Compliance must be approved before an advance payment can be posted" on trips already in the Verified stage. The stage comes from the live trip compliance flags (`fetchComplianceTripFlags`, also patched instantly on verify). The payment pre-check reads `summary.trip.compliance_verified_at` from the trips-list row, which could be stale (e.g. right after auto-verify) or not carry the column. `summarizeComplianceTrip` now copies the live `compliance_verified_at` and `pod_received_at` onto `summary.trip`, so the stage, Confirm payment, Bulk Payment and the balance POD check all read the same values. The server-side RLS rule on `transactions` is unchanged and still enforces both.
+- **Why:** SAT812GOGTRIP000122 showed Verified / Ready to pay but Confirm payment was refused by the client pre-check.
+- **Files/areas:** `features/tripCompliance/services/tripComplianceRead.service.ts` (`summarizeComplianceTrip`)
+- **Migrations:** none
+- **Tested:** Jest `features/tripCompliance` (37 suites pass; new regression test: stale trip row + verified flags gives Verified stage and `summary.trip.compliance_verified_at` set, including after the instant verify patch); `tsc` adds no new errors (141 already in V1); ESLint clean. Web UI not yet re-clicked.
+
 ## nihas/V1.0.6 — 2026-10-01
 
 ### What

@@ -785,9 +785,18 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     ),
     flags?.received_lr_numbers ?? [],
   );
+  // Flags are the live trip columns (and get patched on verify); the list row can be
+  // stale or omit them. Payment prerequisites read summary.trip, so keep it in step.
+  const tripWithFlags = flags
+    ? {
+        ...trip,
+        compliance_verified_at: flags.compliance_verified_at,
+        pod_received_at: flags.pod_received_at,
+      }
+    : trip;
 
   return {
-    trip,
+    trip: tripWithFlags,
     stage,
     documents,
     vehicleDocuments,
