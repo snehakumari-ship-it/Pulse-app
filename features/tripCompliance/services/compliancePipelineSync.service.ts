@@ -73,6 +73,7 @@ export function complianceChangeTripId(change: ComplianceChange): string | null 
 export async function patchForComplianceChange(
   current: ComplianceTripInputs[],
   change: ComplianceChange,
+  viewerOrgId: string,
   now: () => string = () => new Date().toISOString(),
 ): Promise<PipelinePatch> {
   switch (change.type) {
@@ -81,7 +82,7 @@ export async function patchForComplianceChange(
       const patch: PipelinePatch = (cur) => applyTripDocumentDecision(cur, { ...change, at });
       if (patch(current) !== current) return patch;
       // Document not in cache (e.g. uploaded elsewhere) — read that trip's docs.
-      return patchForComplianceChange(current, { type: "tripDocuments", tripId: change.tripId }, now);
+      return patchForComplianceChange(current, { type: "tripDocuments", tripId: change.tripId }, viewerOrgId, now);
     }
     case "tripDocuments": {
       const docs = await fetchTripDocumentsForTrips([change.tripId]);
@@ -117,7 +118,7 @@ export async function patchForComplianceChange(
     case "vehicleDocuments": {
       const trips = tripsUsingVehicle(current, change.vehicleId);
       if (trips.length === 0) return identity;
-      const byTrip = await fetchVehicleDocumentsForTrips(trips);
+      const byTrip = await fetchVehicleDocumentsForTrips(trips, viewerOrgId);
       return (cur) => applyVehicleDocuments(cur, byTrip);
     }
     case "driverDocuments": {
@@ -137,9 +138,10 @@ export async function patchForComplianceChange(
 export async function patchForPipelineTrips(
   current: ComplianceTripInputs[],
   pipelineTrips: TripRow[],
+  viewerOrgId: string,
 ): Promise<PipelinePatch> {
   const { needsInputs } = reconcilePipelineTrips(current, pipelineTrips);
-  const fetched = await fetchComplianceTripInputs(needsInputs);
+  const fetched = await fetchComplianceTripInputs(needsInputs, viewerOrgId);
   const order = pipelineTrips.map((trip) => trip.id);
   return (cur) => upsertTripInputs(reconcilePipelineTrips(cur, pipelineTrips).next, fetched, order);
 }
@@ -155,17 +157,17 @@ export async function patchForPipelineTrips(
 export async function loadCompliancePipelineInputs(
   previous: ComplianceTripInputs[] | undefined,
   pipelineTrips: TripRow[],
-  options: { full: boolean },
+  options: { full: boolean; viewerOrgId: string },
 ): Promise<ComplianceTripInputs[]> {
   if (pipelineTrips.length === 0) return [];
-  if (options.full || !previous) return fetchComplianceTripInputs(pipelineTrips);
+  if (options.full || !previous) return fetchComplianceTripInputs(pipelineTrips, options.viewerOrgId);
 
   const { next, needsInputs } = reconcilePipelineTrips(previous, pipelineTrips);
   const needsIds = new Set(needsInputs.map((trip) => trip.id));
   const keptIds = next.filter((row) => !needsIds.has(row.trip.id)).map((row) => row.trip.id);
   const [scoped, fetched] = await Promise.all([
     fetchTripScopedInputs(keptIds),
-    fetchComplianceTripInputs(needsInputs),
+    fetchComplianceTripInputs(needsInputs, options.viewerOrgId),
   ]);
   const refreshed = next.map((row) => {
     const tripScoped = scoped.get(row.trip.id);

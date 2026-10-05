@@ -96,7 +96,7 @@ function exportFileStamp(now: Date = new Date()): string {
 async function fetchVerifiedStageSummaries(orgId: string): Promise<ComplianceTripSummary[]> {
   const { error, trips } = await getTripsForOrg(orgId);
   if (error) throw error;
-  const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips));
+  const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips), orgId);
   return summaries.filter(isComplianceVerifiedQueue);
 }
 

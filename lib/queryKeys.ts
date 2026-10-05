@@ -626,5 +626,8 @@ export const queryKeys = {
     /** Advance Processed table enrichment (bank, approver, payment ref) per trip set. */
     advanceProcessed: (orgId: string, signature: string) =>
       ["q", "tripCompliance", "advanceProcessed", "v1", orgId, signature] as const,
+    /** List-card truck type + supplier label (one batch RPC) per trip set. */
+    listFacts: (orgId: string, signature: string) =>
+      ["q", "tripCompliance", "listFacts", "v1", orgId, signature] as const,
   },
 } as const;

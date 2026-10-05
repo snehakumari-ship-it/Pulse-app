@@ -275,6 +275,7 @@ describe("patchForComplianceChange('complianceDeclined')", () => {
     const patch = await patchForComplianceChange(
       current,
       { type: "complianceDeclined", tripId: "t1", actorId: "u1", reason: "bad LR" },
+      "org-1",
       () => "2026-09-29T11:00:00Z",
     );
     expect(mockSelects).toHaveLength(0);

@@ -171,7 +171,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
       const log = writeLogFor(orgId);
       const startedAt = log.generation;
       const previous = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
-      const rows = await loadCompliancePipelineInputs(previous, pipelineTripsRef.current, { full });
+      const rows = await loadCompliancePipelineInputs(previous, pipelineTripsRef.current, { full, viewerOrgId: orgId });
       if (full) fullyLoadedSessions.add(sessionKey);
       // A write that landed while this read was in flight wins over its snapshot.
       const current = qc.getQueryData<ComplianceTripInputs[]>(pipelineKey);
@@ -192,7 +192,7 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
     let cancelled = false;
     const log = writeLogFor(orgId);
     const startedAt = log.generation;
-    void patchForPipelineTrips(current, pipelineTrips)
+    void patchForPipelineTrips(current, pipelineTrips, orgId)
       .then((patch) => {
         if (cancelled) return;
         let before: ComplianceTripInputs[] | undefined;
@@ -376,7 +376,7 @@ export function useComplianceChangeSync() {
       try {
         const log = writeLogFor(orgId);
         const startedAt = log.generation;
-        const patch = await patchForComplianceChange(current, change);
+        const patch = await patchForComplianceChange(current, change, orgId);
         let patchedTrip: TripRow | null = null;
         qc.setQueryData<ComplianceTripInputs[]>(key, (cur) => {
           if (!cur) return cur;
@@ -412,7 +412,7 @@ export function useComplianceTripQuery(tripId: string | undefined) {
       const { error, trip } = await getTripById(tripId);
       if (error) throw error;
       if (!trip || trip.organization_id !== orgId) return null;
-      const summaries = await buildComplianceTripSummaries([trip]);
+      const summaries = await buildComplianceTripSummaries([trip], orgId);
       return summaries[0] ?? null;
     },
     enabled: !!orgId && !!tripId,

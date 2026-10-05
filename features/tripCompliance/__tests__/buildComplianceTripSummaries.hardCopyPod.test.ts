@@ -76,7 +76,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       ],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip()]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip()], "org-1");
     expect(summary.hardCopyPod.received).toBe(false);
   });
 
@@ -94,7 +94,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       ],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })], "org-1");
     expect(summary.hardCopyPod.received).toBe(true);
   });
 
@@ -108,7 +108,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       data: [{ id: "t1", trip_id: "trip-1", amount_in: 25000, amount_out: 0, ledger_category: "compliance_advance", transaction_date: "2026-09-05" }],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip()]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip()], "org-1");
     expect(summary.stage).toBe("hard_copy_pod_received"); // delivered + verified, hard copy not yet marked
   });
 
@@ -122,7 +122,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       data: [{ id: "t1", trip_id: "trip-1", amount_in: 25000, amount_out: 0, ledger_category: "compliance_advance", transaction_date: "2026-09-05" }],
       error: null,
     };
-    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })], "org-1");
     expect(summary.stage).toBe("balance_pending");
   });
 });
