@@ -166,33 +166,61 @@ export function mergeFinanceBankDocsFromSupplier(
   });
 }
 
-/**
- * Latest present doc per type (per `classifyTripDocument`). Anything openable
- * (file / url / reference) wins over a details-only row; `empty` rows never
- * stand in for a document.
- */
-function latestDocByType(documents: ComplianceDocumentRow[]): Map<string | null, ComplianceDocumentRow> {
-  const byType = new Map<string | null, ComplianceDocumentRow>();
-  for (const doc of documents) {
-    const kind = classifyTripDocument(doc);
-    if (!kind.present) continue;
-    const current = byType.get(doc.document_type);
-    const currentBinary = current ? classifyTripDocument(current).hasBinary : false;
-    const newer = !current || (doc.uploaded_at ?? "") > (current.uploaded_at ?? "");
-    if (!current || (!currentBinary && kind.hasBinary) || (currentBinary === kind.hasBinary && newer)) {
-      byType.set(doc.document_type, doc);
-    }
-  }
-  return byType;
+function presentDocsOfType(documents: ComplianceDocumentRow[], type: string): ComplianceDocumentRow[] {
+  return documents
+    .filter((doc) => doc.document_type === type && classifyTripDocument(doc).present)
+    .sort((a, b) => (a.uploaded_at ?? "").localeCompare(b.uploaded_at ?? ""));
 }
 
-function rowForType(
-  type: string,
-  required: boolean,
-  byType: Map<string | null, ComplianceDocumentRow>,
-): ComplianceDocRow {
-  const doc = byType.get(type) ?? null;
-  return { key: type, type, required, status: doc ? doc.status : "missing", doc, entityDoc: null };
+function preferTripDoc(a: ComplianceDocumentRow, b: ComplianceDocumentRow): number {
+  const aBinary = classifyTripDocument(a).hasBinary ? 1 : 0;
+  const bBinary = classifyTripDocument(b).hasBinary ? 1 : 0;
+  if (bBinary !== aBinary) return bBinary - aBinary;
+  return (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? "");
+}
+
+function rowsForTripTypes(
+  types: readonly string[],
+  requiredTypes: readonly string[],
+  documents: ComplianceDocumentRow[],
+): ComplianceDocRow[] {
+  const required = new Set(requiredTypes);
+  const rows: ComplianceDocRow[] = [];
+  for (const type of types) {
+    const docs = presentDocsOfType(documents, type);
+    if (docs.length === 0) {
+      rows.push({
+        key: type,
+        type,
+        required: required.has(type),
+        status: "missing",
+        doc: null,
+        entityDoc: null,
+      });
+      continue;
+    }
+    const canonical = [...docs].sort(preferTripDoc)[0];
+    const extras = docs.filter((doc) => doc.id !== canonical.id);
+    rows.push({
+      key: `${type}:${canonical.id}`,
+      type,
+      required: required.has(type),
+      status: canonical.status,
+      doc: canonical,
+      entityDoc: null,
+    });
+    for (const doc of extras) {
+      rows.push({
+        key: `${type}:${doc.id}`,
+        type,
+        required: false,
+        status: doc.status,
+        doc,
+        entityDoc: null,
+      });
+    }
+  }
+  return rows;
 }
 
 function latestEntityDoc(documents: ComplianceEntityDocument[]): ComplianceEntityDocument | null {
@@ -240,25 +268,54 @@ export function deriveEntityComplianceRows(
     list.push(doc);
     byType.set(doc.doc_type, list);
   }
-  return types.map((type) => {
-    const entityDoc = latestEntityDoc(byType.get(type) ?? []);
-    return {
-      key: type,
+  const rows: ComplianceDocRow[] = [];
+  for (const type of types) {
+    const all = byType.get(type) ?? [];
+    const usable = all.filter((doc) => doc.status !== "replaced");
+    const pool = usable.length > 0 ? usable : all;
+    const canonical = latestEntityDoc(pool);
+    if (!canonical) {
+      rows.push({
+        key: type,
+        type,
+        required: isEntityDocRequired(type),
+        status: "missing",
+        doc: null,
+        entityDoc: null,
+      });
+      continue;
+    }
+    rows.push({
+      key: `${type}:${canonical.id}`,
       type,
       required: isEntityDocRequired(type),
-      status: entityRowStatus(entityDoc, now),
+      status: entityRowStatus(canonical, now),
       doc: null,
-      entityDoc,
-    };
-  });
+      entityDoc: canonical,
+    });
+    const extras = pool
+      .filter((doc) => doc.id !== canonical.id)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    for (const entityDoc of extras) {
+      rows.push({
+        key: `${type}:${entityDoc.id}`,
+        type,
+        required: false,
+        status: entityRowStatus(entityDoc, now),
+        doc: null,
+        entityDoc,
+      });
+    }
+  }
+  return rows;
 }
 
 /** Required trip types first, then other trip upload options only. */
 export function deriveComplianceDocumentRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
-  const byType = latestDocByType(documents);
-  const requiredRows = REQUIRED_COMPLIANCE_DOCUMENT_TYPES.map((type) => rowForType(type, true, byType));
-  const otherRows = COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES.map((type) => rowForType(type, false, byType));
-  return [...requiredRows, ...otherRows];
+  return [
+    ...rowsForTripTypes(REQUIRED_COMPLIANCE_DOCUMENT_TYPES, REQUIRED_COMPLIANCE_DOCUMENT_TYPES, documents),
+    ...rowsForTripTypes(COMPLIANCE_TRIP_OTHER_DOCUMENT_TYPES, [], documents),
+  ];
 }
 
 /**
@@ -266,7 +323,8 @@ export function deriveComplianceDocumentRows(documents: ComplianceDocumentRow[])
  * Memo is reviewed under Finance and POD through the hardcopy POD flow.
  */
 export function deriveTripVaultReviewRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
-  return deriveComplianceDocumentRows(documents).filter((row) => row.required);
+  const requiredTypes = new Set(REQUIRED_COMPLIANCE_DOCUMENT_TYPES);
+  return deriveComplianceDocumentRows(documents).filter((row) => requiredTypes.has(row.type));
 }
 
 /**
@@ -274,10 +332,20 @@ export function deriveTripVaultReviewRows(documents: ComplianceDocumentRow[]): C
  * LR / Invoice / Trip Manifest stay on the Trip tab — not duplicated here.
  */
 export function deriveFinanceDocumentRows(documents: ComplianceDocumentRow[]): ComplianceDocRow[] {
-  const byType = latestDocByType(documents);
-  return COMPLIANCE_FINANCE_DOCUMENT_TYPES.map((type) =>
-    rowForType(type, REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES.includes(type), byType),
+  return rowsForTripTypes(
+    COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+    REQUIRED_COMPLIANCE_FINANCE_DOCUMENT_TYPES,
+    documents,
   );
+}
+
+/** Progress is always measured against required types, not extra uploads of the same type. */
+export function complianceProgress(rows: ComplianceDocRow[]): { verified: number; total: number } {
+  const requiredTypes = [...new Set(rows.filter((row) => row.required).map((row) => row.type))];
+  const verified = requiredTypes.filter((type) =>
+    rows.some((row) => row.type === type && row.status === "verified"),
+  ).length;
+  return { verified, total: requiredTypes.length };
 }
 
 /** Progress is always measured against required documents only. */
@@ -310,9 +378,4 @@ export function requiredRowNextAction(row: ComplianceDocRow): string {
   if (row.status === "pending") return "Preview then Approve or Decline.";
   if (row.status === "rejected") return "Replace the file, then Approve.";
   return "Verified — preview or replace if needed.";
-}
-
-export function complianceProgress(rows: ComplianceDocRow[]): { verified: number; total: number } {
-  const required = rows.filter((r) => r.required);
-  return { verified: required.filter((r) => r.status === "verified").length, total: required.length };
 }

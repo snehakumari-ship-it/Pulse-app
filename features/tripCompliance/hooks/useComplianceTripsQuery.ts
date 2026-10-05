@@ -36,6 +36,11 @@ import type {
 import { ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import { isCompliancePaymentPending, isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  isFinanceDeclinedForCompliancePending,
+  isFinanceDeclinedForPendingDocs,
+  isFinanceDeclinedTrip,
+} from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useTripsQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
@@ -249,7 +254,13 @@ export function useComplianceTripsQuery(_page = 0): ComplianceQueueResult & {
   };
 }
 
-export type ComplianceQueueFilter = ComplianceStage | "all" | "pod_received" | "payment_pending";
+export type ComplianceQueueFilter =
+  | ComplianceStage
+  | "all"
+  | "pod_received"
+  | "payment_pending"
+  /** Cross-cutting: Verified Rejects (Declined by finance), shown between CP and Verified. */
+  | "declined";
 
 export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | undefined) {
   const [stage, setStage] = useState<ComplianceQueueFilter>("all");
@@ -260,6 +271,18 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     if (stage === "payment_pending") return summaries.filter(isCompliancePaymentPending);
     if (stage === "compliance_verified") return summaries.filter(isComplianceVerifiedQueue);
     if (stage === "hard_copy_pod_received") return summaries.filter(tripAppearsInAwaitingPod);
+    if (stage === "declined") return summaries.filter(isFinanceDeclinedTrip);
+    // Verified Reject keeps stage=compliance_verified but lives under Declined by finance.
+    if (stage === "pending_for_docs") {
+      return summaries.filter(
+        (s) => s.stage === "pending_for_docs" || isFinanceDeclinedForPendingDocs(s),
+      );
+    }
+    if (stage === "compliance_pending") {
+      return summaries.filter(
+        (s) => s.stage === "compliance_pending" || isFinanceDeclinedForCompliancePending(s),
+      );
+    }
     return summaries.filter((s) => s.stage === stage);
   }, [summaries, stage]);
 
@@ -275,7 +298,13 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       payment_settled: 0,
     };
     for (const summary of summaries ?? []) {
-      if (summary.stage in next) next[summary.stage] += 1;
+      // Post-verify Reject leaves Verified and counts on Pending Docs / Compliance Pending.
+      if (summary.stage === "compliance_verified" && !isComplianceVerifiedQueue(summary)) {
+        if (isFinanceDeclinedForPendingDocs(summary)) next.pending_for_docs += 1;
+        else if (isFinanceDeclinedForCompliancePending(summary)) next.compliance_pending += 1;
+      } else if (summary.stage in next) {
+        next[summary.stage] += 1;
+      }
       if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
         next.compliance_verified += 1;
       }
@@ -296,7 +325,20 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     [summaries],
   );
 
-  return { stage, setStage, filtered, counts, podReceivedCount, paymentPendingCount };
+  const declinedCount = useMemo(
+    () => (summaries ?? []).filter(isFinanceDeclinedTrip).length,
+    [summaries],
+  );
+
+  return {
+    stage,
+    setStage,
+    filtered,
+    counts,
+    podReceivedCount,
+    paymentPendingCount,
+    declinedCount,
+  };
 }
 
 /** Client-side page over an already-filtered summary list. */

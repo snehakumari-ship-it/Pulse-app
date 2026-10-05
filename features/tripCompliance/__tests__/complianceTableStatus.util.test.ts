@@ -11,7 +11,10 @@ import {
   deriveComplianceEwayBill,
   deriveComplianceGroupStatus,
   isComplianceDeclineActive,
+  isFinanceDeclinedForCompliancePending,
+  isFinanceDeclinedForPendingDocs,
   isFinanceDeclinedTrip,
+  isPendingDocsComplianceHold,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 // Local-date noon so "today"/"yesterday" are unambiguous in any TZ.
@@ -293,6 +296,19 @@ describe("canVerifyTrip (AC-19, AC-22) [D2]", () => {
       reason: "Trip compliance already verified",
     });
   });
+
+  it("finance-declined (Verified Reject) may be re-verified when docs are ready", () => {
+    expect(
+      canVerifyTrip(
+        summary({
+          documents: VERIFIED_TRIP_DOCS,
+          complianceVerifiedAt: "2026-09-01T00:00:00Z",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "Memo missing",
+        }),
+      ),
+    ).toEqual({ allowed: true, reason: null });
+  });
 });
 
 describe("isComplianceDeclineActive (AC-26, AC-28)", () => {
@@ -325,6 +341,65 @@ describe("isFinanceDeclinedTrip", () => {
     expect(
       isFinanceDeclinedTrip(
         summary({ complianceDeclinedAt: "2026-10-01T10:07:50Z", complianceVerifiedAt: "2026-10-01T10:26:36Z" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves Declined by finance after compliance re-verifies (verified_at later)", () => {
+    const declined = summary({
+      complianceVerifiedAt: "2026-09-01T00:00:00Z",
+      complianceDeclinedAt: "2026-09-02T00:00:00Z",
+      complianceDeclineReason: "Memo missing",
+    });
+    expect(isFinanceDeclinedTrip(declined)).toBe(true);
+    expect(isFinanceDeclinedForCompliancePending(declined)).toBe(true);
+
+    const reVerified = summary({
+      complianceVerifiedAt: "2026-09-03T00:00:00Z",
+      complianceDeclinedAt: "2026-09-02T00:00:00Z",
+      complianceDeclineReason: "Memo missing",
+    });
+    expect(isFinanceDeclinedTrip(reVerified)).toBe(false);
+    expect(isFinanceDeclinedForCompliancePending(reVerified)).toBe(false);
+    expect(isFinanceDeclinedForPendingDocs(reVerified)).toBe(false);
+  });
+});
+
+describe("finance reject queue routing", () => {
+  const base = {
+    complianceVerifiedAt: "2026-09-01T00:00:00Z",
+    complianceDeclinedAt: "2026-09-02T00:00:00Z",
+  };
+
+  it("sends Truck No / document rejects to Pending Docs → Rejected", () => {
+    const trip = summary({ ...base, complianceDeclineReason: "Truck No mismatch" });
+    expect(isFinanceDeclinedForPendingDocs(trip)).toBe(true);
+    expect(isFinanceDeclinedForCompliancePending(trip)).toBe(false);
+  });
+
+  it("sends Memo / vendor rejects to Compliance Pending → Declined by finance", () => {
+    const trip = summary({ ...base, complianceDeclineReason: "Memo missing" });
+    expect(isFinanceDeclinedForPendingDocs(trip)).toBe(false);
+    expect(isFinanceDeclinedForCompliancePending(trip)).toBe(true);
+  });
+
+  it("marks pre-verify holds on Pending Docs only when exclusive stage is pending_for_docs", () => {
+    expect(
+      isPendingDocsComplianceHold(
+        summary({
+          stage: "pending_for_docs",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "bad LR",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isPendingDocsComplianceHold(
+        summary({
+          stage: "compliance_pending",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "bad LR",
+        }),
       ),
     ).toBe(false);
   });

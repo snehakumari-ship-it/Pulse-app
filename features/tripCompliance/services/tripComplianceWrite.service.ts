@@ -13,6 +13,10 @@ import {
   withLedgerDescriptionRequestId,
   withLedgerDescriptionUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
+import {
+  normalizeComplianceTransactionDate,
+  validateComplianceTransactionDate,
+} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
 import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
@@ -417,6 +421,18 @@ async function writeCompliancePaymentRow(
   if (error) return { error: new Error(error.message) };
   if (!data) return { error: new Error("You don't have permission to edit this payment.") };
   return { error: null };
+}
+
+/** Edit only the transaction date (Paid at / Txn Date) of a posted payment. */
+export async function updateCompliancePaymentTransactionDate(
+  params: CompliancePaymentRowTarget & { transactionDate: string },
+): Promise<{ error: Error | null }> {
+  const normalized = normalizeComplianceTransactionDate(params.transactionDate);
+  const invalid = validateComplianceTransactionDate(normalized);
+  if (invalid) return { error: new Error(invalid) };
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  return writeCompliancePaymentRow(params.transactionId, { transaction_date: normalized });
 }
 
 /**
