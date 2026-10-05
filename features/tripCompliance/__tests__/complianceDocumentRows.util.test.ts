@@ -41,6 +41,21 @@ describe("deriveTripVaultReviewRows", () => {
     expect(rows.map((r) => r.type)).toEqual(["lr", "eway_bill", "invoice"]);
     expect(rows.every((r) => r.required)).toBe(true);
   });
+
+  it("keeps every extra LR / Invoice / E-way file on the Trip tab", () => {
+    const rows = deriveTripVaultReviewRows([
+      doc({ id: "lr-1", document_type: "lr", uploaded_at: "2026-09-01" }),
+      doc({ id: "lr-2", document_type: "lr", uploaded_at: "2026-09-02" }),
+      doc({ id: "pod-1", document_type: "pod" }),
+    ]);
+    expect(rows.filter((r) => r.type === "lr")).toHaveLength(2);
+    expect(rows.some((r) => r.type === "pod")).toBe(false);
+    expect(rows.filter((r) => r.required).map((r) => r.type).sort()).toEqual([
+      "eway_bill",
+      "invoice",
+      "lr",
+    ]);
+  });
 });
 
 describe("deriveComplianceDocumentRows", () => {
@@ -56,6 +71,21 @@ describe("deriveComplianceDocumentRows", () => {
     const lrRow = rows.find((r) => r.type === "lr");
     expect(lrRow?.status).toBe("verified");
     expect(lrRow?.doc?.status).toBe("verified");
+  });
+
+  it("lists every uploaded file of the same type, with extras optional", () => {
+    const rows = deriveComplianceDocumentRows([
+      doc({ id: "lr-1", document_type: "lr", status: "verified", uploaded_at: "2026-09-01" }),
+      doc({ id: "lr-2", document_type: "lr", status: "pending", uploaded_at: "2026-09-02", file_name: "lr-2.pdf" }),
+      doc({ id: "inv-1", document_type: "invoice", status: "verified" }),
+      doc({ id: "ew-1", document_type: "eway_bill", status: "verified" }),
+    ]);
+    const lrs = rows.filter((r) => r.type === "lr");
+    expect(lrs).toHaveLength(2);
+    expect(lrs.filter((r) => r.required)).toHaveLength(1);
+    expect(lrs.some((r) => r.doc?.id === "lr-1")).toBe(true);
+    expect(lrs.some((r) => r.doc?.id === "lr-2")).toBe(true);
+    expect(complianceProgress(rows)).toEqual({ verified: 3, total: 3 });
   });
 
   it("ignores an e-way number row that has no uploaded file", () => {
@@ -341,10 +371,14 @@ describe("deriveEntityComplianceRows", () => {
         created_at: "2026-09-24T07:00:00Z",
       }),
     ]);
-    const insurance = rows.find((r) => r.type === "insurance");
-    expect(insurance?.entityDoc?.id).toBe("ins-old");
-    expect(insurance?.entityDoc?.expiry_date).toBe("2027-08-15");
-    expect(insurance?.status).toBe("verified");
+    const insurance = rows.filter((r) => r.type === "insurance");
+    expect(insurance).toHaveLength(2);
+    expect(insurance[0]?.entityDoc?.id).toBe("ins-old");
+    expect(insurance[0]?.required).toBe(true);
+    expect(insurance[0]?.status).toBe("verified");
+    expect(insurance[1]?.entityDoc?.id).toBe("ins-new");
+    expect(insurance[1]?.required).toBe(false);
+    expect(insurance[1]?.status).toBe("pending");
   });
 });
 

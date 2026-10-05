@@ -19,6 +19,7 @@ import {
   labelForDocType,
   type ComplianceDocRow,
 } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
+import { complianceRejectQueueDestination } from "@/features/tripCompliance/utils/complianceRejectReason.util";
 
 export type ComplianceEwayBillSummary = {
   number: string | null;
@@ -193,9 +194,11 @@ function joinLabels(labels: string[]): string {
 /**
  * Mirrors the `mark_trip_compliance_verified` server gate: required trip docs
  * (LR, E-way Bill, Invoice) verified. Vehicle/driver docs do not block (D2).
+ * Finance-declined (Verified Reject) trips may be re-verified even though
+ * compliance_verified_at is still set.
  */
 export function canVerifyTrip(summary: ComplianceTripSummary): ComplianceVerifyEligibility {
-  if (summary.complianceVerifiedAt) {
+  if (summary.complianceVerifiedAt && !isFinanceDeclinedTrip(summary)) {
     return { allowed: false, reason: "Trip compliance already verified" };
   }
   const pending = deriveComplianceDocumentRows(summary.documents).filter(
@@ -224,4 +227,25 @@ export function isFinanceDeclinedTrip(summary: ComplianceTripSummary): boolean {
   const declined = Date.parse(summary.complianceDeclinedAt);
   if (Number.isNaN(verified) || Number.isNaN(declined)) return false;
   return declined >= verified;
+}
+
+/** Verified reject whose reason routes to the Pending Docs → Rejected subtab. */
+export function isFinanceDeclinedForPendingDocs(summary: ComplianceTripSummary): boolean {
+  return (
+    isFinanceDeclinedTrip(summary) &&
+    complianceRejectQueueDestination(summary.complianceDeclineReason) === "pending_for_docs"
+  );
+}
+
+/** Verified reject whose reason routes to Compliance Pending → Declined by finance. */
+export function isFinanceDeclinedForCompliancePending(summary: ComplianceTripSummary): boolean {
+  return (
+    isFinanceDeclinedTrip(summary) &&
+    complianceRejectQueueDestination(summary.complianceDeclineReason) === "compliance_pending"
+  );
+}
+
+/** Pre-verify hold that still sits on the Pending Docs exclusive stage. */
+export function isPendingDocsComplianceHold(summary: ComplianceTripSummary): boolean {
+  return isComplianceDeclineActive(summary) && summary.stage === "pending_for_docs";
 }

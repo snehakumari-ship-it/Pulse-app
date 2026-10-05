@@ -110,7 +110,7 @@ describe("deriveComplianceStage", () => {
     ).toBe("compliance_verified");
   });
 
-  it("does not put a trip in AWAITING_POD just because an advance was posted before delivery", () => {
+  it("moves to ADVANCE_PAYMENT_PROCESSED once a verified trip has an advance posted", () => {
     expect(
       deriveComplianceStage({
         documentCount: 3,
@@ -120,7 +120,7 @@ describe("deriveComplianceStage", () => {
         hardCopyReceived: false,
         balance: null,
       }),
-    ).toBe("compliance_verified");
+    ).toBe("advance_payment_processed");
   });
 
   it("moves to PENDING_FOR_DOCS when required vehicle docs are expired (even with advance)", () => {
@@ -251,12 +251,25 @@ describe("deriveComplianceStage", () => {
     ).toBe("compliance_pending");
   });
 
-  it("is AWAITING_POD (exclusive) once delivered and verified until hard-copy POD is marked received", () => {
+  it("is AWAITING_POD (exclusive) once delivered and verified until hard-copy POD is marked received, even with an advance", () => {
     expect(
       deriveComplianceStage({
         documentCount: 3,
         complianceVerifiedAt: "2026-09-01T00:00:00Z",
         advance: PAYMENT,
+        tripStatus: "delivered",
+        hardCopyReceived: false,
+        balance: null,
+      }),
+    ).toBe("hard_copy_pod_received");
+  });
+
+  it("is HARD_COPY_POD_RECEIVED once delivered with no advance and hard-copy POD not yet marked", () => {
+    expect(
+      deriveComplianceStage({
+        documentCount: 3,
+        complianceVerifiedAt: "2026-09-01T00:00:00Z",
+        advance: null,
         tripStatus: "delivered",
         hardCopyReceived: false,
         balance: null,
@@ -555,8 +568,8 @@ describe("summarizeComplianceTrip — the advance is paid from Verified", () => 
 
   it("counts an advance posted after verification (exception approval sets the same column)", () => {
     const s = summary({ verifiedAt: "2026-10-02T00:00:00Z", postedAt: "2026-10-02T09:00:00Z" });
-    // In-transit exclusive stage stays Verified; the advance is still counted.
-    expect(s.stage).toBe("compliance_verified");
+    // Post-verify advance moves the exclusive stage to Advance Processed.
+    expect(s.stage).toBe("advance_payment_processed");
     expect(s.advance?.amount).toBe(114500);
     expect(s.advanceBeforeVerification).toBeNull();
     expect(shouldShowPaymentStatusPill(s)).toBe(true);

@@ -44,6 +44,7 @@ import {
   deriveComplianceEwayBill,
   deriveComplianceGroupStatus,
   isComplianceDeclineActive,
+  isFinanceDeclinedTrip,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
@@ -246,7 +247,8 @@ function TripRowContent({
     (summary.hardCopyPod.lrNumbers?.length ?? 0) > 0 &&
     (tripAppearsInAwaitingPod(summary) || lrReceipt.kind !== "none");
   const tripId = summary.trip.id;
-  const isVerified = Boolean(summary.complianceVerifiedAt);
+  const isFinanceDeclined = isFinanceDeclinedTrip(summary);
+  const isVerified = Boolean(summary.complianceVerifiedAt) && !isFinanceDeclined;
   const verifyEligibility = useMemo(() => canVerifyTrip(summary), [summary]);
   const declineActive = isComplianceDeclineActive(summary);
   const declineReason = summary.complianceDeclineReason?.trim() || "";
@@ -449,7 +451,7 @@ function TripRowContent({
               </Text>
             </TouchableOpacity>
           ) : null}
-          {!isVerified && onDeclineCompliance ? (
+          {!isVerified && !isFinanceDeclined && onDeclineCompliance ? (
             <TouchableOpacity
               testID={`compliance-decline-${tripId}`}
               style={[styles.actionButton, styles.actionItem]}

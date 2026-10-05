@@ -1,5 +1,23 @@
 # Changelog — V1 (v0.0.01)
 
+## sneha/V1.0.4 — 2026-10-05
+- **What:** Compliance document panel (Finance, Trip, Vehicle, Driver — every stage):
+  - Files open in the right-hand panel in their original form: EXIF orientation is honoured, the page is fitted and centred, and Rotate / Reset / Expand sit on a toolbar. The old full-pane tap-to-modal overlay is gone so you can read the document in place.
+  - Upload is no longer one-file-per-type. The picker accepts any number of files, each upload is added (not replaced), and every file gets its own list row (LR · 2, and so on).
+  - After verification, posting the compliance advance moves the trip to Advance Processed (it no longer stays on Verified). Reject is hidden on Advance Payment once that advance is already posted. Footer Previous/Next pager removed so the full filtered list stays visible.
+  - Pending Docs gets the same subtab row as Compliance Pending (All / Compliance Hold / Declined by finance). A Verified Reject leaves Verified and lands on Pending Docs → Declined by finance (Truck No / Client date / document notes) or Compliance Pending → Declined by finance (Memo / Vendor / rate notes). Parent stage counts and All lists include those trips. Compliance can press Verify on a Declined-by-finance trip; after re-verify the trip returns to Verified (toast + stage switch).
+  - Advance Payment: Reject is hidden when a pre-verify advance is blocking Pay (same as when a counted advance is already posted) so Finance only sees the reverse-and-repost guidance.
+  - Pay confirm (table Pay button modal): same professional side-by-side card layout as Advance Payment — trip facts left, amount calculation right, aligned payment mode and centered Confirm payment.
+  - Advance Processed Txn Date and Advance Payment Paid at are editable (same Save pattern as UTR); writes `transactions.transaction_date` only.
+  - Top filter chip **Declined** sits between Compliance Pending and Verified. Subtabs All / Compliance / Pending Docs show the same finance-declined trips already listed under those stages’ Declined by finance subtabs (existing PD/CP flow unchanged).
+  - Stage subfilters (Pending Docs, Compliance Pending, Declined) use the same segmented All / · / count control as Verified All/Verified/Rejected, placed above the trip cards in Cards view.
+  - Trip Details panel: facts grouped into Trip / Parties / Documents / Rates / Banking cards in a 2- or 3-column grid (3 columns on wider panels) instead of a single label–value list.
+- **Why:** Sideways phone photos were hard to read, extra LRs / invoices were overwritten, and tapping the preview jumped out of the panel. Verified + paid advances stayed on Verified because `deriveComplianceStage` never returned Advance Processed (V1.0.3 table/export need that stage). Finance rejects needed a clear return path by reason, and re-verify needed a Verify action (verified_at stayed set so the old button never appeared). A pre-verify advance left Reject visible next to Blocked, which was the wrong action. Table Pay opened a narrow stacked modal that did not match the Advance Payment card. Finance needed to correct the posted payment date without re-entering the advance. Rejected trips were split across two stages; a dedicated Declined chip makes them easy to find. Subfilters under PD/CP did not match the Verified segmented control. The Trip Details list left too much empty space; a sectioned grid is easier to scan.
+- **Files/areas:** `ComplianceDocumentWorkspace`, `CompliancePaymentConfirmModal`, `ComplianceSegmentedFilter`, `ComplianceAdvanceProcessedTable`, `ComplianceAdvancePaidDetails`, `CompliancePaidAtEditRow`, `tripComplianceWrite.service.ts`, `compliancePaymentDate.util.ts`, `useComplianceTripsQuery.ts`, `app/compliance/index.tsx`, reject routing utils
+- **Migrations:** none
+- **Tested:** Jest on document-row extras, progress, advance → Advance Processed, and reject-reason routing. Web UI not yet clicked through.
+- **Merge note (Nihas):** Delivered trips without the hard-copy POD stay on Awaiting POD even when the advance is paid (Nihas's call); only undelivered verified trips with an advance move to Advance Processed. Removed a dead driver-kyc check in the vehicle-vault upload path (type error).
+
 ## nihas/V1.0.17 — 2026-10-05
 - **What:** The Compliance list now loads truck type, supplier name and vehicle vault docs with **one batch RPC each**, instead of per-trip calls.
   - New `get_compliance_list_trip_facts` (truck type + supplier label) and `get_compliance_vehicle_vault_for_trips` (vehicle number + vault JSON). Both are SECURITY DEFINER, `authenticated` only (anon / PUBLIC revoked), capped at 1000 trip ids (SQLSTATE 22023).

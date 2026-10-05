@@ -1,8 +1,9 @@
 import Theme from "@/constants/Theme";
+import { ComplianceAdvanceCreditCard } from "@/features/tripCompliance/components/ComplianceAdvanceCreditCard";
+import { CompliancePaidAtEditRow } from "@/features/tripCompliance/components/CompliancePaidAtEditRow";
 import { ComplianceUtrEditRow } from "@/features/tripCompliance/components/ComplianceUtrEditRow";
 import { fetchTripAdvanceLedger } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import type { CompliancePaymentSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { formatComplianceTimestamp } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import { isCashPaymentMode } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -17,33 +18,29 @@ function formatInr(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 
-function DetailRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.label} numberOfLines={2}>
-        {label}
-      </Text>
-      <Text style={[styles.value, muted && styles.valueMuted]} numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 /**
- * Posted advance: Amount, Mode, UTR (editable) and Paid at. Reads the live ledger
- * row(s) for the trip so a UTR already stored in the database always shows, and
- * the UTR is saved on the exact transaction it belongs to.
+ * Posted advance: credit hero (amount, party, paid-at / mode log) plus editable
+ * UTR and Paid at. Reads live ledger rows so edits land on the right transaction.
  */
 export function ComplianceAdvancePaidDetails({
   advance,
   tripId,
+  partyName,
   onUpdateUtr,
+  onUpdatePaidAt,
 }: {
   advance: CompliancePaymentSummary;
   tripId: string;
+  /** Supplier / payee shown on the credit hero. */
+  partyName?: string | null;
   /** Saves the UTR on `transactionId`; rejects with a user-facing error. */
   onUpdateUtr?: (transactionId: string, utr: string, target: AdvanceUtrTarget) => Promise<void>;
+  /** Saves the transaction date (Paid at) on `transactionId`. */
+  onUpdatePaidAt?: (
+    transactionId: string,
+    transactionDate: string,
+    target: AdvanceUtrTarget,
+  ) => Promise<void>;
 }) {
   const fromFinance = advance.transactionId.startsWith(FINANCE_RECEIPT_PREFIX);
   const [payments, setPayments] = useState<LedgerPayment[] | null>(null);
@@ -71,7 +68,7 @@ export function ComplianceAdvancePaidDetails({
     };
     // `advance` is read only as a fallback; refetch on identity changes below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripId, fromFinance, advance.transactionId, advance.utr, reloadKey]);
+  }, [tripId, fromFinance, advance.transactionId, advance.utr, advance.paidAt, reloadKey]);
 
   useEffect(() => {
     setPayments(null);
@@ -85,16 +82,21 @@ export function ComplianceAdvancePaidDetails({
     [onUpdateUtr],
   );
 
-  const renderPaymentRows = (payment: LedgerPayment) => {
+  const savePaidAt = useCallback(
+    async (payment: LedgerPayment, transactionDate: string) => {
+      await onUpdatePaidAt?.(payment.transactionId, transactionDate, payment.target);
+      setReloadKey((k) => k + 1);
+    },
+    [onUpdatePaidAt],
+  );
+
+  const renderEditableRows = (payment: LedgerPayment, first?: boolean) => {
     const isCash = isCashPaymentMode(payment.paymentMode);
     return (
       <>
-        <View style={styles.rowBorder}>
-          <DetailRow label="Mode" value={payment.paymentMode?.trim() || "—"} muted={!payment.paymentMode} />
-        </View>
-        <View style={styles.rowBorder}>
+        <View style={!first ? styles.rowBorder : undefined}>
           <ComplianceUtrEditRow
-            key={payment.transactionId}
+            key={`${payment.transactionId}-utr`}
             utr={payment.utr}
             canEdit={Boolean(onUpdateUtr) && !isCash}
             disabledReason={onUpdateUtr && isCash ? "Cash payment — no UTR" : null}
@@ -102,31 +104,44 @@ export function ComplianceAdvancePaidDetails({
           />
         </View>
         <View style={styles.rowBorder}>
-          <DetailRow label="Paid at" value={formatComplianceTimestamp(payment.paidAt)} />
+          <CompliancePaidAtEditRow
+            key={`${payment.transactionId}-paid-at`}
+            paidAt={payment.paidAt}
+            canEdit={Boolean(onUpdatePaidAt)}
+            onSave={(transactionDate) => savePaidAt(payment, transactionDate)}
+          />
         </View>
       </>
     );
   };
 
-  const amountRow = <DetailRow label="Amount" value={formatInr(advance.amount)} />;
+  const creditHero = (
+    <ComplianceAdvanceCreditCard
+      payment={advance}
+      partyName={partyName}
+      tone="posted"
+    />
+  );
 
   if (loadError) {
     return (
-      <View style={styles.card}>
-        {amountRow}
-        <View style={[styles.rowBorder, styles.stateRow]}>
-          <Text style={styles.stateError} numberOfLines={2}>
-            {loadError}
-          </Text>
-          <TouchableOpacity
-            onPress={() => setReloadKey((k) => k + 1)}
-            style={styles.retryBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Retry loading the payment"
-          >
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
+      <View style={styles.stack}>
+        {creditHero}
+        <View style={styles.card}>
+          <View style={styles.stateRow}>
+            <Text style={styles.stateError} numberOfLines={2}>
+              {loadError}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setReloadKey((k) => k + 1)}
+              style={styles.retryBtn}
+              hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading the payment"
+            >
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
@@ -134,11 +149,13 @@ export function ComplianceAdvancePaidDetails({
 
   if (payments == null) {
     return (
-      <View style={styles.card}>
-        {amountRow}
-        <View style={[styles.rowBorder, styles.stateRow]}>
-          <ActivityIndicator size="small" color={Theme.textMuted} />
-          <Text style={styles.stateText}>Loading payment details…</Text>
+      <View style={styles.stack}>
+        {creditHero}
+        <View style={styles.card}>
+          <View style={styles.stateRow}>
+            <ActivityIndicator size="small" color={Theme.textMuted} />
+            <Text style={styles.stateText}>Loading payment details…</Text>
+          </View>
         </View>
       </View>
     );
@@ -146,12 +163,9 @@ export function ComplianceAdvancePaidDetails({
 
   if (payments.length === 0) {
     return (
-      <View style={styles.card}>
-        {amountRow}
-        <View style={styles.rowBorder}>
-          <DetailRow label="Mode" value="—" muted />
-        </View>
-        <View style={styles.rowBorder}>
+      <View style={styles.stack}>
+        {creditHero}
+        <View style={styles.card}>
           <ComplianceUtrEditRow
             utr={null}
             canEdit={false}
@@ -165,32 +179,35 @@ export function ComplianceAdvancePaidDetails({
 
   if (payments.length === 1) {
     return (
-      <View style={styles.card}>
-        {amountRow}
-        {renderPaymentRows(payments[0])}
+      <View style={styles.stack}>
+        <ComplianceAdvanceCreditCard payment={payments[0]} partyName={partyName} tone="posted" />
+        <View style={styles.card}>{renderEditableRows(payments[0], true)}</View>
       </View>
     );
   }
 
   return (
-    <View style={styles.card}>
-      {amountRow}
-      {payments.map((payment, index) => (
-        <View key={payment.transactionId} style={styles.receiptGroup}>
-          <View style={styles.receiptHeader}>
-            <Text style={styles.receiptTitle}>
-              Payment {index + 1} of {payments.length}
-            </Text>
-            <Text style={styles.receiptAmount}>{formatInr(payment.amount)}</Text>
+    <View style={styles.stack}>
+      {creditHero}
+      <View style={styles.card}>
+        {payments.map((payment, index) => (
+          <View key={payment.transactionId} style={index > 0 ? styles.receiptGroup : undefined}>
+            <View style={styles.receiptHeader}>
+              <Text style={styles.receiptTitle}>
+                Payment {index + 1} of {payments.length}
+              </Text>
+              <Text style={styles.receiptAmount}>{formatInr(payment.amount)}</Text>
+            </View>
+            {renderEditableRows(payment, true)}
           </View>
-          {renderPaymentRows(payment)}
-        </View>
-      ))}
+        ))}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  stack: { gap: 10 },
   card: {
     borderRadius: 10,
     borderWidth: 1,
@@ -198,38 +215,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
   },
-  row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
   rowBorder: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
   },
-  label: {
-    width: 128,
-    flexShrink: 0,
-    fontSize: 8,
-    fontWeight: "600",
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-    paddingTop: 1,
-  },
-  value: {
-    flex: 1,
-    minWidth: 0,
-    textAlign: "right",
-    fontSize: 11,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    lineHeight: 15,
-  },
-  valueMuted: { color: Theme.textMuted, fontWeight: "500" },
   stateRow: {
     flexDirection: "row",
     alignItems: "center",

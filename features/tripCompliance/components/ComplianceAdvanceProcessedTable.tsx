@@ -1,7 +1,7 @@
 /**
  * Advance Processed stage — table view. One payment row per trip (supplier bank
- * details, approver, mode, date, amount) with inline Request ID and UTR entry:
- * type in the box, press Enter or ✓. Columns flex to the screen width.
+ * details, approver, mode, date, amount) with inline Txn Date, Request ID and
+ * UTR entry: type in the box, press Enter or ✓. Columns flex to the screen width.
  */
 import Theme from "@/constants/Theme";
 import { useAdvanceProcessedTable } from "@/features/tripCompliance/hooks/useAdvanceProcessedTable";
@@ -9,8 +9,15 @@ import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/servi
 import {
   updateCompliancePaymentReference,
   updateCompliancePaymentRequestId,
+  updateCompliancePaymentTransactionDate,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
+import {
+  formatComplianceTxnDate,
+  normalizeComplianceTransactionDate,
+  toComplianceTransactionDateInput,
+  validateComplianceTransactionDate,
+} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import {
   COMPLIANCE_REQUEST_ID_MAX_LENGTH,
   COMPLIANCE_UTR_MAX_LENGTH,
@@ -38,7 +45,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
-type EditField = "requestId" | "utr";
+type EditField = "txnDate" | "requestId" | "utr";
 
 const FIELD_CONFIG: Record<
   EditField,
@@ -48,14 +55,23 @@ const FIELD_CONFIG: Record<
     normalize: (value: string) => string;
     validate: (value: string) => string | null;
     label: string;
+    upperCase?: boolean;
   }
 > = {
+  txnDate: {
+    placeholder: "YYYY-MM-DD",
+    maxLength: 10,
+    normalize: normalizeComplianceTransactionDate,
+    validate: validateComplianceTransactionDate,
+    label: "Txn Date",
+  },
   requestId: {
     placeholder: "Request ID",
     maxLength: COMPLIANCE_REQUEST_ID_MAX_LENGTH,
     normalize: normalizeComplianceRequestId,
     validate: validateComplianceRequestId,
     label: "Request ID",
+    upperCase: true,
   },
   utr: {
     placeholder: "Type UTR",
@@ -63,6 +79,7 @@ const FIELD_CONFIG: Record<
     normalize: normalizeComplianceUtr,
     validate: validateComplianceUtr,
     label: "UTR",
+    upperCase: true,
   },
 };
 
@@ -79,20 +96,11 @@ const COL = {
   account: { flex: 0.95, minWidth: 0 },
   branch: { flex: 0.8, minWidth: 0 },
   mode: { flex: 0.55, minWidth: 0 },
-  date: { flex: 0.75, minWidth: 0 },
+  date: { flex: 0.95, minWidth: 108 },
   amount: { flex: 0.75, minWidth: 0 },
   requestId: { flex: 1.0, minWidth: 104 },
   utr: { flex: 1.15, minWidth: 120 },
 } satisfies Record<string, ViewStyle>;
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatTxnDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return `${String(date.getDate()).padStart(2, "0")} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
-}
 
 function formatInr(amount: number): string {
   return `₹${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -193,6 +201,7 @@ function EditableCell({
   onEdit: () => void;
 }) {
   const config = FIELD_CONFIG[field];
+  const displaySaved = field === "txnDate" ? formatComplianceTxnDate(saved) : saved;
   if (disabledLabel) {
     return (
       <View style={[styles.cell, style]}>
@@ -210,11 +219,11 @@ function EditableCell({
           onPress={onEdit}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityLabel={`${config.label} ${saved}. Edit`}
+          accessibilityLabel={`${config.label} ${displaySaved}. Edit`}
         >
           <View style={styles.savedBody}>
             <Text style={styles.savedValue} numberOfLines={2} selectable>
-              {saved}
+              {displaySaved}
             </Text>
             <View style={styles.savedTag}>
               <Check size={8} color={Theme.complianceStageSuccessFg} strokeWidth={3} />
@@ -234,16 +243,17 @@ function EditableCell({
       <View style={styles.editLine}>
         <TextInput
           value={draft}
-          onChangeText={(text) => onChange(text.toUpperCase())}
+          onChangeText={(text) => onChange(config.upperCase ? text.toUpperCase() : text)}
           onSubmitEditing={onSave}
           placeholder={config.placeholder}
           placeholderTextColor={Theme.textMuted}
-          autoCapitalize="characters"
+          autoCapitalize={config.upperCase ? "characters" : "none"}
           autoCorrect={false}
           spellCheck={false}
           maxLength={config.maxLength}
           editable={!state?.saving}
           returnKeyType="done"
+          {...(Platform.OS === "web" && field === "txnDate" ? ({ type: "date" } as object) : null)}
           style={[styles.input, state?.error ? styles.inputError : null] as TextStyle[]}
           accessibilityLabel={config.label}
         />
@@ -299,6 +309,9 @@ export function ComplianceAdvanceProcessedTable({
       const local = savedLocal[editKey(summary.trip.id, field)];
       if (local != null) return local;
       if (field === "utr") return (info?.payment?.utr ?? summary.advance?.utr ?? "").trim();
+      if (field === "txnDate") {
+        return toComplianceTransactionDateInput(info?.payment?.paidAt ?? summary.advance?.paidAt);
+      }
       return (info?.requestId ?? "").trim();
     },
     [savedLocal],
@@ -328,7 +341,9 @@ export function ComplianceAdvanceProcessedTable({
       const { error } =
         field === "utr"
           ? await updateCompliancePaymentReference({ ...target, utr: value })
-          : await updateCompliancePaymentRequestId({ ...target, requestId: value });
+          : field === "txnDate"
+            ? await updateCompliancePaymentTransactionDate({ ...target, transactionDate: value })
+            : await updateCompliancePaymentRequestId({ ...target, requestId: value });
       if (error) {
         patchEdit(key, { saving: false, error: error.message });
         return false;
@@ -344,12 +359,14 @@ export function ComplianceAdvanceProcessedTable({
 
   const pendingSelected = rows.flatMap((summary) => {
     if (!selected.has(summary.trip.id)) return [];
-    return (["requestId", "utr"] as const).filter((field) => {
-      const state = edits[editKey(summary.trip.id, field)];
-      if (!state?.editing) return false;
-      const draft = FIELD_CONFIG[field].normalize(state.draft);
-      return draft.length > 0 && draft !== savedValue(summary, enrichment?.[summary.trip.id], field);
-    }).map((field) => ({ summary, field }));
+    return (["txnDate", "requestId", "utr"] as const)
+      .filter((field) => {
+        const state = edits[editKey(summary.trip.id, field)];
+        if (!state?.editing) return false;
+        const draft = FIELD_CONFIG[field].normalize(state.draft);
+        return draft.length > 0 && draft !== savedValue(summary, enrichment?.[summary.trip.id], field);
+      })
+      .map((field) => ({ summary, field }));
   });
 
   const saveSelected = async () => {
@@ -504,7 +521,7 @@ export function ComplianceAdvanceProcessedTable({
             <Cell style={COL.account} value={info?.accountNumber ?? ""} loading={loading} mono strong />
             <Cell style={COL.branch} value={info?.branch ?? ""} loading={loading} />
             <Cell style={COL.mode} value={payment.paymentMode?.trim() ?? ""} />
-            <Cell style={COL.date} value={formatTxnDate(payment.paidAt)} />
+            {renderEditable("txnDate", COL.date)}
             <Cell
               style={COL.amount}
               value={formatInr(summary.advance!.amount)}

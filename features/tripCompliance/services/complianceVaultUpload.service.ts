@@ -2,12 +2,9 @@
  * Compliance vault uploads: pick + validate a file, then write it to the right
  * store for its scope. Trip docs go to trip_documents, vehicle RC/insurance/etc.
  * prefer the vehicle vault, and everything else lands in entity_documents.
- * Shared by the Cards workspace (inline Upload / Replace) and the review sheet.
+ * Shared by the Cards workspace (inline Upload / Add) and the review sheet.
  */
-import {
-  replaceComplianceDocument,
-  uploadComplianceDocument,
-} from "@/features/compliance/services/documents.service";
+import { uploadComplianceDocument } from "@/features/compliance/services/documents.service";
 import type { ComplianceEntityDocument } from "@/features/tripCompliance/tripCompliance.types";
 import {
   COMPLIANCE_TRIP_DOC_PICKER_TYPES,
@@ -44,14 +41,10 @@ export const COMPLIANCE_VEHICLE_VAULT_TYPES = new Set([
   "road_tax",
 ]);
 
-/** Opens the file picker and validates format/size. `null` when the user cancels. */
-export async function pickComplianceVaultFile(type: string): Promise<ComplianceVaultFile | null> {
-  const res = await DocumentPicker.getDocumentAsync({
-    type: [...COMPLIANCE_TRIP_DOC_PICKER_TYPES],
-    copyToCacheDirectory: true,
-  });
-  if (res.canceled || !res.assets[0]) return null;
-  const asset = res.assets[0];
+async function vaultFileFromAsset(
+  type: string,
+  asset: DocumentPicker.DocumentPickerAsset,
+): Promise<ComplianceVaultFile> {
   const fileName = asset.name ?? `${type}.pdf`;
   if (typeof asset.size === "number") {
     const early = validateComplianceTripDocumentFile({
@@ -71,6 +64,27 @@ export async function pickComplianceVaultFile(type: string): Promise<ComplianceV
   return { arrayBuffer, fileName, mimeType: format.mimeType };
 }
 
+/** Opens the file picker. Users can select any number of files. Empty when cancelled. */
+export async function pickComplianceVaultFiles(type: string): Promise<ComplianceVaultFile[]> {
+  const res = await DocumentPicker.getDocumentAsync({
+    type: [...COMPLIANCE_TRIP_DOC_PICKER_TYPES],
+    copyToCacheDirectory: true,
+    multiple: true,
+  });
+  if (res.canceled || !res.assets?.length) return [];
+  const files: ComplianceVaultFile[] = [];
+  for (const asset of res.assets) {
+    files.push(await vaultFileFromAsset(type, asset));
+  }
+  return files;
+}
+
+/** Opens the file picker and validates format/size. `null` when the user cancels. */
+export async function pickComplianceVaultFile(type: string): Promise<ComplianceVaultFile | null> {
+  const files = await pickComplianceVaultFiles(type);
+  return files[0] ?? null;
+}
+
 export type ComplianceVaultUploadInput = {
   scope: ComplianceVaultScope;
   type: string;
@@ -80,8 +94,10 @@ export type ComplianceVaultUploadInput = {
   vehicleId: string | null;
   /** Vehicle or driver id for entity scopes; ignored for trip scope. */
   entityId: string | null;
-  /** Current file for this type, so a replace updates it instead of adding a duplicate. */
+  /** Current file for this type. Extra files of the same type skip the vehicle vault overwrite. */
   existing: ComplianceEntityDocument | null | undefined;
+  /** Extra files of an already-used type append instead of replacing the vault slot. */
+  append?: boolean;
   file: ComplianceVaultFile;
   expiryDate: string | null;
 };
@@ -91,7 +107,7 @@ export type ComplianceVaultUploadInput = {
  * conflict means the file already landed, so it is treated as success.
  */
 export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInput): Promise<void> {
-  const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, file, expiryDate } = input;
+  const { scope, type, tripId, organizationId, actorId, vehicleId, entityId, existing, append, file, expiryDate } = input;
 
   if (scope === "trip") {
     const { error } = await uploadTripDocument(
@@ -100,7 +116,7 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
       file,
       type as TripDocumentType,
       undefined,
-      { replaceExistingOfType: true },
+      { replaceExistingOfType: false },
     );
     if (error && !isTripDocumentsStoragePathConflict({ message: error.message })) throw error;
     return;
@@ -114,9 +130,10 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     );
   }
 
-  if (scope === "vehicle" && COMPLIANCE_VEHICLE_VAULT_TYPES.has(type) && vehicleId) {
+  if (scope === "vehicle" && COMPLIANCE_VEHICLE_VAULT_TYPES.has(type) && vehicleId && !existing && !append) {
     // Prefer the vehicle vault when this org owns the truck. Cross-org / RLS-blocked
     // vault writes fall back to entity_documents so Compliance can still collect it.
+    // Extra files of the same type append as entity_documents (existing is set).
     const owned = await getVehicleById(organizationId, vehicleId);
     if (owned.error) throw owned.error;
 
@@ -147,9 +164,6 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     }
     if (savedToVault) return;
 
-    if (existing?.source === "driver-kyc") {
-      throw new Error("Replace this file from Trip Operations Asset Vault.");
-    }
     const upload = {
       orgId: organizationId,
       entityType: "vehicle" as const,
@@ -159,17 +173,11 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
       uploadedBy: actorId,
       expiryDate: expiryDate || null,
     };
-    const canReplaceEntity = Boolean(existing?.id) && (existing?.source === "entity" || !existing?.source);
-    const { error } = canReplaceEntity && existing
-      ? await replaceComplianceDocument({ existingDocId: existing.id, upload })
-      : await uploadComplianceDocument(upload);
+    const { error } = await uploadComplianceDocument(upload);
     if (error) throw error;
     return;
   }
 
-  if (existing?.source === "vehicle-vault" || existing?.source === "driver-kyc") {
-    throw new Error("Replace this file from Trip Operations Asset Vault.");
-  }
   const upload = {
     orgId: organizationId,
     entityType: scope,
@@ -179,8 +187,6 @@ export async function uploadComplianceVaultFile(input: ComplianceVaultUploadInpu
     uploadedBy: actorId,
     expiryDate: expiryDate || null,
   };
-  const { error } = existing?.id
-    ? await replaceComplianceDocument({ existingDocId: existing.id, upload })
-    : await uploadComplianceDocument(upload);
+  const { error } = await uploadComplianceDocument(upload);
   if (error) throw error;
 }

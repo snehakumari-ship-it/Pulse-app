@@ -417,14 +417,19 @@ export function deriveComplianceStage(input: {
   if (!input.complianceVerifiedAt) {
     return docsStillOpen ? "pending_for_docs" : "compliance_pending";
   }
-  if (input.opsDelivered || isCompletedTripStatus(input.tripStatus)) {
+  const delivered = Boolean(input.opsDelivered || isCompletedTripStatus(input.tripStatus));
+  // Delivered + hard-copy → balance. Delivered without hard-copy → Awaiting POD,
+  // even when the post-verify advance is already paid.
+  if (delivered) {
     return input.hardCopyReceived ? "balance_pending" : "hard_copy_pod_received";
   }
-  // Expired RC / Insurance / FC override payment-progress chips — Ops must renew.
+  // Expired RC / Insurance / FC override payment-progress chips on undelivered
+  // trips — Ops must renew before Advance Processed.
   if (input.hasExpiredRequiredVehicleDocs) return "pending_for_docs";
-  // Hard-copy already marked on a trip that is not Delivered yet still opens
-  // balance. Advance alone does not — that trip is not in the Delivered count.
+  // Hard-copy on an undelivered trip only opens balance once a real advance is on file.
+  // POD alone must not pull a verified trip off Verified (no advance / pre-verify advance).
   if (input.advance && input.hardCopyReceived) return "balance_pending";
+  if (input.advance) return "advance_payment_processed";
   return "compliance_verified";
 }
 

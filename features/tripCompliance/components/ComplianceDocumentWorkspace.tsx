@@ -14,10 +14,11 @@ import {
   ComplianceAdvancePaidDetails,
   type AdvanceUtrTarget,
 } from "@/features/tripCompliance/components/ComplianceAdvancePaidDetails";
+import { ComplianceAdvanceCreditCard } from "@/features/tripCompliance/components/ComplianceAdvanceCreditCard";
 import { ComplianceAdvancePayeeDetails } from "@/features/tripCompliance/components/ComplianceAdvancePayeeDetails";
 import { COMPLIANCE_STATUS_META } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
-import { updateCompliancePaymentReference } from "@/features/tripCompliance/services/tripComplianceWrite.service";
+import { updateCompliancePaymentReference, updateCompliancePaymentTransactionDate } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
     guessCompliancePreviewMime,
     signCompliancePreviewUrl,
@@ -81,7 +82,7 @@ import {
     formatLrVaultNumberLabel,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import {
-  pickComplianceVaultFile,
+  pickComplianceVaultFiles,
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
 import { LogHardCopyPodModal, type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
@@ -94,8 +95,9 @@ import { markVehicleDocumentVerified } from "@/features/vehicles/services/vehicl
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { ROUTES } from "@/lib/routes";
 import { SIGNED_URL_CACHE_TTL_MS, SIGNED_URL_EXPIRY_SEC } from "@/lib/storageSignedUrlCache";
+import { Image as ExpoImage } from "expo-image";
 import { useRouter, type Href } from "expo-router";
-import { Check, ChevronLeft, ChevronRight, Eye, Minus, Plus, RotateCcw, Upload, X } from "lucide-react-native";
+import { Check, ChevronLeft, ChevronRight, Eye, Maximize2, Minus, Plus, RotateCcw, RotateCw, Upload, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -214,13 +216,41 @@ function typedDetailsLines(row: ComplianceDocRow | null): { label: string; value
   return readTypedDetails(doc.document_number);
 }
 
-function originalDocumentSize(
+function fitDocumentSize(
   natural: { width: number; height: number },
+  box: { width: number; height: number },
   zoom: number,
+  rotation: number,
 ): { width: number; height: number } {
+  const swapped = rotation % 180 !== 0;
+  const nw = swapped ? natural.height : natural.width;
+  const nh = swapped ? natural.width : natural.height;
+  if (box.width < 1 || box.height < 1 || nw < 1 || nh < 1) {
+    return { width: 1, height: 1 };
+  }
+  const scale = Math.min(box.width / nw, box.height / nh) * zoom;
   return {
-    width: Math.max(1, Math.round(natural.width * zoom)),
-    height: Math.max(1, Math.round(natural.height * zoom)),
+    width: Math.max(1, Math.round(nw * scale)),
+    height: Math.max(1, Math.round(nh * scale)),
+  };
+}
+
+function fitPdfSize(
+  box: { width: number; height: number },
+  zoom: number,
+  rotation: number,
+): { width: number; height: number } {
+  if (box.width < 1 || box.height < 1) return { width: 1, height: 1 };
+  if (rotation % 180 === 0) {
+    return {
+      width: Math.max(1, Math.round(box.width * zoom)),
+      height: Math.max(1, Math.round(box.height * zoom)),
+    };
+  }
+  const scale = Math.min(box.width / box.height, box.height / box.width) * zoom;
+  return {
+    width: Math.max(1, Math.round(box.width * scale)),
+    height: Math.max(1, Math.round(box.height * scale)),
   };
 }
 
@@ -228,11 +258,13 @@ function OriginalDocumentPreview({
   uri,
   isPdf,
   zoom,
+  rotation,
   label,
 }: {
   uri: string;
   isPdf: boolean;
   zoom: number;
+  rotation: number;
   label: string;
 }) {
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -256,55 +288,50 @@ function OriginalDocumentPreview({
     };
   }, [uri, isPdf]);
 
-  const fitted = useMemo(
-    () => (natural ? originalDocumentSize(natural, zoom) : null),
-    [natural, zoom],
-  );
-  const display =
-    isPdf && box.width > 1 && box.height > 1
-      ? { width: box.width, height: box.height }
-      : fitted;
-  const overflows = Boolean(display && (display.width > box.width + 1 || display.height > box.height + 1));
+  const display = useMemo(() => {
+    if (box.width < 2 || box.height < 2) return null;
+    if (isPdf) return fitPdfSize(box, zoom, rotation);
+    if (!natural) return fitPdfSize(box, zoom, rotation);
+    return fitDocumentSize(natural, box, zoom, rotation);
+  }, [box, isPdf, natural, rotation, zoom]);
 
   return (
     <View
-      style={styles.stageBody}
+      style={styles.previewCanvas}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         setBox((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
       }}
     >
       {display ? (
-        <PreviewScroller box={box} contentWidth={display.width} contentHeight={display.height} overflows={overflows}>
+        <ScrollView
+          style={styles.previewScroll}
+          contentContainerStyle={[
+            styles.previewAlign,
+            { minWidth: Math.max(box.width, display.width), minHeight: Math.max(box.height, display.height) },
+          ]}
+          showsVerticalScrollIndicator={zoom > 1}
+          showsHorizontalScrollIndicator={zoom > 1}
+        >
           {isPdf ? (
             <TripVaultFilePreview
               uri={uri}
               isPdf
-              showToolbar
-              zoom={zoom}
-              sizing="original"
-              style={display}
+              showToolbar={false}
+              zoom={1}
+              sizing="fit"
+              style={[display, rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null]}
               accessibilityLabel={label}
             />
           ) : (
-            <Image
+            <ExpoImage
               source={{ uri }}
-              style={display}
-              resizeMode="contain"
+              style={[display, rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null]}
+              contentFit="contain"
               accessibilityLabel={label}
-              onLoad={(event) => {
-                const source = event.nativeEvent.source;
-                if (source?.width > 0 && source?.height > 0) {
-                  setNatural((prev) =>
-                    prev?.width === source.width && prev?.height === source.height
-                      ? prev
-                      : { width: source.width, height: source.height },
-                  );
-                }
-              }}
             />
           )}
-        </PreviewScroller>
+        </ScrollView>
       ) : null}
     </View>
   );
@@ -378,6 +405,7 @@ export function DocumentScreen({
   const closeRef = useRef<View>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState(0);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState<number | null>(null);
@@ -400,6 +428,7 @@ export function DocumentScreen({
     if (!visible) return;
     setScale(1);
     setPan({ x: 0, y: 0 });
+    setRotation(0);
     setPage(1);
     setPageCount(null);
   }, [visible, uri]);
@@ -570,6 +599,15 @@ export function DocumentScreen({
             <View style={styles.screenTools}>
               <Pressable
                 style={styles.screenTool}
+                onPress={() => setRotation((value) => (value + 90) % 360)}
+                accessibilityRole="button"
+                accessibilityLabel="Rotate document"
+                {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
+              >
+                <RotateCw size={15} color={Theme.textPrimaryDark} />
+              </Pressable>
+              <Pressable
+                style={styles.screenTool}
                 onPress={() => applyView(scale - 0.25, pan)}
                 accessibilityRole="button"
                 accessibilityLabel="Zoom out"
@@ -591,10 +629,13 @@ export function DocumentScreen({
               </Pressable>
               <Pressable
                 style={styles.screenTool}
-                onPress={() => applyView(1, { x: 0, y: 0 })}
+                onPress={() => {
+                  applyView(1, { x: 0, y: 0 });
+                  setRotation(0);
+                }}
                 accessibilityRole="button"
-                accessibilityLabel="Reset zoom"
-                {...(Platform.OS === "web" ? { title: "Reset zoom" } : {})}
+                accessibilityLabel="Reset view"
+                {...(Platform.OS === "web" ? { title: "Reset view" } : {})}
               >
                 <RotateCcw size={15} color={Theme.textPrimaryDark} />
               </Pressable>
@@ -639,7 +680,17 @@ export function DocumentScreen({
           >
             <View
               pointerEvents="none"
-              style={[styles.screenPage, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale }] }]}
+              style={[
+                styles.screenPage,
+                {
+                  transform: [
+                    { translateX: pan.x },
+                    { translateY: pan.y },
+                    { scale },
+                    { rotate: `${rotation}deg` },
+                  ],
+                },
+              ]}
             >
               {isPdf ? (
                 <TripVaultFilePreview
@@ -660,47 +711,6 @@ export function DocumentScreen({
         </View>
       </View>
     </Modal>
-  );
-}
-
-function PreviewScroller({
-  box,
-  contentWidth,
-  contentHeight,
-  overflows,
-  children,
-}: {
-  box: { width: number; height: number };
-  contentWidth: number;
-  contentHeight: number;
-  overflows: boolean;
-  children: React.ReactNode;
-}) {
-  if (Platform.OS === "web") {
-    return (
-      <View style={[styles.stageScroll, Platform.OS === "web" ? ({ overflow: "auto" } as ViewStyle) : null]}>
-        <View style={overflows ? { width: contentWidth, height: contentHeight } : [styles.stageScrollCenter, styles.stageFill]}>
-          {children}
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.stageScroll}
-      nestedScrollEnabled
-      contentContainerStyle={overflows ? styles.stageScrollStart : styles.stageScrollCenter}
-    >
-      <ScrollView
-        horizontal
-        nestedScrollEnabled
-        style={{ height: Math.max(contentHeight, box.height) }}
-        contentContainerStyle={overflows ? styles.stageScrollStart : [styles.stageScrollCenter, { minWidth: box.width }]}
-      >
-        {children}
-      </ScrollView>
-    </ScrollView>
   );
 }
 
@@ -786,6 +796,7 @@ export function ComplianceDocumentWorkspace({
   const listRef = useRef<ScrollView>(null);
   const scrolledTripId = useRef<string | null>(null);
   const appliedFocusToken = useRef(0);
+  const focusUploadTypeRef = useRef<string | null>(null);
   const { truckTypeByVehicleId, supplierNameByTripId } = tripFacts;
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
   const [tab, setTab] = useState<DocTab>("trip");
@@ -793,6 +804,11 @@ export function ComplianceDocumentWorkspace({
   const [checklistKey, setChecklistKey] = useState<string | null>(null);
   const [checklistPreviewMode, setChecklistPreviewMode] = useState<ChecklistPreviewMode>("document");
   const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const resetPreviewView = useCallback(() => {
+    setZoom(1);
+    setRotation(0);
+  }, []);
   const [screenOpen, setScreenOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewMime, setPreviewMime] = useState<string | null>(null);
@@ -996,9 +1012,9 @@ export function ComplianceDocumentWorkspace({
     appliedFocusToken.current = focusToken;
     setTab(focusTab);
     setChecklistPreviewMode("document");
-    setZoom(1);
+    resetPreviewView();
     setScreenOpen(false);
-  }, [focusTab, focusToken]);
+  }, [focusTab, focusToken, resetPreviewView]);
 
   useEffect(() => {
     setLocalDecisionByKey({});
@@ -1006,7 +1022,7 @@ export function ComplianceDocumentWorkspace({
 
   useEffect(() => {
     setDocIndex(0);
-    setZoom(1);
+    resetPreviewView();
     setChecklistPreviewMode("document");
     setDeclineOpen(false);
     setRejectOpen(false);
@@ -1014,7 +1030,7 @@ export function ComplianceDocumentWorkspace({
       prev?.resolve(null);
       return null;
     });
-  }, [summary?.trip.id, tab]);
+  }, [summary?.trip.id, tab, resetPreviewView]);
 
   useEffect(() => {
     if (verifyNotice?.tone !== "success") return;
@@ -1029,7 +1045,23 @@ export function ComplianceDocumentWorkspace({
     }
     const pool = checklistPreviewMode === "finance" ? financeRows : checklistRows;
     setChecklistKey((prev) => {
+      const focusType = focusUploadTypeRef.current;
+      if (focusType) {
+        const newest = [...pool]
+          .filter((row) => row.type === focusType && hasFile(row))
+          .sort((a, b) => {
+            const aAt = a.doc?.uploaded_at ?? a.entityDoc?.created_at ?? "";
+            const bAt = b.doc?.uploaded_at ?? b.entityDoc?.created_at ?? "";
+            return bAt.localeCompare(aAt);
+          })[0];
+        if (newest) {
+          focusUploadTypeRef.current = null;
+          return newest.key;
+        }
+      }
       if (prev && pool.some((row) => row.key === prev)) return prev;
+      const byType = prev ? pool.find((row) => row.type === prev) : null;
+      if (byType) return byType.key;
       const firstWithFile = pool.find(hasFile);
       const firstMissing = pool.find((row) => row.status === "missing");
       return firstWithFile?.key ?? firstMissing?.key ?? pool[0]?.key ?? null;
@@ -1164,11 +1196,11 @@ export function ComplianceDocumentWorkspace({
         setChecklistKey(next.key);
         setChecklistPreviewMode((prev) => (prev === "finance" ? "finance" : "document"));
       }
-      setZoom(1);
+      resetPreviewView();
       return;
     }
     setDocIndex((index) => (index + 1) % previewable.length);
-    setZoom(1);
+    resetPreviewView();
   };
   const goPrev = () => {
     if (previewable.length === 0) return;
@@ -1182,11 +1214,11 @@ export function ComplianceDocumentWorkspace({
         setChecklistKey(prev.key);
         setChecklistPreviewMode((mode) => (mode === "finance" ? "finance" : "document"));
       }
-      setZoom(1);
+      resetPreviewView();
       return;
     }
     setDocIndex((index) => (index - 1 + previewable.length) % previewable.length);
-    setZoom(1);
+    resetPreviewView();
   };
 
   const promptExpiryDate = useCallback((docType: string) => {
@@ -1296,11 +1328,15 @@ export function ComplianceDocumentWorkspace({
   /**
    * Once every required trip document is approved, move the trip to Verified.
    * `approvedKeys` covers approvals the pipeline refetch hasn't reflected yet.
+   * Also re-verifies a finance-declined trip (Verified Reject) so it returns to Verified.
    */
   const autoVerifyIfRequiredApproved = async (approvedKeys: string[]) => {
     // Compliance Pending moves on only when the user presses Verify.
-    if (summary?.stage === "compliance_pending") return;
-    if (!summary || !onMarkComplianceVerified || summary.complianceVerifiedAt || reviewScope !== "trip") return;
+    if (summary?.stage === "compliance_pending" && !isFinanceDeclinedTrip(summary)) return;
+    if (!summary || !onMarkComplianceVerified || reviewScope !== "trip") return;
+    const alreadyCleanVerified =
+      Boolean(summary.complianceVerifiedAt) && !isFinanceDeclinedTrip(summary);
+    if (alreadyCleanVerified) return;
     const requiredRows = deriveComplianceDocumentRows(summary.documents).filter((row) => row.required);
     if (requiredRows.length === 0) return;
     const approved = new Set(approvedKeys);
@@ -1488,10 +1524,13 @@ export function ComplianceDocumentWorkspace({
     canManageFinance && readiness?.paymentReady && summary && (onConfirmPayment || onPay),
   );
   const readyPaymentCategory = readiness?.readyCategory ?? null;
+  // Hide Reject once any advance is on file — including a pre-verify advance that
+  // blocks Pay (Finance must reverse it; Reject is the wrong action here).
   const showReject = Boolean(
     summary?.complianceVerifiedAt &&
       !isComplianceVerifiedRejected(summary) &&
       !summary.advance &&
+      !summary.advanceBeforeVerification &&
       !summary.balance &&
       onRejectCompliance &&
       canVerify,
@@ -1526,8 +1565,13 @@ export function ComplianceDocumentWorkspace({
   const showPendingTripActions = Boolean(
     isCompliancePendingStage && summary && !summary.complianceVerifiedAt,
   );
+  /** Verified Reject: trip still has verified_at, but must be re-verified to leave Declined by finance. */
+  const showFinanceDeclineReVerify = Boolean(
+    summary && isFinanceDeclinedTrip(summary) && onMarkComplianceVerified,
+  );
   const showMarkVerified = Boolean(
     !isCompliancePendingStage &&
+      !showFinanceDeclineReVerify &&
       onMarkComplianceVerified &&
       summary &&
       !summary.complianceVerifiedAt &&
@@ -1558,7 +1602,7 @@ export function ComplianceDocumentWorkspace({
   const missingSubline = isFinanceMode
     ? "Memo · Other Documents · Bank Docs synced from supplier Banking"
     : listMissingRows.length === 0
-      ? "Use the eye icon to preview, or Upload to replace a file"
+      ? "Preview a file in the panel, or Add to upload more"
       : missingOptionalCount > 0 && missingRequiredCount > 0
         ? `Plus ${missingOptionalCount} optional from this ${vaultCopy.vaultLabel.toLowerCase()}`
         : vaultCopy.vaultHint;
@@ -1581,8 +1625,8 @@ export function ComplianceDocumentWorkspace({
       setUploadingFinanceType(row.key);
       setChecklistKey(row.key);
       try {
-        const file = await pickComplianceVaultFile(row.type);
-        if (!file) return;
+        const files = await pickComplianceVaultFiles(row.type);
+        if (files.length === 0) return;
 
         let expiryDate: string | null = null;
         if (scope !== "trip") {
@@ -1600,19 +1644,24 @@ export function ComplianceDocumentWorkspace({
           }
         }
 
-        await uploadComplianceVaultFile({
-          scope,
-          type: row.type,
-          tripId: summary.trip.id,
-          organizationId,
-          actorId,
-          vehicleId: summary.trip.vehicle_id ?? null,
-          entityId,
-          existing: row.entityDoc,
-          file,
-          expiryDate,
-        });
-        setZoom(1);
+        const alreadyHasFile = hasFile(row);
+        for (const [index, file] of files.entries()) {
+          await uploadComplianceVaultFile({
+            scope,
+            type: row.type,
+            tripId: summary.trip.id,
+            organizationId,
+            actorId,
+            vehicleId: summary.trip.vehicle_id ?? null,
+            entityId,
+            existing: alreadyHasFile || index > 0 ? row.entityDoc : null,
+            append: alreadyHasFile || index > 0,
+            file,
+            expiryDate,
+          });
+        }
+        focusUploadTypeRef.current = row.type;
+        resetPreviewView();
         onChanged(
           scope === "vehicle" && entityId
             ? { type: "vehicleDocuments", vehicleId: entityId }
@@ -1634,6 +1683,7 @@ export function ComplianceDocumentWorkspace({
       organizationId,
       promptExpiryDate,
       summary,
+      resetPreviewView,
       tab,
       uploadingFinanceType,
       vaultCopy.unassignedHint,
@@ -1643,8 +1693,8 @@ export function ComplianceDocumentWorkspace({
     setChecklistPreviewMode((prev) => (prev === "finance" ? "finance" : "document"));
     setChecklistKey(row.key);
     if (!hasFile(row)) return;
-    setZoom(1);
-  }, []);
+    resetPreviewView();
+  }, [resetPreviewView]);
   const tabMissingCounts = useMemo(() => {
     if (!summary) return { trip: 0, vehicle: 0, driver: 0, finance: 0 };
     const finance = deriveFinanceDocumentRows(summary.documents);
@@ -1671,10 +1721,15 @@ export function ComplianceDocumentWorkspace({
     const selected =
       (checklistPreviewMode === "document" || checklistPreviewMode === "finance") &&
       checklistKey === displayRow.key;
-    const uploadLabel = displayRow.status === "missing" ? "Upload" : "Replace";
+    const uploadLabel = displayRow.status === "missing" ? "Upload" : "Add";
     const rowLabel = isFinanceMode
       ? labelForFinanceDocType(displayRow.type)
       : labelForDocType(displayRow.type);
+    const sameTypeRows = listRows.filter((item) => item.type === displayRow.type);
+    const typeOrdinal = sameTypeRows.findIndex((item) => item.key === displayRow.key) + 1;
+    const rowTitle =
+      sameTypeRows.length > 1 && rowHasFile ? `${rowLabel.toUpperCase()} · ${typeOrdinal}` : rowLabel.toUpperCase();
+    const fileName = displayRow.doc?.file_name?.trim() || displayRow.entityDoc?.notes?.trim() || "";
     const vaultDetail = isFinanceMode ? financeVaultDetailLine(displayRow) : null;
     const isBankDocs = isFinanceMode && displayRow.type === "bank_docs";
     const bankVerified =
@@ -1698,7 +1753,9 @@ export function ComplianceDocumentWorkspace({
         : vaultDetail
           ? vaultDetail
           : rowHasFile
-            ? `${statusMeta.label} · ready to preview`
+            ? fileName && !/fields\.json$/i.test(fileName)
+              ? `${statusMeta.label} · ${fileName}`
+              : `${statusMeta.label} · ready to preview`
             : statusMeta.label;
     return (
       <View
@@ -1717,7 +1774,7 @@ export function ComplianceDocumentWorkspace({
         >
           <View style={styles.missingTitleRow}>
             <Text style={styles.missingDocName} numberOfLines={1}>
-              {rowLabel.toUpperCase()}
+              {rowTitle}
             </Text>
             {!showGroupedReview ? (
               <View
@@ -1951,7 +2008,7 @@ export function ComplianceDocumentWorkspace({
                   setSelectedId(item.trip.id);
                   setTab("trip");
                   setDocIndex(0);
-                  setZoom(1);
+                  resetPreviewView();
                 }}
               />
             </View>
@@ -1972,7 +2029,7 @@ export function ComplianceDocumentWorkspace({
                       onPress={() => {
                         setTab("trip");
                         setChecklistPreviewMode("finance");
-                        setZoom(1);
+                        resetPreviewView();
                         setScreenOpen(false);
                       }}
                       style={[
@@ -2024,7 +2081,7 @@ export function ComplianceDocumentWorkspace({
                           onPress={() => {
                             setTab(item.key);
                             setChecklistPreviewMode("document");
-                            setZoom(1);
+                            resetPreviewView();
                             setScreenOpen(false);
                           }}
                           style={[
@@ -2131,9 +2188,13 @@ export function ComplianceDocumentWorkspace({
                     >
                       {showGroupedReview
                         ? (["required", "optional"] as const).map((group) => {
-                            const groupRows = listRows.filter((row) =>
-                              group === "required" ? row.required : !row.required,
+                            const requiredTypes = new Set(
+                              listRows.filter((row) => row.required).map((row) => row.type),
                             );
+                            const groupRows = listRows.filter((row) => {
+                              const withRequiredType = requiredTypes.has(row.type);
+                              return group === "required" ? withRequiredType : !withRequiredType;
+                            });
                             if (groupRows.length === 0) return null;
                             return (
                               <View
@@ -2230,16 +2291,28 @@ export function ComplianceDocumentWorkspace({
                             </Text>
                           </TouchableOpacity>
                         ) : null}
-                        {showPendingTripActions && onMarkComplianceVerified && summary ? (
+                        {(showPendingTripActions || showFinanceDeclineReVerify) &&
+                        onMarkComplianceVerified &&
+                        summary ? (
                           <TouchableOpacity
                             style={[styles.verifyTripBtn, markingVerified && styles.btnDisabled]}
                             activeOpacity={0.85}
                             disabled={markingVerified}
                             onPress={() => {
-                              if (!allTabsApproved) {
+                              if (showPendingTripActions && !allTabsApproved) {
                                 alertMessage(
                                   "Can't verify",
                                   "Approve the required documents on Trip, Vehicle, and Driver first.",
+                                );
+                                return;
+                              }
+                              if (
+                                showFinanceDeclineReVerify &&
+                                !readiness?.requiredDocs.markVerifiedReady
+                              ) {
+                                alertMessage(
+                                  "Can't verify",
+                                  "Approve the required documents first, then Verify to return this trip to Verified.",
                                 );
                                 return;
                               }
@@ -2249,7 +2322,11 @@ export function ComplianceDocumentWorkspace({
                               );
                             }}
                             accessibilityRole="button"
-                            accessibilityLabel="Verify trip and move to the next stage"
+                            accessibilityLabel={
+                              showFinanceDeclineReVerify
+                                ? "Verify trip and return to the Verified stage"
+                                : "Verify trip and move to the next stage"
+                            }
                           >
                             {markingVerified ? (
                               <ActivityIndicator size="small" color={Theme.cardWhite} />
@@ -2284,6 +2361,78 @@ export function ComplianceDocumentWorkspace({
               </View>
 
               <View style={[styles.checklistPreviewPane, stacked && styles.checklistPreviewPaneStacked]}>
+                {(() => {
+                  const previewingDocument =
+                    checklistPreviewMode === "document" || checklistPreviewMode === "finance";
+                  const toolsEnabled = Boolean(previewUrl);
+                  const toolColor = toolsEnabled ? Theme.textPrimaryDark : Theme.textMuted;
+                  const previewPos = previewable.findIndex((row) => row.key === checklistKey);
+                  const previewOrdinal = previewPos >= 0 ? previewPos + 1 : previewable.length > 0 ? 1 : 0;
+                  const canStepDocs = previewable.length > 0;
+                  return (
+                    <>
+                {previewingDocument ? (
+                  <View style={styles.previewToolbar}>
+                    <Text style={styles.previewToolbarTitle} numberOfLines={1}>
+                      {docTitle}
+                    </Text>
+                    <View style={styles.previewToolbarActions}>
+                      <Pressable
+                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Zoom out"
+                        accessibilityState={{ disabled: !toolsEnabled }}
+                      >
+                        <Minus size={14} color={toolColor} />
+                      </Pressable>
+                      <Text style={[styles.previewZoomLabel, !toolsEnabled && styles.previewZoomLabelDisabled]}>
+                        {Math.round(zoom * 100)}%
+                      </Text>
+                      <Pressable
+                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setZoom((value) => clampPreviewZoom(value + 0.25))}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Zoom in"
+                        accessibilityState={{ disabled: !toolsEnabled }}
+                      >
+                        <Plus size={14} color={toolColor} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setRotation((value) => (value + 90) % 360)}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Rotate document"
+                        accessibilityState={{ disabled: !toolsEnabled }}
+                      >
+                        <RotateCw size={14} color={toolColor} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={resetPreviewView}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Reset view"
+                        accessibilityState={{ disabled: !toolsEnabled }}
+                      >
+                        <RotateCcw size={14} color={toolColor} />
+                      </Pressable>
+                      <Pressable
+                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setScreenOpen(true)}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${docTitle} larger`}
+                        accessibilityState={{ disabled: !toolsEnabled }}
+                      >
+                        <Maximize2 size={14} color={toolColor} />
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
                 <View style={styles.checklistPreviewBody}>
                   {checklistPreviewMode === "trip" && summary ? (
                     <ChecklistTripDetailsPanel
@@ -2325,6 +2474,20 @@ export function ComplianceDocumentWorkspace({
                             }
                           : undefined
                       }
+                      onUpdatePaidAt={
+                        canManageFinance
+                          ? async (target, transactionId, transactionDate, category) => {
+                              const { error } = await updateCompliancePaymentTransactionDate({
+                                tripId: target.trip.id,
+                                transactionId,
+                                category,
+                                transactionDate,
+                              });
+                              if (error) throw error;
+                              onChanged({ type: "payment", tripId: target.trip.id });
+                            }
+                          : undefined
+                      }
                     />
                   ) : showEntityUnassigned ? (
                     <View style={styles.checklistPreviewEmpty}>
@@ -2356,13 +2519,8 @@ export function ComplianceDocumentWorkspace({
                             uri={previewUrl}
                             isPdf={isPdf}
                             zoom={zoom}
+                            rotation={rotation}
                             label={docTitle}
-                          />
-                          <Pressable
-                            style={styles.openLayer}
-                            onPress={() => setScreenOpen(true)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Open ${docTitle}`}
                           />
                         </View>
                       ) : null}
@@ -2451,35 +2609,38 @@ export function ComplianceDocumentWorkspace({
                     </View>
                   )}
                 </View>
-                {(() => {
-                  const previewingDocument =
-                    checklistPreviewMode === "document" || checklistPreviewMode === "finance";
-                  const showDocNav = previewingDocument && previewable.length >= 2;
-                  if (!showDocNav || !activeRow) return null;
-                  return (
-                  <View style={styles.checklistDecisionBar}>
-                    <View style={styles.checklistDecisionSpacer} />
-                    {showDocNav ? (
-                      <View style={styles.checklistDecisionNavGroup}>
-                        <TouchableOpacity
-                          style={styles.checklistDecisionNav}
-                          onPress={goPrev}
-                          accessibilityRole="button"
-                          accessibilityLabel="Previous document"
-                        >
-                          <ChevronLeft size={12} color={Theme.textPrimaryDark} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.checklistDecisionNav}
-                          onPress={goNext}
-                          accessibilityRole="button"
-                          accessibilityLabel="Next document"
-                        >
-                          <ChevronRight size={12} color={Theme.textPrimaryDark} />
-                        </TouchableOpacity>
-                      </View>
-                    ) : null}
+                {previewingDocument ? (
+                  <View style={styles.previewFooter}>
+                    <Text style={styles.previewFooterMeta} numberOfLines={1}>
+                      {canStepDocs
+                        ? `${previewOrdinal} of ${previewable.length}`
+                        : "No file on this row"}
+                    </Text>
+                    <View style={styles.previewFooterNav}>
+                      <TouchableOpacity
+                        style={[styles.previewToolBtn, !canStepDocs && styles.previewToolBtnDisabled]}
+                        onPress={goPrev}
+                        disabled={!canStepDocs}
+                        accessibilityRole="button"
+                        accessibilityLabel="Previous document"
+                        accessibilityState={{ disabled: !canStepDocs }}
+                      >
+                        <ChevronLeft size={16} color={canStepDocs ? Theme.textPrimaryDark : Theme.textMuted} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.previewToolBtn, !canStepDocs && styles.previewToolBtnDisabled]}
+                        onPress={goNext}
+                        disabled={!canStepDocs}
+                        accessibilityRole="button"
+                        accessibilityLabel="Next document"
+                        accessibilityState={{ disabled: !canStepDocs }}
+                      >
+                        <ChevronRight size={16} color={canStepDocs ? Theme.textPrimaryDark : Theme.textMuted} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
+                ) : null}
+                    </>
                   );
                 })()}
               </View>
@@ -2602,15 +2763,60 @@ export function ComplianceDocumentWorkspace({
   );
 }
 
-function ChecklistDetailRow({ label, value }: { label: string; value: string }) {
+function TripDetailFact({
+  label,
+  value,
+  emphasize,
+  wide,
+  columns = 2,
+}: {
+  label: string;
+  value: string;
+  emphasize?: boolean;
+  wide?: boolean;
+  columns?: 2 | 3;
+}) {
   return (
-    <View style={styles.checklistDetailRow}>
-      <Text style={styles.checklistDetailLabel} numberOfLines={2}>
+    <View
+      style={[
+        styles.tripFactCell,
+        columns === 3 ? styles.tripFactCellThird : styles.tripFactCellHalf,
+        wide && styles.tripFactCellWide,
+      ]}
+    >
+      <Text style={styles.tripFactLabel} numberOfLines={1}>
         {label}
       </Text>
-      <Text style={styles.checklistDetailValue} numberOfLines={3}>
+      <Text
+        style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
+        numberOfLines={wide ? 3 : 2}
+      >
         {value}
       </Text>
+    </View>
+  );
+}
+
+function TripDetailSection({
+  title,
+  children,
+  columns,
+}: {
+  title: string;
+  children: React.ReactNode;
+  columns: 2 | 3;
+}) {
+  return (
+    <View style={styles.tripDetailSection}>
+      <View style={styles.tripDetailSectionHeader}>
+        <Text style={styles.tripDetailSectionTitle}>{title}</Text>
+      </View>
+      <View style={styles.tripFactGrid}>
+        {React.Children.map(children, (child) => {
+          if (!React.isValidElement(child)) return child;
+          return React.cloneElement(child as React.ReactElement<{ columns?: 2 | 3 }>, { columns });
+        })}
+      </View>
     </View>
   );
 }
@@ -2789,33 +2995,13 @@ function ChecklistTripDetailsPanel({
     };
   }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision]);
 
-  const rows: { label: string; value: string }[] = [
-    { label: "Trip ID", value: getTripDisplayNumber(trip, trip.organization_id ?? null) },
-    { label: "Customer", value: customerName },
-    { label: "Supplier", value: supplierLabel },
-    { label: "Route", value: routeLine },
-    { label: "Vehicle", value: vehicle },
-    { label: "Truck type", value: truckLabel },
-    { label: "Model", value: isAsset ? "Asset" : "Aggregate" },
-    { label: "In-transit date", value: inTransitAt },
-    { label: "Client sales invoice no", value: salesInvoice },
-    { label: "LR no", value: lrNo },
-    { label: "Loaded weight", value: formatLoadedWeight(commercial.load_tons) },
-    {
-      label: "Supplier rate",
-      value: formatTripInr(supplierCostTotal(commercial) ?? commercial.supplier_rate),
-    },
-    { label: "Client rate per MT", value: clientRatePerMtLabel(commercial) },
-    { label: "Client rate", value: formatTripInr(commercial.client_price) },
-    { label: "Supplier rate per MT", value: supplierRatePerMtLabel(commercial) },
-    { label: "Account number", value: bankDetails?.accountNumber ?? "—" },
-    { label: "Beneficiary name", value: bankDetails?.beneficiaryName ?? (supplierLabel !== "—" ? supplierLabel : "—") },
-    { label: "IFSC no", value: bankDetails?.ifsc ?? "—" },
-    ...(payeeDetails ? [{ label: "Bank name", value: bankDetails?.bankName ?? "—" }] : []),
-    { label: "Branch name", value: bankDetails?.branchName ?? "—" },
-    { label: "Profit", value: profit },
-    { label: "Profit %", value: profitPercent },
-  ];
+  const tripId = getTripDisplayNumber(trip, trip.organization_id ?? null);
+  const beneficiary =
+    bankDetails?.beneficiaryName ?? (supplierLabel !== "—" ? supplierLabel : "—");
+  const supplierRate = formatTripInr(supplierCostTotal(commercial) ?? commercial.supplier_rate);
+  const clientRate = formatTripInr(commercial.client_price);
+  const { width: panelWidth } = useWindowDimensions();
+  const columns: 2 | 3 = panelWidth >= 720 ? 3 : 2;
 
   return (
     <ScrollView
@@ -2825,13 +3011,45 @@ function ChecklistTripDetailsPanel({
     >
       <Text style={styles.checklistInfoTitle}>Trip details</Text>
       <Text style={styles.checklistInfoHint}>Selected trip facts from the compliance queue</Text>
-      <View style={styles.checklistInfoCard}>
-        {rows.map((row, index) => (
-          <View key={row.label} style={index > 0 ? styles.checklistDetailRowBorder : undefined}>
-            <ChecklistDetailRow label={row.label} value={row.value} />
-          </View>
-        ))}
-      </View>
+
+      <TripDetailSection title="Trip" columns={columns}>
+        <TripDetailFact label="Trip ID" value={tripId} wide />
+        <TripDetailFact label="Route" value={routeLine} wide />
+        <TripDetailFact label="Vehicle" value={vehicle} />
+        <TripDetailFact label="Truck type" value={truckLabel} />
+        <TripDetailFact label="Model" value={isAsset ? "Asset" : "Aggregate"} />
+        <TripDetailFact label="In-transit" value={inTransitAt} />
+        <TripDetailFact label="Loaded weight" value={formatLoadedWeight(commercial.load_tons)} />
+      </TripDetailSection>
+
+      <TripDetailSection title="Parties" columns={2}>
+        <TripDetailFact label="Customer" value={customerName} />
+        <TripDetailFact label="Supplier" value={supplierLabel} />
+      </TripDetailSection>
+
+      <TripDetailSection title="Documents" columns={2}>
+        <TripDetailFact label="LR no" value={lrNo} />
+        <TripDetailFact label="Client sales invoice" value={salesInvoice} />
+      </TripDetailSection>
+
+      <TripDetailSection title="Rates" columns={columns}>
+        <TripDetailFact label="Supplier rate" value={supplierRate} />
+        <TripDetailFact label="Supplier rate / MT" value={supplierRatePerMtLabel(commercial)} />
+        <TripDetailFact label="Client rate" value={clientRate} />
+        <TripDetailFact label="Client rate / MT" value={clientRatePerMtLabel(commercial)} />
+        <TripDetailFact label="Profit" value={profit} emphasize />
+        <TripDetailFact label="Profit %" value={profitPercent} emphasize />
+      </TripDetailSection>
+
+      <TripDetailSection title="Banking" columns={columns}>
+        <TripDetailFact label="Beneficiary" value={beneficiary} wide />
+        <TripDetailFact label="Account number" value={bankDetails?.accountNumber ?? "—"} />
+        <TripDetailFact label="IFSC" value={bankDetails?.ifsc ?? "—"} />
+        {payeeDetails ? (
+          <TripDetailFact label="Bank name" value={bankDetails?.bankName ?? "—"} />
+        ) : null}
+        <TripDetailFact label="Branch" value={bankDetails?.branchName ?? "—"} />
+      </TripDetailSection>
     </ScrollView>
   );
 }
@@ -2847,6 +3065,7 @@ function ChecklistAdvancePaymentPanel({
   onReject,
   canPayRejected = false,
   onUpdateUtr,
+  onUpdatePaidAt,
   supplierName,
 }: {
   summary: ComplianceTripSummary;
@@ -2857,6 +3076,13 @@ function ChecklistAdvancePaymentPanel({
     summary: ComplianceTripSummary,
     transactionId: string,
     utr: string,
+    category: AdvanceUtrTarget,
+  ) => Promise<void>;
+  /** Edit only the Paid at date of the posted advance. */
+  onUpdatePaidAt?: (
+    summary: ComplianceTripSummary,
+    transactionId: string,
+    transactionDate: string,
     category: AdvanceUtrTarget,
   ) => Promise<void>;
   /** Verified + Rejected trip: offer Confirm payment under the blockers anyway. */
@@ -2875,6 +3101,9 @@ function ChecklistAdvancePaymentPanel({
   onReject?: () => void;
 }) {
   const advance = summary.advance;
+  const advanceBeforeVerification = summary.advanceBeforeVerification ?? null;
+  const partyLabel =
+    (supplierName ?? summary.trip.supplier_name)?.trim() || "party";
   const lane = readiness?.advance ?? null;
   const statusLabel = advance
     ? "Advance processed"
@@ -2895,7 +3124,10 @@ function ChecklistAdvancePaymentPanel({
       ? (readiness?.blockerLines ?? []).filter((line) => {
           const lower = line.toLowerCase();
           // Balance-only messaging is noise on the advance panel.
-          return !lower.includes("before the balance");
+          if (lower.includes("before the balance")) return false;
+          // Amount / log are shown in ComplianceAdvanceCreditCard instead.
+          if (advanceBeforeVerification && lower.includes("posted before compliance")) return false;
+          return true;
         })
       : [];
   const showInlineForm =
@@ -2962,10 +3194,29 @@ function ChecklistAdvancePaymentPanel({
         <ComplianceAdvancePaidDetails
           advance={advance}
           tripId={summary.trip.id}
+          partyName={partyLabel}
           onUpdateUtr={
             onUpdateUtr
               ? (transactionId, utr, category) => onUpdateUtr(summary, transactionId, utr, category)
               : undefined
+          }
+          onUpdatePaidAt={
+            onUpdatePaidAt
+              ? (transactionId, transactionDate, category) =>
+                  onUpdatePaidAt(summary, transactionId, transactionDate, category)
+              : undefined
+          }
+        />
+      ) : null}
+      {!advance && advanceBeforeVerification ? (
+        <ComplianceAdvanceCreditCard
+          payment={advanceBeforeVerification}
+          partyName={partyLabel}
+          tone="blocked"
+          footer={
+            <Text style={styles.checklistAdvanceCreditFooter}>
+              Ask Finance to reverse this advance, then post it again from Verified.
+            </Text>
           }
         />
       ) : null}
@@ -3575,20 +3826,23 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceCardBorder,
   },
   screenBar: {
-    minHeight: 56,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    minHeight: 48,
+    height: 48,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
     backgroundColor: Theme.cardWhite,
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.complianceCardBorder,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
   },
   screenBarCompact: {
+    height: "auto",
+    minHeight: 48,
     flexWrap: "wrap",
+    paddingVertical: 8,
   },
-  screenTitle: { flex: 1, minWidth: 120, fontSize: 14, fontWeight: "600", color: Theme.textPrimaryDark },
+  screenTitle: { flex: 1, minWidth: 80, fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
   screenPages: { flexDirection: "row", alignItems: "center", gap: 4 },
   screenPageLabel: {
     minWidth: 52,
@@ -3600,21 +3854,25 @@ const styles = StyleSheet.create({
   screenTools: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto" },
   screenPercent: { minWidth: 48, textAlign: "center", fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
   screenTool: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.compliancePageBg,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
   },
   screenClose: {
-    width: 44,
-    height: 44,
-    marginLeft: 4,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    marginLeft: 2,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.compliancePageBg,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
   },
   screenStage: {
     flex: 1,
@@ -3907,6 +4165,65 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
     marginTop: -6,
   },
+  tripDetailSection: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+  },
+  tripDetailSectionHeader: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.compliancePageBg,
+  },
+  tripDetailSectionTitle: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.textSecondary,
+  },
+  tripFactGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  tripFactCell: {
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    minWidth: 0,
+  },
+  tripFactCellHalf: {
+    width: "50%",
+  },
+  tripFactCellThird: {
+    width: "33.333%",
+  },
+  tripFactCellWide: {
+    width: "100%",
+  },
+  tripFactLabel: {
+    fontSize: 8,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    marginBottom: 3,
+  },
+  tripFactValue: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+    lineHeight: 16,
+  },
+  tripFactValueEmphasize: {
+    fontWeight: "700",
+    color: Theme.darkGreen,
+  },
   checklistAdvanceStatusCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -4003,6 +4320,12 @@ const styles = StyleSheet.create({
     color: Theme.cardWhite,
     letterSpacing: 0.2,
   },
+  checklistAdvanceCreditFooter: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.complianceStageDocsFg,
+    lineHeight: 16,
+  },
   checklistBlockerBox: {
     borderRadius: 8,
     borderWidth: 1,
@@ -4056,11 +4379,100 @@ const styles = StyleSheet.create({
   checklistBankPreviewDoc: {
     flex: 1,
     minHeight: 120,
-    borderRadius: 10,
+    backgroundColor: Theme.compliancePreviewCanvas,
+    overflow: "hidden",
+  },
+  previewCanvas: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    backgroundColor: Theme.compliancePreviewCanvas,
+  },
+  previewScroll: {
+    flex: 1,
+    width: "100%",
+  },
+  previewAlign: {
+    flexGrow: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+  },
+  previewToolbar: {
+    flexShrink: 0,
+    height: 48,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  previewZoomLabel: {
+    width: 40,
+    height: 32,
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 32,
+    color: Theme.textPrimaryDark,
+    textAlign: "center",
+  },
+  previewZoomLabelDisabled: {
+    color: Theme.textMuted,
+  },
+  previewToolbarTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+  },
+  previewToolbarActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  previewToolBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.compliancePageBg,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
+  },
+  previewToolBtnDisabled: {
+    opacity: 0.45,
+  },
+  previewFooter: {
+    flexShrink: 0,
+    height: 48,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
-    overflow: "hidden",
+  },
+  previewFooterMeta: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
+  previewFooterNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
   },
   checklistBankDetailsScroll: {
     flexGrow: 0,
@@ -4211,37 +4623,6 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
     marginTop: 1,
   },
-  checklistDetailRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  checklistDetailRowBorder: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.complianceTripCardBorder,
-  },
-  checklistDetailLabel: {
-    width: 128,
-    flexShrink: 0,
-    fontSize: 8,
-    fontWeight: "600",
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-    paddingTop: 1,
-  },
-  checklistDetailValue: {
-    flex: 1,
-    minWidth: 0,
-    textAlign: "right",
-    fontSize: 11,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    lineHeight: 15,
-  },
   missingListContent: {
     flexGrow: 1,
     justifyContent: "center",
@@ -4367,8 +4748,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     overflow: "hidden",
-    backgroundColor: Theme.compliancePageBg,
-    padding: 8,
+    backgroundColor: Theme.compliancePreviewCanvas,
   },
   checklistDecisionBar: {
     flexShrink: 0,

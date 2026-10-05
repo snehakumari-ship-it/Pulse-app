@@ -91,6 +91,9 @@ function baseFreightAmount(
 }
 
 const INLINE_TWO_COLUMN_MIN_WIDTH = 600;
+/** Modal sheet uses the same side-by-side card layout as Advance Payment (reference). */
+const MODAL_MAX_WIDTH = 760;
+const MODAL_TWO_COLUMN_MIN_WIDTH = 560;
 /** Inline action buttons are drawn 36pt tall; keep the touch target at 44pt. */
 const INLINE_ACTION_HIT_SLOP = { top: 4, bottom: 4, left: 0, right: 0 };
 
@@ -98,24 +101,14 @@ function FactRow({
   label,
   value,
   emphasize,
-  compact,
 }: {
   label: string;
   value: string;
   emphasize?: boolean;
-  compact?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.factRow,
-        compact && styles.factRowCompact,
-        emphasize && styles.factRowEmphasize,
-      ]}
-    >
-      <Text style={[styles.factLabel, emphasize && styles.factLabelEmphasize]}>
-        {label}
-      </Text>
+    <View style={[styles.factRow, emphasize && styles.factRowEmphasize]}>
+      <Text style={[styles.factLabel, emphasize && styles.factLabelEmphasize]}>{label}</Text>
       <Text
         style={[styles.factValue, emphasize && styles.factValueEmphasize]}
         numberOfLines={2}
@@ -162,7 +155,7 @@ export function CompliancePaymentConfirmModal({
   /** `inline` embeds the form in the Advance Payment panel (no popup). */
   presentation?: "modal" | "inline";
 }) {
-  const { height } = useWindowDimensions();
+  const { height, width: windowWidth } = useWindowDimensions();
   const isInline = presentation === "inline";
   const [advancePercentText, setAdvancePercentText] = useState(
     String(COMPLIANCE_DEFAULT_ADVANCE_PERCENT),
@@ -178,7 +171,10 @@ export function CompliancePaymentConfirmModal({
     useState<ComplianceDocumentChargeConfig | null>(null);
   const [docChargeLoading, setDocChargeLoading] = useState(false);
   const [inlineWidth, setInlineWidth] = useState(0);
-  const inlineWide = inlineWidth >= INLINE_TWO_COLUMN_MIN_WIDTH;
+  const modalContentWidth = Math.min(windowWidth - 32, MODAL_MAX_WIDTH);
+  const twoColumn = isInline
+    ? inlineWidth >= INLINE_TWO_COLUMN_MIN_WIDTH
+    : modalContentWidth >= MODAL_TWO_COLUMN_MIN_WIDTH;
 
   const trip = summary?.trip as PaymentTripFacts | undefined;
   const categoryLabel =
@@ -419,45 +415,27 @@ export function CompliancePaymentConfirmModal({
     : `Confirm ${categoryLabel} payment`;
 
   const introText = (
-    <Text style={[styles.body, isInline && styles.bodyInline]}>
-      You are about to post {article} {categoryLabel} payment through the
-      Finance ledger. This cannot be undone from Compliance.
+    <Text style={styles.body}>
+      You are about to post {article} {categoryLabel} payment through the Finance ledger. This
+      cannot be undone from Compliance.
     </Text>
   );
 
   const factsCard = (
-    <View style={[styles.factCard, isInline && styles.factCardInline]}>
-      <FactRow
-        label="Supplier"
-        value={supplierLabel?.trim() || "—"}
-        compact={isInline}
-      />
-      <FactRow
-        label="Customer name"
-        value={trip?.client_name?.trim() || "—"}
-        compact={isInline}
-      />
-      <FactRow
-        label="Truck type"
-        value={truckType?.trim() || "—"}
-        compact={isInline}
-      />
-      <FactRow label="Trip" value={tripLabel} compact={isInline} />
-      <FactRow label="Category" value={categoryLabel} compact={isInline} />
-      <FactRow
-        label="Base freight"
-        value={baseFreightLabel}
-        emphasize
-        compact={isInline}
-      />
-      <View style={[styles.factRow, isInline && styles.factRowCompact]}>
+    <View style={styles.factCard}>
+      <FactRow label="Supplier" value={supplierLabel?.trim() || "—"} />
+      <FactRow label="Customer name" value={trip?.client_name?.trim() || "—"} />
+      <FactRow label="Truck type" value={truckType?.trim() || "—"} />
+      <FactRow label="Trip" value={tripLabel} />
+      <FactRow label="Category" value={categoryLabel} />
+      <FactRow label="Base freight" value={baseFreightLabel} emphasize />
+      <View style={styles.factRow}>
         <Text style={styles.factLabel}>Memo</Text>
         <View style={styles.docAction}>
           <Pressable
             style={[
               styles.eyeBtn,
-              (!memoDocument || memoOpening || submitting) &&
-                styles.eyeBtnDisabled,
+              (!memoDocument || memoOpening || submitting) && styles.eyeBtnDisabled,
             ]}
             onPress={() => void openMemoPreview()}
             disabled={memoOpening || submitting || !memoDocument}
@@ -471,11 +449,7 @@ export function CompliancePaymentConfirmModal({
               <ActivityIndicator size="small" color={Theme.textPrimaryDark} />
             ) : (
               <>
-                <Eye
-                  size={13}
-                  color={Theme.textPrimaryDark}
-                  strokeWidth={2.2}
-                />
+                <Eye size={13} color={Theme.textPrimaryDark} strokeWidth={2.2} />
                 <Text style={styles.eyeText}>Preview</Text>
               </>
             )}
@@ -485,34 +459,26 @@ export function CompliancePaymentConfirmModal({
     </View>
   );
 
-  const calcRowStyle = [styles.calcRow, isInline && styles.calcRowCompact];
-
   const calcCard = (
-    <View style={[styles.calcCard, isInline && styles.calcCardInline]}>
+    <View style={styles.calcCard}>
       <Text style={styles.calcTitle}>Amount calculation</Text>
       <Text style={styles.calcHint}>
         (Base freight × {percentLabel}) − Documentation charges − TDS
       </Text>
 
-      <View style={calcRowStyle}>
-        <Text style={[styles.calcLabel, styles.calcLabelGrow]}>
-          Base freight
-        </Text>
+      <View style={styles.calcRow}>
+        <Text style={[styles.calcLabel, styles.calcLabelGrow]}>Base freight</Text>
         <Text style={styles.calcValue}>{baseFreightLabel}</Text>
       </View>
 
-      <View style={calcRowStyle}>
-        <Text style={[styles.calcLabel, styles.calcLabelGrow]}>
-          {percentLabel}
-        </Text>
-        <View style={[styles.pctField, isInline && styles.pctFieldCompact]}>
+      <View style={styles.calcRow}>
+        <Text style={[styles.calcLabel, styles.calcLabelGrow]}>{percentLabel}</Text>
+        <View style={styles.pctField}>
           <TextInput
             style={styles.pctInput}
             keyboardType="numeric"
             value={advancePercentText}
-            onChangeText={(text) =>
-              setAdvancePercentText(sanitizePercentInput(text))
-            }
+            onChangeText={(text) => setAdvancePercentText(sanitizePercentInput(text))}
             editable={!submitting}
             selectTextOnFocus
             accessibilityLabel={percentLabel}
@@ -523,10 +489,10 @@ export function CompliancePaymentConfirmModal({
         </View>
       </View>
 
-      <View style={[styles.calcRowTds, isInline && styles.calcRowCompact]}>
+      <View style={styles.calcRowTds}>
         <View style={styles.calcLabelBlock}>
           <Text style={styles.calcLabel}>Documentation charges</Text>
-          <Text style={styles.calcMeta} numberOfLines={1}>
+          <Text style={styles.calcMeta} numberOfLines={2}>
             {docChargeLoading ? "Fetching charge slabs…" : docChargeMeta}
           </Text>
         </View>
@@ -547,7 +513,7 @@ export function CompliancePaymentConfirmModal({
         </View>
       </View>
 
-      <View style={[styles.calcRowTds, isInline && styles.calcRowCompact]}>
+      <View style={styles.calcRowTds}>
         <View style={styles.calcLabelBlock}>
           <Text style={styles.calcLabel}>TDS amount</Text>
           {tdsLoading ? (
@@ -585,9 +551,7 @@ export function CompliancePaymentConfirmModal({
       <View style={styles.amountResult}>
         <View style={styles.amountResultCopy}>
           <Text style={styles.amountResultLabel}>
-            {isAdvance
-              ? "Final advance payable (₹)"
-              : "Final balance payable (₹)"}
+            {isAdvance ? "Final advance payable (₹)" : "Final balance payable (₹)"}
           </Text>
           <Text style={styles.amountResultHint}>
             {tdsHasRate
@@ -602,8 +566,15 @@ export function CompliancePaymentConfirmModal({
     </View>
   );
 
+  const detailsRow = (
+    <View style={[styles.columns, twoColumn && styles.columnsWide]}>
+      <View style={[styles.column, twoColumn && styles.columnWide]}>{factsCard}</View>
+      <View style={[styles.column, twoColumn && styles.columnWide]}>{calcCard}</View>
+    </View>
+  );
+
   const modeField = (
-    <View style={[styles.field, isInline && styles.fieldInline]}>
+    <View style={styles.field}>
       <Text style={styles.label}>Payment mode</Text>
       <View style={styles.modeRow}>
         {PAYMENT_MODES.slice(0, 4).map((item) => {
@@ -612,11 +583,7 @@ export function CompliancePaymentConfirmModal({
             <Pressable
               key={item.id}
               onPress={() => setModeId(item.id)}
-              style={[
-                styles.modeChip,
-                isInline && styles.modeChipInline,
-                selected && styles.modeChipOn,
-              ]}
+              style={[styles.modeChip, selected && styles.modeChipOn]}
               disabled={submitting}
               accessibilityRole="button"
               accessibilityState={{ selected }}
@@ -635,19 +602,10 @@ export function CompliancePaymentConfirmModal({
   );
 
   const actionsRow = (
-    <View
-      style={[
-        styles.actions,
-        isInline && styles.actionsInline,
-        isInline && (onReject || onCancel) && styles.actionsInlineWithReject,
-      ]}
-    >
+    <View style={[styles.actions, (onReject || onCancel) && styles.actionsWithSecondary]}>
       {onCancel && !(isInline && onReject) ? (
         <Pressable
-          style={[
-            styles.cancelBtn,
-            isInline && submitting && styles.confirmBtnDisabled,
-          ]}
+          style={[styles.cancelBtn, submitting && styles.confirmBtnDisabled]}
           onPress={onCancel}
           disabled={submitting}
           hitSlop={isInline ? INLINE_ACTION_HIT_SLOP : undefined}
@@ -660,8 +618,8 @@ export function CompliancePaymentConfirmModal({
       {isInline && onReject ? (
         <Pressable
           style={({ pressed }) => [
-            styles.rejectBtnInline,
-            pressed && styles.rejectBtnInlinePressed,
+            styles.rejectBtn,
+            pressed && styles.rejectBtnPressed,
             submitting && styles.confirmBtnDisabled,
           ]}
           onPress={onReject}
@@ -670,15 +628,11 @@ export function CompliancePaymentConfirmModal({
           accessibilityRole="button"
           accessibilityLabel="Reject trip compliance"
         >
-          <Text style={styles.rejectTextInline}>Reject</Text>
+          <Text style={styles.rejectText}>Reject</Text>
         </Pressable>
       ) : null}
       <Pressable
-        style={[
-          styles.confirmBtn,
-          isInline && styles.confirmBtnInline,
-          !canSubmit && styles.confirmBtnDisabled,
-        ]}
+        style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
         disabled={!canSubmit}
         hitSlop={isInline ? INLINE_ACTION_HIT_SLOP : undefined}
         accessibilityRole="button"
@@ -695,9 +649,7 @@ export function CompliancePaymentConfirmModal({
         {submitting ? (
           <ActivityIndicator color={Theme.buttonDarkText} />
         ) : (
-          <Text style={styles.confirmText}>
-            {isInline ? "Confirm payment" : "Confirm"}
-          </Text>
+          <Text style={styles.confirmText}>Confirm payment</Text>
         )}
       </Pressable>
     </View>
@@ -711,22 +663,9 @@ export function CompliancePaymentConfirmModal({
         onLayout={(event) => setInlineWidth(event.nativeEvent.layout.width)}
       >
         {introText}
-        <View
-          style={[styles.inlineColumns, inlineWide && styles.inlineColumnsWide]}
-        >
-          <View
-            style={[styles.inlineColumn, inlineWide && styles.inlineColumnWide]}
-          >
-            {factsCard}
-          </View>
-          <View
-            style={[styles.inlineColumn, inlineWide && styles.inlineColumnWide]}
-          >
-            {calcCard}
-          </View>
-        </View>
+        {detailsRow}
         {modeField}
-        <View style={styles.inlineActionsRow}>{actionsRow}</View>
+        <View style={styles.actionsBar}>{actionsRow}</View>
       </View>
     );
   }
@@ -743,18 +682,27 @@ export function CompliancePaymentConfirmModal({
           style={StyleSheet.absoluteFill}
           onPress={submitting ? undefined : onCancel}
         />
-        <View style={[styles.sheet, { maxHeight: Math.min(height - 32, 680) }]}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              width: modalContentWidth,
+              maxHeight: Math.min(height - 32, twoColumn ? 720 : 680),
+            },
+          ]}
+        >
           <ScrollView
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.sheetContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.title}>Confirm payment</Text>
-            {introText}
-            {factsCard}
-            {calcCard}
+            <View style={styles.modalHeader}>
+              <Text style={styles.title}>Confirm payment</Text>
+              {introText}
+            </View>
+            {detailsRow}
             {modeField}
-            {actionsRow}
+            <View style={styles.actionsBar}>{actionsRow}</View>
           </ScrollView>
         </View>
       </View>
@@ -771,54 +719,64 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   sheet: {
-    width: "100%",
-    maxWidth: 380,
     backgroundColor: Theme.cardWhite,
     borderRadius: 16,
     overflow: "hidden",
+    ...Platform.select({
+      web: {
+        boxShadow: "0 16px 40px rgba(15, 23, 42, 0.18)",
+      },
+      default: {
+        elevation: 8,
+      },
+    }),
+  },
+  sheetContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 18,
+    gap: 14,
+  },
+  modalHeader: { gap: 6 },
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    color: Theme.textPrimaryDark,
+  },
+  body: {
+    fontSize: 12,
+    fontWeight: "400",
+    color: Theme.textMuted,
+    lineHeight: 17,
   },
   inlineRoot: {
     width: "100%",
     minWidth: 0,
     paddingTop: 4,
     paddingBottom: 6,
-    gap: 10,
+    gap: 12,
   },
-  inlineColumns: { gap: 10 },
-  inlineColumnsWide: { flexDirection: "row", alignItems: "stretch" },
-  inlineColumn: { minWidth: 0 },
-  inlineColumnWide: { flex: 1, flexBasis: 0 },
-  inlineActionsRow: {
-    alignItems: "center",
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.complianceCardBorder,
-  },
-  sheetContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 14,
-    gap: 10,
-  },
-  title: { fontSize: 17, fontWeight: "700", color: Theme.textPrimaryDark },
-  body: { fontSize: 12, color: Theme.textMuted, lineHeight: 16 },
-  bodyInline: { fontSize: 11, lineHeight: 15, marginBottom: 2 },
+  columns: { gap: 12 },
+  columnsWide: { flexDirection: "row", alignItems: "stretch" },
+  column: { minWidth: 0 },
+  columnWide: { flex: 1, flexBasis: 0 },
   factCard: {
-    borderRadius: 10,
+    flexGrow: 1,
+    borderRadius: 12,
     backgroundColor: Theme.compliancePageBg,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 2,
   },
   factRow: {
-    minHeight: 30,
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
   },
-  factRowCompact: { minHeight: 26 },
-  factCardInline: { flexGrow: 1, justifyContent: "center", paddingVertical: 6 },
   factRowEmphasize: {
-    minHeight: 34,
+    minHeight: 36,
     marginTop: 2,
     marginBottom: 2,
     paddingVertical: 4,
@@ -827,8 +785,9 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceCardBorder,
   },
   factLabel: {
-    width: 128,
-    fontSize: 11,
+    flexShrink: 0,
+    width: 118,
+    fontSize: 12,
     fontWeight: "500",
     color: Theme.textMuted,
   },
@@ -839,19 +798,19 @@ const styles = StyleSheet.create({
   factValue: {
     flex: 1,
     minWidth: 0,
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
     textAlign: "right",
   },
   factValueEmphasize: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "800",
     color: Theme.darkGreen,
   },
   docAction: { flex: 1, minWidth: 0, alignItems: "flex-end" },
   eyeBtn: {
-    height: 28,
+    height: 30,
     paddingHorizontal: 10,
     borderRadius: 8,
     flexDirection: "row",
@@ -865,19 +824,20 @@ const styles = StyleSheet.create({
   eyeBtnDisabled: { opacity: 0.45 },
   eyeText: { fontSize: 11, fontWeight: "600", color: Theme.textPrimaryDark },
   calcCard: {
+    flexGrow: 1,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
     gap: 8,
   },
   calcTitle: {
     fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: 0.4,
     color: Theme.textPrimaryDark,
     textTransform: "uppercase",
   },
@@ -889,20 +849,18 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   calcRow: {
-    minHeight: 32,
+    minHeight: 34,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
-  calcRowCompact: { minHeight: 28 },
-  calcCardInline: { flexGrow: 1, paddingTop: 8, paddingBottom: 10, gap: 6 },
   calcRowTds: {
-    minHeight: 40,
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
     paddingVertical: 2,
   },
   calcLabelBlock: {
@@ -911,7 +869,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   calcLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "500",
     color: Theme.textMuted,
   },
@@ -920,19 +878,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   calcMeta: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "500",
     color: Theme.textSecondary,
     letterSpacing: 0.1,
   },
   calcValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
     textAlign: "right",
   },
   calcValueMuted: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
     color: Theme.textSecondary,
     textAlign: "right",
@@ -959,7 +917,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   tdsAmountValue: {
-    minWidth: 64,
+    minWidth: 68,
     color: Theme.textPrimaryDark,
   },
   pctField: {
@@ -967,14 +925,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     height: 34,
-    minWidth: 88,
+    minWidth: 92,
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.compliancePageBg,
   },
-  pctFieldCompact: { height: 30 },
   pctInput: {
     flex: 1,
     minWidth: 36,
@@ -991,92 +948,93 @@ const styles = StyleSheet.create({
   },
   amountResult: {
     marginTop: 4,
-    paddingTop: 10,
+    paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceCardBorder,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 12,
   },
   amountResultCopy: { flex: 1, minWidth: 0, gap: 2 },
   amountResultLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   amountResultHint: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "400",
     color: Theme.textMuted,
   },
   amountResultValue: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "800",
-    letterSpacing: -0.3,
+    letterSpacing: -0.4,
     color: Theme.darkGreen,
   },
-  field: { gap: 4 },
-  fieldInline: { gap: 6 },
-  label: { fontSize: 11, fontWeight: "600", color: Theme.textMuted },
-  modeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  field: { gap: 8 },
+  label: { fontSize: 12, fontWeight: "600", color: Theme.textMuted },
+  modeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   modeChip: {
     flex: 1,
-    height: 32,
-    paddingHorizontal: 4,
-    borderRadius: 999,
+    minWidth: 0,
+    height: 40,
+    paddingHorizontal: 6,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
   },
-  modeChipInline: { height: 44, borderRadius: 12 },
   modeChipOn: {
     backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
   },
   modeChipText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.textMuted,
     textAlign: "center",
   },
   modeChipTextOn: { color: Theme.buttonDarkText },
+  actionsBar: {
+    alignItems: "center",
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceCardBorder,
+  },
   actions: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 8,
-    marginTop: 4,
-  },
-  actionsInline: {
     justifyContent: "center",
-    marginTop: 0,
+    gap: 10,
   },
-  actionsInlineWithReject: { gap: 10 },
-  rejectBtnInline: {
-    width: 96,
-    height: 36,
+  actionsWithSecondary: { gap: 12 },
+  rejectBtn: {
+    minWidth: 104,
+    height: 40,
+    paddingHorizontal: 18,
     borderRadius: 10,
     borderWidth: 1.5,
     borderColor: Theme.complianceStageDocsFg,
-    backgroundColor: Theme.complianceStageDocsBg,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
   },
-  rejectBtnInlinePressed: { opacity: 0.8 },
-  rejectTextInline: {
-    fontSize: 12,
+  rejectBtnPressed: { opacity: 0.8 },
+  rejectText: {
+    fontSize: 13,
     fontWeight: "700",
     letterSpacing: 0.2,
     color: Theme.complianceStageDocsFg,
   },
   cancelBtn: {
-    minWidth: 96,
-    height: 36,
-    paddingHorizontal: 16,
+    minWidth: 104,
+    height: 40,
+    paddingHorizontal: 18,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
@@ -1084,26 +1042,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  cancelText: { fontSize: 12, fontWeight: "600", color: Theme.textPrimaryDark },
+  cancelText: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
   confirmBtn: {
-    minWidth: 112,
-    height: 36,
-    paddingHorizontal: 18,
+    minWidth: 168,
+    height: 40,
+    paddingHorizontal: 20,
     borderRadius: 10,
     backgroundColor: Theme.positive,
     alignItems: "center",
     justifyContent: "center",
   },
-  confirmBtnInline: {
-    width: 168,
-    minWidth: 0,
-    height: 36,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-  },
   confirmBtnDisabled: { opacity: 0.45 },
   confirmText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
     color: Theme.buttonDarkText,
     textAlign: "center",
