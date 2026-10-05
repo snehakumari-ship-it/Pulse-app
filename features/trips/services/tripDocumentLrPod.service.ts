@@ -327,7 +327,7 @@ export async function logTripHardCopyPodCourier(
   input: {
     courier: string;
     awbNumber: string;
-    dispatchDate: string;
+    dispatchDate?: string | null;
     expectedDeliveryDate?: string | null;
     courierContact?: string | null;
     remarks?: string | null;
@@ -337,10 +337,9 @@ export async function logTripHardCopyPodCourier(
   if (!id) return { error: new Error("Trip is not linked.") };
   const courier = String(input.courier ?? "").trim();
   const awbNumber = String(input.awbNumber ?? "").trim();
-  const dispatchDate = String(input.dispatchDate ?? "").trim();
+  const dispatchDate = String(input.dispatchDate ?? "").trim() || null;
   if (!courier) return { error: new Error("Courier name is required.") };
   if (!awbNumber) return { error: new Error("Tracking / AWB number is required.") };
-  if (!dispatchDate) return { error: new Error("Dispatch date is required.") };
 
   const { data, error } = await supabase().rpc("log_trip_hard_copy_pod_courier", {
     p_trip_id: id,

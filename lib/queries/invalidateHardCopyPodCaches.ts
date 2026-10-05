@@ -87,6 +87,7 @@ function invalidateOrgHardCopyPodSurfaces(
     queryKey: ["q", "tripCompliance", "list", "vault-v2", orgId],
   });
   void queryClient.invalidateQueries({ queryKey: ["q", "finance-pro"] });
+  void queryClient.invalidateQueries({ queryKey: ["q", "debit-control"] });
   for (const tripId of tripIds) {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.tripCompliance.detail(orgId, tripId),

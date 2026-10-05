@@ -60,6 +60,18 @@ const HARD_COPY_POD_COURIERS = [
   "India Post",
 ] as const;
 
+function todayIsoDate(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function dateOrToday(value: string | null | undefined): string {
+  const trimmed = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : todayIsoDate();
+}
+
 function courierNameOptions(current: string): string[] {
   const saved = current.trim();
   const base: string[] = [...HARD_COPY_POD_COURIERS];
@@ -76,6 +88,8 @@ export type HardCopyPodManifestSummary = {
   delivery: string;
   driverName: string;
   vehicleLabel: string;
+  vehicleType?: string | null;
+  vendorName?: string | null;
 };
 
 type Mode = "create" | "view" | "mark_received";
@@ -115,8 +129,11 @@ export function LogHardCopyPodModal({
   initialMode = "create",
   onUpdated,
   lrOptions = [],
+  inline = false,
 }: {
   visible: boolean;
+  /** Render the panel in place (no modal, overlay, or close button). `onClose` fires after save. */
+  inline?: boolean;
   onClose: () => void;
   tripId: string;
   organizationId?: string | null;
@@ -143,12 +160,12 @@ export function LogHardCopyPodModal({
 
   const [method, setMethod] = useState<HardCopyPodReceiptMethod | null>(null);
   const [receivedBy, setReceivedBy] = useState("");
-  const [receivedDate, setReceivedDate] = useState("");
+  const [receivedDate, setReceivedDate] = useState(todayIsoDate);
   const [receivedTime, setReceivedTime] = useState("");
   const [courierName, setCourierName] = useState("");
   const [awbNumber, setAwbNumber] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(todayIsoDate);
   const [remarks, setRemarks] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lrNumber, setLrNumber] = useState("—");
@@ -196,24 +213,24 @@ export function LogHardCopyPodModal({
         setMode("create");
         setMethod(state.receiptMethod === "person" ? "person" : "courier");
         setReceivedBy(state.receivedBy ?? "");
-        setReceivedDate(state.receivedDate ?? "");
+        setReceivedDate(dateOrToday(state.receivedDate));
         setReceivedTime(state.receivedTime ?? "");
         setCourierName(state.courier ?? "");
         setAwbNumber(state.awbNumber ?? "");
         setDispatchDate(state.dispatchDate ?? "");
-        setExpectedDeliveryDate(state.expectedDeliveryDate ?? "");
+        setExpectedDeliveryDate(dateOrToday(state.expectedDeliveryDate));
         setRemarks(decodedRemarks.text ?? "");
         setStoredReceivedLrs(decodedRemarks.receivedLrs);
       } else {
         setMode("create");
         setMethod(null);
         setReceivedBy("");
-        setReceivedDate("");
+        setReceivedDate(todayIsoDate());
         setReceivedTime("");
         setCourierName("");
         setAwbNumber("");
         setDispatchDate("");
-        setExpectedDeliveryDate("");
+        setExpectedDeliveryDate(todayIsoDate());
         setRemarks("");
         setStoredReceivedLrs([]);
       }
@@ -350,7 +367,6 @@ export function LogHardCopyPodModal({
       }
       if (!courierName.trim()) next.courierName = "Courier name is required.";
       if (!awbNumber.trim()) next.awbNumber = "Tracking / AWB number is required.";
-      if (!dispatchDate.trim()) next.dispatchDate = "Dispatch date is required.";
       if (!expectedDeliveryDate.trim()) {
         next.expectedDeliveryDate = "Received delivery date is required.";
       }
@@ -360,7 +376,6 @@ export function LogHardCopyPodModal({
   }, [
     awbNumber,
     courierName,
-    dispatchDate,
     expectedDeliveryDate,
     lrChoices.length,
     method,
@@ -574,28 +589,22 @@ export function LogHardCopyPodModal({
   const showCreateForm = mode === "create";
   const showMarkReceived = mode === "mark_received";
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType={isNarrow ? "slide" : "fade"}
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+  const panel = (
         <View
           style={[
             styles.panel,
-            {
-              width: isNarrow ? "100%" : panelWidth,
-              maxWidth: isNarrow ? "100%" : 480,
-              paddingTop: isNarrow ? insets.top + 12 : 20,
-              paddingBottom: Math.max(insets.bottom, 16),
-              alignSelf: isNarrow ? "stretch" : "flex-end",
-              height: isNarrow ? "100%" : "100%",
-              borderTopLeftRadius: isNarrow ? 0 : 16,
-              borderBottomLeftRadius: isNarrow ? 0 : 16,
-            },
+            inline
+              ? styles.panelInline
+              : {
+                  width: isNarrow ? "100%" : panelWidth,
+                  maxWidth: isNarrow ? "100%" : 480,
+                  paddingTop: isNarrow ? insets.top + 12 : 20,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                  alignSelf: isNarrow ? "stretch" : "flex-end",
+                  height: isNarrow ? "100%" : "100%",
+                  borderTopLeftRadius: isNarrow ? 0 : 16,
+                  borderBottomLeftRadius: isNarrow ? 0 : 16,
+                },
           ]}
         >
           <View style={styles.headerRow}>
@@ -603,15 +612,17 @@ export function LogHardCopyPodModal({
               <Text style={styles.title}>{title}</Text>
               <Text style={styles.subtitle}>{subtitle}</Text>
             </View>
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              style={styles.closeBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Close hard copy POD"
-            >
-              <Feather name="x" size={18} color={Theme.textMuted} />
-            </Pressable>
+            {inline ? null : (
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={styles.closeBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close hard copy POD"
+              >
+                <Feather name="x" size={18} color={Theme.textMuted} />
+              </Pressable>
+            )}
           </View>
 
           <ScrollView
@@ -639,6 +650,8 @@ export function LogHardCopyPodModal({
               <SummaryRow label="Delivery" value={summary.delivery} />
               <SummaryRow label="Driver" value={summary.driverName} />
               <SummaryRow label="Vehicle" value={summary.vehicleLabel} />
+              <SummaryRow label="Vehicle Type" value={summary.vehicleType?.trim() || "—"} />
+              <SummaryRow label="Vendor Name" value={summary.vendorName?.trim() || "—"} />
             </View>
 
             {loadingState ? (
@@ -943,7 +956,6 @@ export function LogHardCopyPodModal({
                       <View style={styles.dateTimeCol}>
                         <HardCopyPodDateField
                           label="Dispatch Date"
-                          required
                           value={dispatchDate}
                           onChange={setDispatchDate}
                           error={errors.dispatchDate}
@@ -1091,6 +1103,20 @@ export function LogHardCopyPodModal({
             ) : null}
           </View>
         </View>
+  );
+
+  if (inline) return panel;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType={isNarrow ? "slide" : "fade"}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        {panel}
       </View>
     </Modal>
   );
@@ -1463,6 +1489,19 @@ const styles = StyleSheet.create({
         shadowRadius: 16,
         elevation: 8,
       },
+    }),
+  },
+  panelInline: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderRadius: 12,
+    borderLeftWidth: 0,
+    ...Platform.select({
+      web: { boxShadow: "none" } as object,
+      default: { shadowOpacity: 0, elevation: 0 },
     }),
   },
   headerRow: {

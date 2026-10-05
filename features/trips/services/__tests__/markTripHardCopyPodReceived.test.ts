@@ -111,6 +111,20 @@ describe("logTripHardCopyPodCourier", () => {
       p_remarks: "fragile",
     });
   });
+
+  it("sends a null dispatch date when it is left empty", async () => {
+    mockRpc.mockResolvedValue({ data: true, error: null });
+    const result = await logTripHardCopyPodCourier("trip-1", {
+      courier: "DHL",
+      awbNumber: "AWB99",
+      dispatchDate: "  ",
+    });
+    expect(result.error).toBeNull();
+    expect(mockRpc).toHaveBeenCalledWith(
+      "log_trip_hard_copy_pod_courier",
+      expect.objectContaining({ p_dispatch_date: null }),
+    );
+  });
 });
 
 describe("fetchTripHardCopyPodReceipt", () => {

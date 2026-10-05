@@ -1,0 +1,497 @@
+import Theme from "@/constants/Theme";
+import { HardCopyPodDateField } from "@/features/trips/components/trip-detail/HardCopyPodDateField";
+import {
+  usePodClientValidationQuery,
+  useValidatePodsMutation,
+} from "@/features/debit-control/hooks/useDebitControlPod";
+import {
+  CHARGE_FIELDS,
+  type ChargeDraft,
+  type ChargeFieldKey,
+} from "@/features/debit-control/utils/debitControlPod.model";
+import {
+  formatPodReceivingAging,
+  podDelaySubmissionAmount,
+  podReceivingAging,
+} from "@/features/debit-control/utils/podAging.util";
+import {
+  chargeDraftFromLines,
+  chargeLinesFromBase,
+  chargeLinesFromDraft,
+  formatInr,
+  netChargeTotal,
+} from "@/features/debit-control/utils/podChargeTotals.util";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+
+const GROUP_KEYS: {
+  title: string;
+  keys: readonly ChargeFieldKey[];
+  tone: "charges" | "additional" | "exceptions";
+  included: boolean;
+}[] = [
+  { title: "Charges", keys: ["cost", "loading", "halting", "unloading"], tone: "charges", included: true },
+  { title: "Additional", keys: ["extraPoint", "other", "specialApproval"], tone: "additional", included: true },
+  {
+    title: "Exceptions",
+    keys: ["delay", "damage", "productMissing", "documentCost", "podDelaySubmission"],
+    tone: "exceptions",
+    included: false,
+  },
+];
+
+const CLIENT_LABEL = new Map(CHARGE_FIELDS.map((field) => [field.key, field.clientLabel]));
+const VENDOR_LABEL = new Map(CHARGE_FIELDS.map((field) => [field.key, field.vendorLabel]));
+
+export function PodClientValidationPanel({
+  organizationId,
+  actorId,
+  tripId,
+  displayId,
+  startDate,
+  deliveryDate,
+  clientName,
+  routeLabel,
+  clientPrice,
+  supplierRate,
+}: {
+  organizationId: string;
+  actorId: string | null;
+  tripId: string;
+  displayId: string;
+  startDate: string | null;
+  deliveryDate: string | null;
+  clientName: string;
+  routeLabel: string;
+  clientPrice: number;
+  supplierRate: number;
+}) {
+  const loaded = usePodClientValidationQuery(organizationId || null, tripId);
+  const validate = useValidatePodsMutation(organizationId || null, actorId);
+  const [draft, setDraft] = useState<ChargeDraft>(() => chargeDraftFromLines(chargeLinesFromBase(clientPrice)));
+  const [vendorDraft, setVendorDraft] = useState<ChargeDraft>(() =>
+    chargeDraftFromLines(chargeLinesFromBase(supplierRate)),
+  );
+  const [seededFor, setSeededFor] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [tripStart, setTripStart] = useState("");
+  const [delivery, setDelivery] = useState("");
+  const [dispatchDate, setDispatchDate] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setDraft(chargeDraftFromLines(chargeLinesFromBase(clientPrice)));
+    setVendorDraft(chargeDraftFromLines(chargeLinesFromBase(supplierRate)));
+    setInvoiceNumber("");
+    setTripStart(isoDate(startDate));
+    setDelivery(isoDate(deliveryDate));
+    setDispatchDate("");
+    setSeededFor("");
+    setSaved(false);
+    setError(null);
+  }, [tripId, clientPrice, supplierRate, startDate, deliveryDate]);
+
+  useEffect(() => {
+    if (!loaded.data || seededFor === tripId) return;
+    const lines = loaded.data.clientCharges ?? chargeLinesFromBase(clientPrice);
+    setDraft(chargeDraftFromLines(lines));
+    setVendorDraft(
+      chargeDraftFromLines(loaded.data.vendorCharges ?? chargeLinesFromBase(supplierRate)),
+    );
+    setInvoiceNumber(loaded.data.invoiceNumber?.trim() || "");
+    setTripStart(isoDate(loaded.data.tripStartDate) || isoDate(startDate));
+    setDelivery(isoDate(loaded.data.deliveryDate) || isoDate(deliveryDate));
+    setDispatchDate(isoDate(loaded.data.dispatchDate));
+    setSeededFor(tripId);
+    setError(null);
+    setSaved(false);
+  }, [loaded.data, tripId, clientPrice, supplierRate, startDate, deliveryDate, seededFor]);
+
+  const aging = podReceivingAging(delivery, dispatchDate);
+  const podDelayAmount = podDelaySubmissionAmount(aging?.penalty);
+  useEffect(() => {
+    if (loaded.data?.validatedAt || saved) return;
+    setVendorDraft((current) =>
+      current.podDelaySubmission === podDelayAmount
+        ? current
+        : { ...current, podDelaySubmission: podDelayAmount },
+    );
+  }, [podDelayAmount, loaded.data?.validatedAt, saved]);
+
+  const documentCostAmount =
+    loaded.data && loaded.data.documentCost > 0 ? String(loaded.data.documentCost) : "";
+  useEffect(() => {
+    if (loaded.data?.validatedAt || saved) return;
+    setVendorDraft((current) =>
+      current.documentCost === documentCostAmount ? current : { ...current, documentCost: documentCostAmount },
+    );
+  }, [documentCostAmount, loaded.data?.validatedAt, saved]);
+
+  const parsed = useMemo(() => chargeLinesFromDraft(draft), [draft]);
+  const parsedVendor = useMemo(() => chargeLinesFromDraft(vendorDraft), [vendorDraft]);
+  const locked = Boolean(loaded.data?.validatedAt) || saved;
+  const total = parsed.lines ? netChargeTotal(parsed.lines) : null;
+  const vendorTotal = parsedVendor.lines ? netChargeTotal(parsedVendor.lines) : null;
+  const invalid = new Set(parsed.lines ? [] : parsed.invalidKeys);
+  const vendorInvalid = new Set(parsedVendor.lines ? [] : parsedVendor.invalidKeys);
+  const fetchedInvoice = loaded.data?.invoiceNumber?.trim() || "";
+  const ready =
+    Boolean(parsed.lines && parsedVendor.lines) && !locked && !validate.isPending && !loaded.isLoading;
+
+  const confirm = async () => {
+    if (!parsed.lines || !parsedVendor.lines) return;
+    setError(null);
+    const result = await validate.mutateAsync([
+      {
+        tripId,
+        remarks: "",
+        clientInvoiceNumber: invoiceNumber || null,
+        tripStartDate: tripStart || null,
+        deliveryDate: delivery || null,
+        dispatchDate: dispatchDate || null,
+        client: parsed.lines,
+        vendor: parsedVendor.lines,
+      },
+    ]);
+    if (result.updatedIds.includes(tripId)) {
+      setSaved(true);
+      return;
+    }
+    setError(result.error?.message ?? "Could not confirm validation.");
+  };
+
+  return (
+    <View style={styles.root}>
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={styles.title}>POD Validation</Text>
+      <Text style={styles.tripId}>{displayId}</Text>
+      {[clientName, routeLabel].filter(Boolean).length > 0 ? (
+        <Text style={styles.sub} numberOfLines={2}>
+          {[clientName, routeLabel].filter(Boolean).join(" · ")}
+        </Text>
+      ) : null}
+      <View style={styles.dateCard}>
+        <View style={styles.dateCol}>
+          <HardCopyPodDateField
+            label="Trip start date"
+            value={tripStart}
+            onChange={setTripStart}
+            disabled={locked}
+          />
+        </View>
+        <View style={styles.dateCol}>
+          <HardCopyPodDateField
+            label="Delivery date"
+            value={delivery}
+            onChange={setDelivery}
+            disabled={locked}
+          />
+        </View>
+        <View style={styles.dateCol}>
+          <HardCopyPodDateField
+            label="Dispatch date"
+            value={dispatchDate}
+            onChange={setDispatchDate}
+            disabled={locked}
+          />
+        </View>
+        <View style={styles.agingCol}>
+          <Text style={styles.agingLabel}>Aging</Text>
+          <View
+            style={[
+              styles.agingShell,
+              aging ? styles.agingShellFilled : null,
+              aging && aging.penalty > 0 ? styles.agingShellLate : null,
+            ]}
+          >
+            <Text
+              style={[
+                styles.agingValue,
+                aging ? null : styles.agingPlaceholder,
+                aging && aging.penalty > 0 ? styles.agingLate : null,
+              ]}
+            >
+              {formatPodReceivingAging(aging)}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {loaded.isLoading ? <ActivityIndicator color={Theme.textPrimaryDark} style={styles.spinner} /> : null}
+      {loaded.isError ? (
+        <Text style={styles.error}>
+          {loaded.error instanceof Error ? loaded.error.message : "Could not load client validation."}
+        </Text>
+      ) : null}
+
+      <Text style={styles.sectionTitle}>Client Details</Text>
+      <ChargeCards
+        side="Client"
+        showTitles={false}
+        labels={CLIENT_LABEL}
+        draft={draft}
+        invalid={invalid}
+        locked={locked}
+        onChange={(key, value) => setDraft((current) => ({ ...current, [key]: value }))}
+      />
+      <View style={styles.grid}>
+        <View style={[styles.card, styles.invoice]}>
+          <Text style={styles.cardTitle}>Sales Invoice Number</Text>
+          <Text style={styles.cardHint}>Fetched from Trips Ops. You can edit it before confirming.</Text>
+          <TextInput
+            value={invoiceNumber}
+            editable={!locked}
+            onChangeText={setInvoiceNumber}
+            placeholder="Sales invoice number"
+            placeholderTextColor={Theme.textMuted}
+            style={[styles.invoiceInput, locked && styles.inputLocked]}
+            accessibilityLabel="Sales Invoice Number"
+          />
+          {fetchedInvoice && invoiceNumber.trim() === fetchedInvoice ? (
+            <Text style={styles.autoFetched}>Auto fetched</Text>
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={styles.sectionTitle}>Vendor Details</Text>
+      <ChargeCards
+        side="Vendor"
+        labels={VENDOR_LABEL}
+        draft={vendorDraft}
+        invalid={vendorInvalid}
+        locked={locked}
+        onChange={(key, value) => setVendorDraft((current) => ({ ...current, [key]: value }))}
+      />
+    </ScrollView>
+
+      <View style={styles.footer}>
+        <View style={styles.totalBox}>
+          <Text style={styles.totalLabel}>Total Client Value</Text>
+          <Text style={styles.totalValue}>{total == null ? "—" : formatInr(total)}</Text>
+        </View>
+        <View style={[styles.totalBox, styles.vendorTotal]}>
+          <Text style={styles.totalLabel}>Total Vendor Value</Text>
+          <Text style={styles.totalValue}>{vendorTotal == null ? "—" : formatInr(vendorTotal)}</Text>
+        </View>
+        <View style={styles.footerActions}>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {locked ? (
+            <Text style={styles.lockedNote}>Validated. These charges cannot be changed.</Text>
+          ) : (
+            <Pressable
+              style={[styles.confirm, !ready && styles.confirmDisabled]}
+              disabled={!ready}
+              onPress={() => void confirm()}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !ready }}
+              accessibilityLabel="Confirm Validation"
+            >
+              <Text style={styles.confirmText}>
+                {validate.isPending ? "Saving…" : "Confirm Validation"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function isoDate(value: string | null | undefined): string {
+  const day = String(value ?? "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : "";
+}
+
+function ChargeCards({
+  side,
+  showTitles = false,
+  labels,
+  draft,
+  invalid,
+  locked,
+  onChange,
+}: {
+  side: "Client" | "Vendor";
+  showTitles?: boolean;
+  labels: Map<ChargeFieldKey, string>;
+  draft: ChargeDraft;
+  invalid: Set<ChargeFieldKey>;
+  locked: boolean;
+  onChange: (key: ChargeFieldKey, value: string) => void;
+}) {
+  return (
+    <View style={styles.grid}>
+      {GROUP_KEYS.map((group) => (
+        <View key={group.tone} style={[styles.card, styles[group.tone]]}>
+          {showTitles ? (
+            <Text style={styles.cardTitle}>
+              {side} {group.title}
+            </Text>
+          ) : null}
+          <Text style={styles.cardHint}>
+            {group.included
+              ? `Included in Total ${side} Value`
+              : `Deducted from Total ${side} Value`}
+          </Text>
+          <View style={styles.tableHead}>
+            <Text style={styles.headLabel}>Field</Text>
+            <Text style={styles.headAmount}>Amount (₹)</Text>
+          </View>
+          {group.keys
+            .filter((key) => side === "Vendor" || !CHARGE_FIELDS.find((field) => field.key === key)?.vendorOnly)
+            .map((key) => (
+            <View key={key} style={styles.row}>
+              <Text style={styles.fieldLabel}>{labels.get(key)}</Text>
+              <TextInput
+                value={draft[key]}
+                editable={!locked}
+                onChangeText={(value) => onChange(key, value)}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={Theme.textMuted}
+                style={[styles.input, invalid.has(key) && styles.inputInvalid, locked && styles.inputLocked]}
+                accessibilityLabel={labels.get(key)}
+              />
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, minHeight: 0 },
+  scroll: { flex: 1 },
+  content: { padding: 16, gap: 12 },
+  title: { fontSize: 18, fontWeight: "800", color: Theme.primaryText },
+  tripId: { fontSize: 14, fontWeight: "700", color: Theme.primaryText },
+  dateCard: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    borderRadius: 12,
+    backgroundColor: Theme.cardWhite,
+    padding: 12,
+  },
+  dateCol: { flexGrow: 1, flexBasis: 180, minWidth: 160 },
+  agingCol: { flexGrow: 1, flexBasis: 180, minWidth: 160, gap: 6 },
+  agingLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  agingShell: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+  },
+  agingShellFilled: { borderColor: Theme.borderInput },
+  agingShellLate: { borderColor: Theme.destructive },
+  agingValue: { fontSize: 14, fontWeight: "600", color: Theme.textPrimaryDark },
+  agingLate: { color: Theme.destructive, fontWeight: "800" },
+  agingPlaceholder: { color: Theme.textMuted, fontWeight: "500" },
+  sectionTitle: { fontSize: 15, fontWeight: "800", color: Theme.primaryText },
+  sub: { fontSize: 13, color: Theme.textSecondary },
+  spinner: { marginVertical: 8 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  card: {
+    flexGrow: 1,
+    flexBasis: 320,
+    minWidth: 280,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  charges: { backgroundColor: Theme.complianceStageBalanceBg, borderColor: Theme.complianceTripCardBorder },
+  additional: { backgroundColor: Theme.complianceStageSuccessBg, borderColor: Theme.complianceTripCardBorder },
+  exceptions: { backgroundColor: Theme.complianceStagePendingBg, borderColor: Theme.complianceTripCardBorder },
+  invoice: { backgroundColor: Theme.complianceStageInfoBg, borderColor: Theme.complianceTripCardBorder },
+  cardTitle: { fontSize: 14, fontWeight: "800", color: Theme.primaryText },
+  cardHint: { fontSize: 12, color: Theme.textSecondary },
+  tableHead: { flexDirection: "row", justifyContent: "space-between" },
+  headLabel: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
+  headAmount: { fontSize: 11, fontWeight: "700", color: Theme.textMuted, width: 140, textAlign: "right" },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
+  fieldLabel: { flex: 1, minWidth: 0, fontSize: 13, color: Theme.primaryText },
+  input: {
+    width: 140,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: Theme.cardWhite,
+    color: Theme.primaryText,
+    textAlign: "right",
+  },
+  inputInvalid: { borderColor: Theme.buttonDestructive },
+  inputLocked: { backgroundColor: Theme.screenBackground },
+  invoiceInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    backgroundColor: Theme.cardWhite,
+    color: Theme.primaryText,
+  },
+  autoFetched: { alignSelf: "flex-end", fontSize: 12, fontWeight: "700", color: Theme.positive },
+  footer: {
+    flexShrink: 0,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  totalBox: {
+    flexGrow: 1,
+    minWidth: 200,
+    borderRadius: 12,
+    backgroundColor: Theme.complianceStageBalanceBg,
+    padding: 12,
+    gap: 4,
+  },
+  vendorTotal: { backgroundColor: Theme.complianceStageSuccessBg },
+  totalLabel: { fontSize: 12, fontWeight: "700", color: Theme.textSecondary },
+  totalValue: { fontSize: 20, fontWeight: "800", color: Theme.primaryText },
+  footerActions: { flexGrow: 1, alignItems: "flex-end", gap: 6, minWidth: 180 },
+  confirm: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: Theme.buttonDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmDisabled: { opacity: 0.4 },
+  confirmText: { color: Theme.buttonDarkText, fontWeight: "700" },
+  lockedNote: { fontSize: 13, fontWeight: "600", color: Theme.positive },
+  error: { color: Theme.buttonDestructive, fontSize: 13 },
+});

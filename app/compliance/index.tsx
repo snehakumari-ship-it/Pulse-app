@@ -1067,6 +1067,7 @@ export default function ComplianceScreen() {
           canManagePod={canManagePod}
           showHardCopyPodLog={stage === "hard_copy_pod_received"}
           compliancePendingQueue={stage === "compliance_pending"}
+          showPodClientValidation={stage === "pod_received"}
           logHardCopyPodRequest={logHardCopyPodRequest}
           courierLrOptions={courierLrOptions}
           selectedTripId={cardTripId}

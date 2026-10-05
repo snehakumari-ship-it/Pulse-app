@@ -285,6 +285,12 @@ export const queryKeys = {
     courierPartners: () => ["q", "log-pods", "courier-partners"] as const,
   },
 
+  debitControl: {
+    board: (orgId: string) => ["q", "debit-control", "board", orgId] as const,
+    clientValidation: (orgId: string, tripId: string) =>
+      ["q", "debit-control", "client-validation", orgId, tripId] as const,
+  },
+
   invoicing: {
     trips: (orgId: string) => ["q", "invoicing", "trips", orgId] as const,
     summary: (orgId: string) => ["q", "invoicing", "summary", orgId] as const,

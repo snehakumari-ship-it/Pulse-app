@@ -85,6 +85,7 @@ import {
   pickComplianceVaultFiles,
   uploadComplianceVaultFile,
 } from "@/features/tripCompliance/services/complianceVaultUpload.service";
+import { PodClientValidationPanel } from "@/features/debit-control/components/PodClientValidationPanel";
 import { LogHardCopyPodModal, type HardCopyPodLrOption } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
@@ -728,6 +729,7 @@ export function ComplianceDocumentWorkspace({
   canManagePod = false,
   showHardCopyPodLog = false,
   compliancePendingQueue = false,
+  showPodClientValidation = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
   onPay,
@@ -762,6 +764,8 @@ export function ComplianceDocumentWorkspace({
   showHardCopyPodLog?: boolean;
   /** True while the Compliance queue filter is Compliance Pending (hides the Finance tab for every listed trip). */
   compliancePendingQueue?: boolean;
+  /** True only while the Compliance queue filter is POD Received. */
+  showPodClientValidation?: boolean;
   /**
    * Increments when the page bar asks to create a hard-copy POD log
    * for the selected Awaiting POD trip.
@@ -822,6 +826,7 @@ export function ComplianceDocumentWorkspace({
   const [tripDeclineOpen, setTripDeclineOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [podOpen, setPodOpen] = useState(false);
+  const [podLogRound, setPodLogRound] = useState(0);
   const [expiryPrompt, setExpiryPrompt] = useState<{
     docType: string;
     resolve: (value: string | null) => void;
@@ -2029,6 +2034,79 @@ export function ComplianceDocumentWorkspace({
         )}
       </View>
 
+      {showPodClientValidation ? (
+        <View style={[styles.previewPane, styles.podLogPane]}>
+          {summary ? (
+            <PodClientValidationPanel
+              organizationId={organizationId}
+              actorId={actorId}
+              tripId={summary.trip.id}
+              displayId={getTripDisplayNumber(summary.trip, organizationId || null)}
+              startDate={summary.trip.pickup_date ?? summary.trip.started_at ?? null}
+              deliveryDate={summary.trip.completed_at ?? null}
+              clientName={summary.trip.client_name?.trim() || ""}
+              routeLabel={[summary.trip.pickup_area?.trim(), summary.trip.drop_location?.trim()]
+                .filter(Boolean)
+                .join(" → ")}
+              clientPrice={Number(summary.trip.client_price) || 0}
+              supplierRate={Number(summary.trip.supplier_rate) || 0}
+            />
+          ) : (
+            <View style={styles.emptyStage}>
+              <NoDocumentPreviewEmpty
+                compact={stacked}
+                title="No trip selected"
+                hint="Select a POD Received trip to review its client charges."
+              />
+            </View>
+          )}
+        </View>
+      ) : showHardCopyPodLog ? (
+        <View style={[styles.previewPane, styles.podLogPane]}>
+          {summary && showLogHardCopyPod ? (
+            <LogHardCopyPodModal
+              key={`${summary.trip.id}:${podLogRound}`}
+              inline
+              visible
+              onClose={() => setPodLogRound((round) => round + 1)}
+              tripId={summary.trip.id}
+              organizationId={organizationId || summary.trip.organization_id}
+              canManage={canManagePod || showLogHardCopyPod}
+              initialMode="create"
+              onUpdated={(tripIds) => {
+                const ids = tripIds?.length ? tripIds : [summary.trip.id];
+                for (const tripId of ids) {
+                  onChanged({ type: "tripFlags", tripId });
+                }
+              }}
+              lrOptions={courierLrOptions}
+              summary={{
+                manifestId: getTripDisplayNumber(summary.trip, organizationId || null),
+                clientName: summary.trip.client_name?.trim() || "—",
+                pickup: summary.trip.pickup_area?.trim() || "—",
+                delivery: summary.trip.drop_location?.trim() || "—",
+                driverName: summary.trip.driver_display_name?.trim() || "Unassigned",
+                vehicleLabel: summary.trip.vehicle_display_number?.trim() || "Pending",
+                vehicleType:
+                  (summary.trip.vehicle_id
+                    ? truckTypeByVehicleId[summary.trip.vehicle_id]
+                    : null)?.trim() || "—",
+                vendorName:
+                  (supplierNameByTripId[summary.trip.id] ?? summary.trip.supplier_name)?.trim() ||
+                  "—",
+              }}
+            />
+          ) : (
+            <View style={styles.emptyStage}>
+              <NoDocumentPreviewEmpty
+                compact={stacked}
+                title="No trip selected"
+                hint="Select an Awaiting POD trip to log its hard copy POD."
+              />
+            </View>
+          )}
+        </View>
+      ) : (
       <View style={styles.previewPane}>
         <View style={styles.stage}>
           {showDocumentShell ? (
@@ -2678,6 +2756,7 @@ export function ComplianceDocumentWorkspace({
           </View>
         ) : null}
       </View>
+      )}
       {previewUrl ? (
         <DocumentScreen
           visible={screenOpen}
@@ -2768,6 +2847,12 @@ export function ComplianceDocumentWorkspace({
             delivery: summary.trip.drop_location?.trim() || "—",
             driverName: summary.trip.driver_display_name?.trim() || "Unassigned",
             vehicleLabel: summary.trip.vehicle_display_number?.trim() || "Pending",
+            vehicleType:
+              (summary.trip.vehicle_id
+                ? truckTypeByVehicleId[summary.trip.vehicle_id]
+                : null)?.trim() || "—",
+            vendorName:
+              (supplierNameByTripId[summary.trip.id] ?? summary.trip.supplier_name)?.trim() || "—",
           }}
         />
       ) : null}
@@ -3758,6 +3843,7 @@ const styles = StyleSheet.create({
   factValue: { fontSize: 10, fontWeight: "500", color: Theme.textSecondary, lineHeight: 13, marginTop: 1 },
   factValueBare: { fontSize: 10, fontWeight: "500", color: Theme.textSecondary, lineHeight: 13 },
   factValueSelected: { color: Theme.complianceTripCardMutedOnSelected },
+  podLogPane: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
   previewPane: {
     flex: 1,
     minWidth: 0,
