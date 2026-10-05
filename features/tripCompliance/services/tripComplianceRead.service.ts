@@ -24,9 +24,9 @@ import {
     normalizeVaultVehicleNumber,
     vehicleVaultDocumentsToEntityDocs,
 } from "@/features/tripCompliance/utils/complianceVaultDocuments.util";
+import { fetchComplianceVehicleVaultForTrips } from "@/features/tripCompliance/services/complianceListFacts.service";
 import {
   isSoftPodDocumentType,
-  runWithConcurrencyLimit,
   tripPodIsReceived,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
@@ -36,7 +36,6 @@ import {
   isOperationsDeliveredTrip,
 } from "@/features/trips/utils/tripHubMetrics";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { getVehicleForTripViewer } from "@/features/vehicles/services/vehicles.service";
 import type { VehicleDocuments } from "@/features/vehicles/utils/vehicleDocuments.util";
 import { supabase } from "@/lib/supabase";
 
@@ -507,81 +506,55 @@ function indexVehicleVaultDocs(
 }
 
 /**
- * Partner-vehicle vault fallback uses `get_vehicle_for_trip_viewer` (trip-scoped
- * RLS). Many compliance trips can share one truck — one RPC per vehicle id is
- * enough; any referencing trip id satisfies the viewer contract.
+ * Trips whose vault docs can only be found by plate: no linked vehicle, a
+ * manual `vehicle_display_number`, and no vehicle already indexed under that
+ * plate. Trips with a vehicle_id are resolved by the vault RPC — even when the
+ * vehicle has no documents — so they never fall back.
+ * (`owner_vehicle_id` references owner_vehicles, not vehicles, and is not used.)
  */
-export function uniqueTripsNeedingVehicleViewer(
+export function tripsNeedingVaultPlateFallback(
   trips: TripRow[],
   knownVehicleKeys: ReadonlySet<string>,
-  orgId: string | null,
 ): TripRow[] {
-  if (!orgId) return [];
-  const seen = new Set<string>();
-  const unique: TripRow[] = [];
-  for (const trip of trips) {
-    const id = trip.vehicle_id ?? trip.owner_vehicle_id;
-    if (!id || knownVehicleKeys.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    unique.push(trip);
-  }
-  return unique;
+  return trips.filter((trip) => {
+    if (trip.vehicle_id) return false;
+    const number = normalizeVaultVehicleNumber(trip.vehicle_display_number);
+    return Boolean(number) && !knownVehicleKeys.has(number);
+  });
 }
 
+/**
+ * Asset Vault (vehicles.documents) for the trips' linked vehicles in one
+ * `get_compliance_vehicle_vault_for_trips` call — partner trucks included,
+ * authorized per trip server-side for `viewerOrgId`.
+ */
 async function fetchVehicleVaultDocumentsForTrips(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<Map<string, VaultEntry>> {
   const byKey = new Map<string, VaultEntry>();
-  const orgId = trips.find((trip) => trip.organization_id)?.organization_id ?? null;
-  const vehicleIds = Array.from(
-    new Set(
-      trips.flatMap((trip) => [trip.vehicle_id, trip.owner_vehicle_id].filter((id): id is string => Boolean(id))),
-    ),
-  );
+  if (!viewerOrgId) return byKey;
 
-  if (vehicleIds.length > 0) {
-    const { data, error } = await supabase().from("vehicles").select("id, vehicle_number, documents").in("id", vehicleIds);
-    if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
-    for (const row of data ?? []) {
-      const docs = vehicleVaultDocumentsToEntityDocs(row.id, (row.documents ?? null) as VehicleDocuments | null);
-      indexVehicleVaultDocs(byKey, { vehicleId: row.id, docs }, row.id, normalizeVaultVehicleNumber(row.vehicle_number));
+  // Every vehicle the RPC returned is resolved — with or without documents.
+  const resolvedKeys = new Set<string>();
+  const tripIdsWithVehicle = trips.filter((trip) => trip.vehicle_id).map((trip) => trip.id);
+  if (tripIdsWithVehicle.length > 0) {
+    const rows = await fetchComplianceVehicleVaultForTrips(viewerOrgId, tripIdsWithVehicle);
+    for (const row of rows) {
+      const number = normalizeVaultVehicleNumber(row.vehicle_number);
+      resolvedKeys.add(row.vehicle_id);
+      if (number) resolvedKeys.add(number);
+      const docs = vehicleVaultDocumentsToEntityDocs(row.vehicle_id, row.documents ?? null);
+      indexVehicleVaultDocs(byKey, { vehicleId: row.vehicle_id, docs }, row.vehicle_id, number);
     }
   }
 
-  const missingById = uniqueTripsNeedingVehicleViewer(
-    trips,
-    new Set(byKey.keys()),
-    orgId,
-  );
-  if (missingById.length > 0 && orgId) {
-    await runWithConcurrencyLimit(missingById, 4, async (trip) => {
-      const vehicleId = trip.vehicle_id ?? trip.owner_vehicle_id;
-      if (!vehicleId) return;
-      const { vehicle } = await getVehicleForTripViewer(vehicleId, trip.id, orgId);
-      if (!vehicle) return;
-      const docs = vehicleVaultDocumentsToEntityDocs(vehicleId, (vehicle.documents ?? null) as VehicleDocuments | null);
-      indexVehicleVaultDocs(
-        byKey,
-        { vehicleId, docs },
-        vehicleId,
-        trip.vehicle_id,
-        trip.owner_vehicle_id,
-        normalizeVaultVehicleNumber(vehicle.vehicle_number),
-      );
-    });
-  }
-
-  const missingByNumber = trips.filter((trip) => {
-    const number = normalizeVaultVehicleNumber(trip.vehicle_display_number);
-    if (!number || !orgId) return false;
-    const id = trip.vehicle_id ?? trip.owner_vehicle_id;
-    return !((id && byKey.has(id)) || byKey.has(number));
-  });
-  if (missingByNumber.length > 0 && orgId) {
+  const missingByNumber = tripsNeedingVaultPlateFallback(trips, resolvedKeys);
+  if (missingByNumber.length > 0) {
     const { data, error } = await supabase()
       .from("vehicles")
       .select("id, vehicle_number, documents")
-      .eq("organization_id", orgId);
+      .eq("organization_id", viewerOrgId);
     if (error && !isMissingColumnOrRelation(error)) throw new Error(error.message);
     const byNumber = new Map<string, { id: string; documents: VehicleDocuments | null }>();
     for (const row of data ?? []) {
@@ -593,7 +566,7 @@ async function fetchVehicleVaultDocumentsForTrips(
       const match = number ? byNumber.get(number) : undefined;
       if (!match) continue;
       const docs = vehicleVaultDocumentsToEntityDocs(match.id, match.documents);
-      indexVehicleVaultDocs(byKey, { vehicleId: match.id, docs }, match.id, trip.vehicle_id, trip.owner_vehicle_id, number);
+      indexVehicleVaultDocs(byKey, { vehicleId: match.id, docs }, match.id, number);
     }
   }
 
@@ -675,7 +648,6 @@ function assembleVehicleDocuments(
     : [];
   const vaultEntry =
     (trip.vehicle_id ? vault.get(trip.vehicle_id) : undefined) ??
-    (trip.owner_vehicle_id ? vault.get(trip.owner_vehicle_id) : undefined) ??
     vault.get(normalizeVaultVehicleNumber(trip.vehicle_display_number));
   return {
     vehicleDocuments: mergeComplianceEntityDocs(entityVehicleDocs, vaultEntry?.docs ?? []),
@@ -710,9 +682,13 @@ function orgIdOf(trips: TripRow[]): string | null {
  * Batched read of every input for a set of trips — trip_documents + flags +
  * transactions + entity documents + Asset Vault vehicle JSON + driver KYC.
  * Used for first load and for trips that newly enter the pipeline; targeted
- * writes use the per-input fetchers below instead.
+ * writes use the per-input fetchers below instead. `viewerOrgId` is the
+ * signed-in org (not a trip's org) — the vault RPC authorizes every trip for it.
  */
-export async function fetchComplianceTripInputs(trips: TripRow[]): Promise<ComplianceTripInputs[]> {
+export async function fetchComplianceTripInputs(
+  trips: TripRow[],
+  viewerOrgId: string,
+): Promise<ComplianceTripInputs[]> {
   if (trips.length === 0) return [];
   const tripIds = trips.map((t) => t.id);
   const entityIds = trips.flatMap((trip) => [trip.vehicle_id, trip.driver_id].filter((id): id is string => Boolean(id)));
@@ -723,7 +699,7 @@ export async function fetchComplianceTripInputs(trips: TripRow[]): Promise<Compl
       fetchHardCopyReceivedLrNumbers(tripIds),
       fetchComplianceTransactions(tripIds),
       fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
-      fetchVehicleVaultDocumentsForTrips(trips),
+      fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
       fetchDriverKycDocumentsForTrips(trips),
     ]);
   const flagsWithLrs = attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip);
@@ -850,8 +826,9 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
 /** Batched inputs → summaries (detail screen, report, tests). */
 export async function buildComplianceTripSummaries(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<ComplianceTripSummary[]> {
-  return (await fetchComplianceTripInputs(trips)).map(summarizeComplianceTrip);
+  return (await fetchComplianceTripInputs(trips, viewerOrgId)).map(summarizeComplianceTrip);
 }
 
 /**
@@ -860,13 +837,14 @@ export async function buildComplianceTripSummaries(
  */
 export async function fetchVehicleDocumentsForTrips(
   trips: TripRow[],
+  viewerOrgId: string,
 ): Promise<Map<string, { vehicleDocuments: ComplianceEntityDocument[]; vaultVehicleId: string | null }>> {
   const byTrip = new Map<string, { vehicleDocuments: ComplianceEntityDocument[]; vaultVehicleId: string | null }>();
   if (trips.length === 0) return byTrip;
   const vehicleIds = trips.map((trip) => trip.vehicle_id).filter((id): id is string => Boolean(id));
   const [entityDocsById, vault] = await Promise.all([
     fetchEntityDocumentsByIds(orgIdOf(trips), vehicleIds, ["vehicle"]),
-    fetchVehicleVaultDocumentsForTrips(trips),
+    fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
   ]);
   for (const trip of trips) byTrip.set(trip.id, assembleVehicleDocuments(trip, entityDocsById, vault));
   return byTrip;

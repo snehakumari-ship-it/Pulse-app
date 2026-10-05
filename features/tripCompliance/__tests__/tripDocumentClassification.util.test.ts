@@ -228,7 +228,7 @@ describe("rows / checklist / stage agree on the classification", () => {
 
   async function stageFor(docs: ComplianceDocumentRow[]) {
     mockTripDocsResult = { data: docs, error: null };
-    const [summary] = await buildComplianceTripSummaries([makeTrip()]);
+    const [summary] = await buildComplianceTripSummaries([makeTrip()], "org-1");
     return summary;
   }
 

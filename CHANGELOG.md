@@ -1,5 +1,24 @@
 # Changelog — V1 (v0.0.01)
 
+## nihas/V1.0.17 — 2026-10-05
+- **What:** The Compliance list now loads truck type, supplier name and vehicle vault docs with **one batch RPC each**, instead of per-trip calls.
+  - New `get_compliance_list_trip_facts` (truck type + supplier label) and `get_compliance_vehicle_vault_for_trips` (vehicle number + vault JSON). Both are SECURITY DEFINER, `authenticated` only (anon / PUBLIC revoked), capped at 1000 trip ids (SQLSTATE 22023).
+  - Shared security boundary `private.compliance_visible_trips`: the same visibility as `get_trips_for_org` (own org, supplier-linked indent trips, ground-ops warehouse scope), minus deleted trips. It does not copy `get_vehicle_for_trip_viewer`, which has no warehouse scope.
+  - Vault: the viewer org is passed through the pipeline instead of the first trip's org. A vehicle with empty vault docs counts as resolved (no fallback). The plate fallback runs only for trips with no `vehicle_id`, scoped to the viewer org. `owner_vehicle_id` is no longer queried as a `vehicles.id`.
+  - Unchanged: `get_vehicle_for_trip_viewer`, `get_supplier_details`, labels ("Own fleet", "—"), and trip visibility.
+- **Why:** Preprod went down on 2026-10-05. One list load sent ~800 requests (~230 vehicle reads, ~460 vehicle RPCs, ~120 supplier RPCs). Three sessions starved the 60-connection DB.
+- **Files/areas:** `features/tripCompliance/services/complianceListFacts.service.ts` (new), `hooks/useComplianceListTripFacts.ts`, `services/tripComplianceRead.service.ts` (vault path), `services/compliancePipelineSync.service.ts` + `hooks/useComplianceTripsQuery.ts` + report/export services (viewer org param), `lib/queryKeys.ts` (`tripCompliance.listFacts`)
+- **Migrations:** `supabase/migrations/20261005122431_compliance_batch_trip_facts_and_vault.sql`. **Applied on preprod 2026-10-05** (`db push --linked --include-all`; its timestamp sorts before the future-dated files). Not on prod. **Prod must get this migration before the frontend ships**, or the list RPCs 404 (seen on preprod while the code ran ahead of the migration).
+- **Tested:**
+  - SQL suite `supabase/tests/compliance_trip_facts_batch.sql` passes on preprod against the real functions, with 0 fixture rows left. It also passes on a scratch PG 17. It covers owner / driver / dispatcher / non-member / other org / supplier-linked / client-linked / ground-ops, deleted, NULL vehicle, label rules, the 1000 cap (22023), NULL / empty input, anon denied, and the helper not being callable. A mutation (ground-ops scope removed) makes it fail.
+  - Preprod function objects: owner `postgres`, SECURITY DEFINER / STABLE, `search_path=""`, `authenticated` only (no anon / PUBLIC). The helper has no grant.
+  - Parity against the migrated RPCs as `authenticated` with real user JWTs: 0 truck-type and 0 supplier-label differences on list trips in 8 scenarios. Cross-org ids return 0 rows.
+  - Real GOGOVAN load (localhost:8081 → preprod): 1 facts RPC, 1 vault RPC, 0 `get_vehicle_for_trip_viewer`, 0 `get_supplier_details`, 1 plate-fallback `vehicles` read (53 trips have no vehicle). Whole page 72 requests vs 632 in the incident session.
+  - 3 concurrent sessions × 20 RPC calls: 0 errors, ~40 ms median. No 57014 / 25P02 / HTTP 500 on preprod since the migration.
+  - Jest: `features/tripCompliance` 42 suites / 513 tests pass. Full run shows only the 5 known failures. `tsc` 141 (baseline). ESLint clean.
+  - Not yet: my own UI click-through and 3 concurrent page sessions (no login).
+- **Known, not fixed here:** the compliance export still resolves truck type / supplier per trip (`complianceExportReport.service.ts`, ~155 vehicle RPCs per export click). ~40 org-wide `/suppliers` fetches per load, source unknown. Preprod `booking_ref_seq` is behind the synced data.
+
 ## sneha/V1.0.3 — 2026-10-05
 - **What:** Supplier bank and Advance Processed (Verified→Settled only; Pending Docs / Compliance Pending unchanged):
   - Supplier Banking: Beneficiary and Branch on the vault form. IFSC lookup fills bank and branch. Saving updates the Advance Processed table, Verified export, and the Paid to card live.
