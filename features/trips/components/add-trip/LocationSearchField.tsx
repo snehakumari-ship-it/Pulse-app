@@ -19,7 +19,11 @@ import {
   formatCityStateLabel,
 } from "@/lib/placeCityState.util";
 import { scrollFocusedWebInputIntoView } from "@/lib/webKeyboard";
-import { WebOverlayPortal, webFixedFill } from "@/lib/webOverlayPortal";
+import {
+  resolveWebOverlayHost,
+  WebOverlayPortal,
+  webFixedFill,
+} from "@/lib/webOverlayPortal";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { MapPin, Search, X, ChevronDown } from "lucide-react-native";
 import { createTripDesktopStyles as desktopShellStyles } from "@/features/trips/components/add-trip/createTripDesktop.styles";
@@ -123,6 +127,8 @@ export function LocationSearchField({
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalInputRef = useRef<TextInput>(null);
+  /** DOM node used to find the enclosing RN Web modal focus trap. */
+  const fieldAnchorRef = useRef<View>(null);
   const abortRef = useRef<AbortController | null>(null);
   /** Bumps when a newer place is selected so async city/state/pin enrich doesn't overwrite. */
   const enrichGenRef = useRef(0);
@@ -151,15 +157,25 @@ export function LocationSearchField({
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDropdown();
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      closeDropdown();
+    };
+    // The parent RN Web Modal closes on document keyup Escape. Swallow it here
+    // so dismissing the place sheet does not also dismiss the lane dialog.
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
     };
     document.addEventListener("visibilitychange", closeIfHidden);
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("pagehide", closeDropdown);
     window.addEventListener("pageshow", closeOnBfCache);
     return () => {
       document.removeEventListener("visibilitychange", closeIfHidden);
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("pagehide", closeDropdown);
       window.removeEventListener("pageshow", closeOnBfCache);
     };
@@ -172,14 +188,29 @@ export function LocationSearchField({
     onDropdownOpenChange?.(true);
     onFocusScroll?.();
     /**
-     * Do not auto-focus search — show popular / matching list first (same as
-     * vehicle-type picker). Keyboard only opens when the user taps search.
-     * Signup map sheet still focuses so typing starts immediately.
+     * Native signup still focuses so the map sheet is ready to type.
+     * Web focuses from the effect below, after the sheet is inside the modal trap.
      */
-    if (isSignupSheet) {
+    if (isSignupSheet && Platform.OS !== "web") {
       setTimeout(() => modalInputRef.current?.focus(), 0);
     }
   }, [isSignupSheet, onDropdownOpenChange, onFocusScroll, value]);
+
+  /**
+   * Web: focus the search after the sheet is in the modal trap. Otherwise the
+   * parent dialog keeps focus and keystrokes never reach the destination field.
+   */
+  useEffect(() => {
+    if (!dropdownOpen || Platform.OS !== "web") return;
+    const focus = () => modalInputRef.current?.focus();
+    const raf = window.requestAnimationFrame(focus);
+    // Portal mounts on the next commit (web overlay waits until document exists).
+    const timer = window.setTimeout(focus, 50);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+  }, [dropdownOpen]);
 
   const query = draft.trim();
   const popularForDisplay =
@@ -558,7 +589,7 @@ export function LocationSearchField({
                 autoCapitalize="words"
                 spellCheck={false}
                 autoComplete="off"
-                autoFocus={false}
+                autoFocus={Platform.OS === "web"}
                 compactChat
                 compactChatSize={isDesktopShell ? "md" : "sm"}
                 shellStyle={
@@ -592,8 +623,17 @@ export function LocationSearchField({
     </View>
   );
 
+  const overlayHost =
+    Platform.OS === "web" && dropdownOpen
+      ? resolveWebOverlayHost(fieldAnchorRef.current as unknown as HTMLElement | null)
+      : null;
+
   return (
-    <View style={[styles.wrapper, compact && styles.wrapperCompact]} collapsable={false}>
+    <View
+      ref={fieldAnchorRef}
+      style={[styles.wrapper, compact && styles.wrapperCompact]}
+      collapsable={false}
+    >
       <Text style={labelStyle}>{label}</Text>
       {isDesktopShell ? (
         <Pressable
@@ -697,7 +737,7 @@ export function LocationSearchField({
       )}
       {dropdownOpen &&
         (Platform.OS === "web" ? (
-          <WebOverlayPortal>{overlayBody}</WebOverlayPortal>
+          <WebOverlayPortal host={overlayHost}>{overlayBody}</WebOverlayPortal>
         ) : (
           <Modal
             visible
