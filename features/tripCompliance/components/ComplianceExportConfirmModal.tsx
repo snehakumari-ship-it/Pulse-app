@@ -1,5 +1,6 @@
 /**
- * Compact confirm card for Compliance → Export Report (Verified stage only).
+ * Compact confirm card for Compliance → Export Report (Verified by default;
+ * Advance Processed passes its own subtitle and tiles).
  */
 import Theme from "@/constants/Theme";
 import { COMPLIANCE_STAGE_TONE } from "@/features/tripCompliance/utils/complianceCardVisual.util";
@@ -24,7 +25,18 @@ export type ComplianceExportConfirmModalProps = {
   exporting?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  /** Other stages: override the subtitle, tiles, empty copy and confirm label. Defaults = Verified. */
+  eyebrow?: string;
+  stats?: ExportStat[];
+  emptyHint?: string;
+  confirmLabel?: string;
+  /** Counts still being prepared: tiles show a spinner and confirm waits. */
+  preparing?: boolean;
+  /** Rows in the report when the tiles are not a partition of it. Defaults to the tile sum. */
+  includedCount?: number;
 };
+
+export type ExportStat = { key: string; label: string; value: number; tone: { fg: string } };
 
 const VERIFIED_TONE = COMPLIANCE_STAGE_TONE.compliance_verified;
 const REJECTED_TONE = COMPLIANCE_STAGE_TONE.pending_for_docs;
@@ -36,12 +48,22 @@ export function ComplianceExportConfirmModal({
   exporting = false,
   onCancel,
   onConfirm,
+  eyebrow = "Verified stage only",
+  stats: statsOverride,
+  emptyHint = "Nothing in Verified stage to export yet.",
+  confirmLabel = "Confirm",
+  preparing = false,
+  includedCount,
 }: ComplianceExportConfirmModalProps) {
   const insets = useSafeAreaInsets();
   const verified = Math.max(0, Math.floor(verifiedCount));
   const rejected = Math.max(0, Math.floor(rejectedCount));
-  const total = verified + rejected;
-  const ready = total > 0;
+  const stats: ExportStat[] = statsOverride ?? [
+    { key: "verified", label: "Verified", value: verified, tone: VERIFIED_TONE },
+    { key: "rejected", label: "Rejected", value: rejected, tone: REJECTED_TONE },
+  ];
+  const total = includedCount != null ? Math.max(0, Math.floor(includedCount)) : verified + rejected;
+  const ready = !preparing && total > 0;
   const confirmDisabled = !ready || exporting;
 
   return (
@@ -70,17 +92,12 @@ export function ComplianceExportConfirmModal({
             </View>
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Export Report</Text>
-              <Text style={styles.eyebrow}>Verified stage only</Text>
+              <Text style={styles.eyebrow}>{eyebrow}</Text>
             </View>
           </View>
 
           <View style={styles.stats}>
-            {(
-              [
-                { key: "verified", label: "Verified", value: verified, tone: VERIFIED_TONE },
-                { key: "rejected", label: "Rejected", value: rejected, tone: REJECTED_TONE },
-              ] as const
-            ).map((stat) => (
+            {stats.map((stat) => (
               <View
                 key={stat.key}
                 style={styles.statTile}
@@ -91,23 +108,29 @@ export function ComplianceExportConfirmModal({
                   <View style={[styles.statDot, { backgroundColor: stat.tone.fg }]} />
                   <Text style={styles.statLabel}>{stat.label}</Text>
                 </View>
-                <Text style={[styles.statValue, stat.value > 0 && { color: stat.tone.fg }]}>
-                  {stat.value}
-                </Text>
+                {preparing ? (
+                  <View style={styles.statValueLoading}>
+                    <ActivityIndicator size="small" color={Theme.textMuted} />
+                  </View>
+                ) : (
+                  <Text style={[styles.statValue, stat.value > 0 && { color: stat.tone.fg }]}>
+                    {stat.value}
+                  </Text>
+                )}
                 <Text style={styles.statUnit}>{stat.value === 1 ? "trip" : "trips"}</Text>
               </View>
             ))}
           </View>
 
-          {ready ? (
+          {preparing ? (
+            <Text style={styles.message}>Preparing payment details…</Text>
+          ) : ready ? (
             <Text style={styles.message}>
               {total} {total === 1 ? "trip" : "trips"} will be included in the report
             </Text>
-          ) : null}
-
-          {!ready ? (
-            <Text style={styles.emptyHint}>Nothing in Verified stage to export yet.</Text>
-          ) : null}
+          ) : (
+            <Text style={styles.emptyHint}>{emptyHint}</Text>
+          )}
 
           <View style={styles.actions}>
             <Pressable
@@ -131,7 +154,7 @@ export function ComplianceExportConfirmModal({
               {exporting ? (
                 <ActivityIndicator size="small" color={Theme.cardWhite} />
               ) : (
-                <Text style={styles.confirmText}>Confirm</Text>
+                <Text style={styles.confirmText}>{confirmLabel}</Text>
               )}
             </Pressable>
           </View>
@@ -232,6 +255,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     letterSpacing: -0.4,
   },
+  statValueLoading: { marginTop: 2, height: 28, justifyContent: "center", alignItems: "flex-start" },
   statUnit: {
     fontSize: 11,
     fontWeight: "500",

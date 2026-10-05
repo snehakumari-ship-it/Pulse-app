@@ -103,6 +103,25 @@ describe("complianceVerifiedExport.util", () => {
     ]);
   });
 
+  it("uses the Banking beneficiary for Beneficiary Name and leaves Supplier unchanged", () => {
+    const base = {
+      supplierName: "Gogox Logistics",
+      accountNumber: "123456789012",
+      ifsc: "HDFC0001234",
+      branchName: "Salt Lake",
+      advancePercent: 90,
+      tdsRatePercent: 2,
+    };
+    const withBeneficiary = buildVerifiedExportCsvRow(summary({}), { ...base, beneficiaryName: "Pravupa Das" });
+    const without = buildVerifiedExportCsvRow(summary({}), base);
+    expect(withBeneficiary["Beneficiary Name"]).toBe("Pravupa Das");
+    expect(withBeneficiary.Supplier).toBe("Gogox Logistics");
+    expect(without["Beneficiary Name"]).toBe("Gogox Logistics");
+    const { ["Beneficiary Name"]: _a, ...restWith } = withBeneficiary;
+    const { ["Beneficiary Name"]: _b, ...restWithout } = without;
+    expect(restWith).toEqual(restWithout);
+  });
+
   it("maps trip + enrichment into aligned CSV cells", () => {
     const row = buildVerifiedExportCsvRow(summary({}), {
       supplierName: "Gogox Logistics",

@@ -1,3 +1,55 @@
+# Changelog — V1 (v0.0.01)
+
+## sneha/V1.0.3 — 2026-10-05
+- **What:** Supplier bank and Advance Processed (Verified→Settled only; Pending Docs / Compliance Pending unchanged):
+  - Supplier Banking: Beneficiary and Branch on the vault form. IFSC lookup fills bank and branch. Saving updates the Advance Processed table, Verified export, and the Paid to card live.
+  - Migration `20261005080754_add_bank_account_beneficiary_branch.sql` adds `beneficiary_name` and `branch_name` on `entity_bank_accounts` (already applied on preprod; Nihas owns remote apply).
+  - Advance Processed table: Trip, LR, Truck, Payment type, Supplier, Beneficiary, Bank, IFSC, Account, Branch, Mode, Date, Amount, Request ID, UTR.
+  - Advance Processed Export Report (that stage only): confirm card with counts, then an .xlsx with those columns. Verified export also gained Beneficiary Name; other Verified columns unchanged.
+  - Paid to card on the Advance Payment panel: supplier, beneficiary, account, IFSC, bank, branch for the trip.
+- **Why:** Finance needs the payee bank details on the Advance Processed list, export, and payment panel, kept in step with the supplier vault.
+- **Files/areas:** supplier vault + IFSC lookup + bank events; Advance Processed table / export / payee card; Verified export beneficiary; `app/compliance/index.tsx`
+- **Migrations:** `supabase/migrations/20261005080754_add_bank_account_beneficiary_branch.sql` (applied on preprod; tell Nihas)
+- **Tested:** Jest `features/tripCompliance` + IFSC util. Web UI used during the round. `tsc` adds no new errors (141 already in V1).
+
+## sneha/V1.0.3 — 2026-10-05
+- **What:** A verified trip now stays in **Verified** until its advance is paid from there, whether the hard-copy POD is pending or received. Two gaps that let a trip skip Verified are closed:
+  - **Finance client receipts:** a client receipt posted in Finance (`trips.amount_paid`) no longer counts as the compliance advance. The `advanceFromTripReceipts` fallback is removed.
+  - **Advance before verification:** a `compliance_advance` row posted before `compliance_verified_at` (like 000504's) no longer counts. Only an advance posted at or after verification moves the trip to Advance Processed. Rows now carry `postedAt` (`transactions.created_at`) for this check.
+  - **Blocked Pay:** a verified trip that has a pre-verification advance shows in Verified with Pay blocked: "An advance of ₹… was posted before compliance was verified. Ask Finance to reverse it, then post the advance from Verified." Without this, Pay would show and then fail as a duplicate.
+  - **Unchanged:** Compliance Pending, Pending Docs, and the move from Advance Processed to Balance Pending.
+- **Why:** The advance is based only on compliance marking the trip Verified. Before this change, a receipt or an early advance plus a received POD sent a newly verified trip straight to Balance Pending.
+- **Files/areas:**
+  - `features/tripCompliance/services/tripComplianceRead.service.ts` (`summarizeComplianceTrip`, `isAdvancePostedAfterVerification`, `toPaymentSummary`, ledger selects)
+  - `features/tripCompliance/utils/complianceReadiness.util.ts` (advance lane)
+  - `features/tripCompliance/tripCompliance.types.ts` (`postedAt`, `advanceBeforeVerification`)
+- **Migrations:** none
+- **Tested:**
+  - Jest `features/tripCompliance` + `lib/queries`: 44 suites, 509 tests pass. New tests:
+    - Posted before, at, and after verification.
+    - A pre-verification advance stays in Verified with POD pending or received, with no pill and Pay blocked with the reason.
+    - A receipt-only verified trip stays in Verified and is ready for the advance.
+    - An advance posted after verification goes to Advance Processed.
+  - Preprod (read-only): all 15 verified trips keep their current tab. The 2 in Advance Processed had their advance posted after verification, and no verified trip relied on a Finance receipt.
+  - `tsc` adds no new errors (141 already in V1). ESLint clean. Web UI not yet clicked through.
+
+## sneha/V1.0.3 — 2026-10-05
+- **What:** No compliance advance until the trip is compliance-verified (`trips.compliance_verified_at` set by `mark_trip_compliance_verified` or `approve_trip_compliance_with_exception`).
+  - **Display:** `summarizeComplianceTrip` keeps `summary.advance` null on an unverified trip, both for a tagged `compliance_advance` row and for a Finance receipt (`trips.amount_paid`). The trip stays on Compliance Pending, gets no "Advance Processed" pill, and Pay / Bulk advance stay blocked through the existing readiness check. `deriveComplianceStage` is unchanged. Once the trip is verified, the existing advance shows and the trip moves to Advance Processed.
+  - **Write:** `postCompliancePayment` (single and bulk) now reads the live `compliance_verified_at` / `pod_received_at` from `trips` before the existing prerequisite check, instead of trusting the cached trip object. If that read fails, it falls back to the cached trip. Same rule, same single ledger write path. Balance is still gated only by the POD rule.
+- **Why:** SAT812GOGTRIP000504 (Gogovan India, preprod; DB `sequence_number` 503, trip `9f56df16…`) is in transit and never verified, yet has a ₹1,14,500 `compliance_advance` (txn `578b883e…`, created 2026-10-01 11:14 UTC by satham@gogovan.co.in). It showed as Advance Processed.
+  - Live preprod check (read-only): the restrictive `compliance_advance_requires_compliance_approved` insert/update policies (migration 20260921125437, 4 statements recorded) are present for `authenticated`. RLS is enabled. There is no insertable view on `transactions`, and no SECURITY DEFINER function writes `compliance_advance`.
+  - The trip was last updated at 03:45 UTC, before the insert, so it was never verified and then cleared. An authenticated app insert would be rejected today. The row was therefore written either before the policy was on preprod, or outside RLS (service role / SQL editor). This is the only unverified trip with a compliance advance on preprod.
+- **Files/areas:** `features/tripCompliance/services/tripComplianceRead.service.ts` (`summarizeComplianceTrip`, doc comments), `features/tripCompliance/services/tripComplianceWrite.service.ts` (`readComplianceLedgerFlags`, `postCompliancePayment`)
+- **Migrations:** none. The live policy is present and restrictive. The stray preprod row is left as is; removing it is a data decision for Nihas.
+- **Tested:** Jest `features/tripCompliance` (39 suites, 480 pass). New tests:
+  - Advance rejected when the live `verified_at` is null, even if the cached trip says verified, and allowed when the live value is set.
+  - Bulk rejects an unverified row and posts a verified one.
+  - Balance is not gated beyond POD.
+  - A 000504-shaped trip stays on Compliance Pending with no pill and no Pay; the verified version moves to Advance Processed.
+
+  Full Jest: the only failures are 6 suites outside compliance (sign-in, chat, log-pods, network, platform-identity). `tsc` adds no new errors (141 already in V1). ESLint clean. Web UI not yet clicked through.
+
 ## nihas/V1.0.15 — 2026-10-05
 
 - **What:** Trips search finds an indent by its code even when that indent is older than the first 500 loaded rows. A paid test marketplace fee can be refunded and the award revoked together. Razorpay and cash payments stay blocked and the award stays awarded.
@@ -70,7 +122,12 @@
 - **Migrations:** none
 - **Tested:** Jest — LR receipt, awaiting-POD groups, hard-copy POD pipeline. Web session was not signed in here, so the live Compliance screen was not clicked through.
 
-# Changelog — V1 (v0.0.01)
+## sneha/V1.0.3 — 2026-10-01
+- **What:** Fixed "Couldn't post payment: Compliance must be approved before an advance payment can be posted" on trips already in the Verified stage. The stage comes from the live trip compliance flags (`fetchComplianceTripFlags`, also patched instantly on verify). The payment pre-check reads `summary.trip.compliance_verified_at` from the trips-list row, which could be stale (e.g. right after auto-verify) or not carry the column. `summarizeComplianceTrip` now copies the live `compliance_verified_at` and `pod_received_at` onto `summary.trip`, so the stage, Confirm payment, Bulk Payment and the balance POD check all read the same values. The server-side RLS rule on `transactions` is unchanged and still enforces both.
+- **Why:** SAT812GOGTRIP000122 showed Verified / Ready to pay but Confirm payment was refused by the client pre-check.
+- **Files/areas:** `features/tripCompliance/services/tripComplianceRead.service.ts` (`summarizeComplianceTrip`)
+- **Migrations:** none
+- **Tested:** Jest `features/tripCompliance` (37 suites pass; new regression test: stale trip row + verified flags gives Verified stage and `summary.trip.compliance_verified_at` set, including after the instant verify patch); `tsc` adds no new errors (141 already in V1); ESLint clean. Web UI not yet re-clicked.
 
 ## nihas/V1.0.6 — 2026-10-01
 

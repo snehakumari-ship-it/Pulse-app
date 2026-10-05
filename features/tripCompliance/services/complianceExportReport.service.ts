@@ -13,9 +13,16 @@ import {
   listSupplierTdsRates,
 } from "@/features/suppliers/services/supplierVendorOnboarding.service";
 import { getSupplierById, getSupplierDetails } from "@/features/suppliers/services/suppliers.service";
+import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
 import { buildComplianceTripSummaries } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
+import { fetchAdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
+import {
+  buildAdvanceProcessedExportRow,
+  buildAdvanceProcessedExportWorkbook,
+  type AdvanceProcessedExportRow,
+} from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import {
   resolveComplianceTdsRate,
   type ComplianceDocumentChargeConfig,
@@ -130,6 +137,7 @@ async function resolveTruckType(
 
 type SupplierVaultBundle = {
   name: string;
+  beneficiaryName: string;
   accountNumber: string;
   ifsc: string;
   branchName: string;
@@ -150,11 +158,14 @@ async function loadSupplierVaultBundle(
   ]);
   const resolvedTds = resolveComplianceTdsRate(tds.rates);
   const adv = profile.profile?.advance_percentage;
+  const ifsc = String(bank.account?.ifsc_code ?? "").trim().toUpperCase();
+  const branch = await resolveBankBranch(bank.account?.branch_name, ifsc);
   return {
     name,
+    beneficiaryName: bank.account?.beneficiary_name?.trim() || "",
     accountNumber: String(bank.account?.account_number ?? "").trim(),
-    ifsc: String(bank.account?.ifsc_code ?? "").trim().toUpperCase(),
-    branchName: bank.account?.bank_name?.trim() || "",
+    ifsc,
+    branchName: branch || bank.account?.bank_name?.trim() || "",
     advancePercent:
       adv != null && Number.isFinite(Number(adv)) ? Number(adv) : null,
     tdsRatePercent: resolvedTds?.ratePercent ?? null,
@@ -211,6 +222,7 @@ export async function buildVerifiedExportEnrichment(
       }
       const vault = await pending;
       enrichment.supplierName = vault.name;
+      enrichment.beneficiaryName = vault.beneficiaryName;
       enrichment.accountNumber = vault.accountNumber;
       enrichment.ifsc = vault.ifsc;
       enrichment.branchName = vault.branchName;
@@ -277,4 +289,27 @@ export async function exportVerifiedStageComplianceReport(orgId: string): Promis
     `compliance-verified-report_${exportFileStamp()}.xlsx`,
   );
   return rows.length;
+}
+
+/**
+ * Advance Processed stage: build the report rows for the trips on that chip
+ * (same enrichment as the payments table). Split from the download so the
+ * confirm card can show counts before the user exports.
+ */
+export async function prepareAdvanceProcessedReport(
+  orgId: string,
+  summaries: ComplianceTripSummary[],
+): Promise<AdvanceProcessedExportRow[]> {
+  const withAdvance = summaries.filter((summary) => summary.advance);
+  if (withAdvance.length === 0) return [];
+  const enrichment = await fetchAdvanceProcessedEnrichment(orgId, withAdvance);
+  return withAdvance.map((summary) => buildAdvanceProcessedExportRow(summary, enrichment[summary.trip.id]));
+}
+
+/** Download prepared Advance Processed rows as .xlsx. */
+export async function downloadAdvanceProcessedReport(rows: AdvanceProcessedExportRow[]): Promise<void> {
+  await exportComplianceWorkbook(
+    buildAdvanceProcessedExportWorkbook(rows),
+    `compliance-advance-processed-report_${exportFileStamp()}.xlsx`,
+  );
 }

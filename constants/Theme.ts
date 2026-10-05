@@ -601,6 +601,13 @@ export const Theme = {
   complianceVerifiedPillBg: "#ECFDF5",
   complianceVerifiedPillFg: "#16A34A",
   complianceVerifiedPillBorder: "#BBF7D0",
+  // Advance Processed payments table.
+  compliancePayTableTitleBg: "#1E293B",
+  compliancePayTableTitleFg: "#FFFFFF",
+  compliancePayTableTitleMuted: "#94A3B8",
+  compliancePayTableUtrHeaderBg: "#16A34A",
+  compliancePayTableRowSelectedBg: "#EFF6FF",
+  compliancePayTableRowSelectedBorder: "#3B82F6",
   // Trip Detail (Vasanth V1 layout) — exact colours with no existing token.
   tripDetailFeedbackScoreTextColor: "#171a20",
   tripDetailAssetCardBackgroundColor: "rgba(248,250,252,0.72)",

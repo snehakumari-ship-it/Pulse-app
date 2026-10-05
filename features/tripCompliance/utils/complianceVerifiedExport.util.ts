@@ -55,6 +55,8 @@ export type VerifiedExportCsvRow = Record<VerifiedExportCsvHeader, string>;
 
 export type VerifiedExportEnrichment = {
   supplierName?: string | null;
+  /** Account holder from supplier Banking; Beneficiary column falls back to the supplier. */
+  beneficiaryName?: string | null;
   truckType?: string | null;
   driverPhone?: string | null;
   accountNumber?: string | null;
@@ -121,7 +123,7 @@ function formatLoadingDate(iso: string | null | undefined): string {
   return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-function latestDocNumber(
+export function latestDocNumber(
   documents: ComplianceTripSummary["documents"],
   type: "lr" | "invoice",
 ): string {
@@ -227,7 +229,7 @@ export function buildVerifiedExportCsvRow(
         : formatComplianceTimestamp(trip.started_at),
     "Client sales invoice No": latestDocNumber(summary.documents, "invoice"),
     "Account No": blank(enrichment.accountNumber),
-    "Beneficiary Name": supplierLabel,
+    "Beneficiary Name": enrichment.beneficiaryName?.trim() || supplierLabel,
     "IFSC No": blank(enrichment.ifsc),
     "Branch Name": blank(enrichment.branchName),
     "LR No": latestDocNumber(summary.documents, "lr"),

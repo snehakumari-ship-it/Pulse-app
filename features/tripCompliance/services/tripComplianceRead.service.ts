@@ -243,8 +243,11 @@ type RawTxnRow = {
   amount_out: number;
   description: string | null;
   transaction_date: string;
+  created_at?: string | null;
   created_by: string | null;
   ledger_category: string | null;
+  /** Stored UTR column; preferred over the UTR parsed from the description. */
+  payment_reference?: string | null;
 };
 
 export async function fetchComplianceTransactions(
@@ -255,7 +258,7 @@ export async function fetchComplianceTransactions(
 
   const { data, error } = await supabase()
     .from("transactions")
-    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category")
+    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_at, created_by, ledger_category")
     .in("trip_id", tripIds)
     .in("ledger_category", ["compliance_advance", "compliance_balance"]);
 
@@ -273,7 +276,7 @@ export async function fetchComplianceTransactions(
   return byTrip;
 }
 
-/** `trips` columns the payment state depends on (`amount_paid` fallback advance). */
+/** `trips` payment columns kept in step on the cached row (`amount_paid` is display-only, never the advance). */
 export async function fetchTripPaymentFields(
   tripIds: string[],
 ): Promise<Map<string, Pick<TripRow, "amount_paid" | "updated_at">>> {
@@ -308,6 +311,14 @@ function toEntityDocument(doc: DocumentRow): ComplianceEntityDocument {
   };
 }
 
+/** Ledger descriptions end with a machine `[[QMETA:{…}]]` tag; never show it to Ops. */
+export function stripLedgerMetaTag(value: string | null | undefined): string | null {
+  const raw = String(value ?? "");
+  const idx = raw.indexOf("[[QMETA:");
+  const clean = (idx < 0 ? raw : raw.slice(0, idx)).trim();
+  return clean || null;
+}
+
 export function toPaymentSummary(rows: RawTxnRow[]): CompliancePaymentSummary | null {
   if (rows.length === 0) return null;
   // Most recent posting represents the payment's current display state —
@@ -317,32 +328,29 @@ export function toPaymentSummary(rows: RawTxnRow[]): CompliancePaymentSummary | 
   const structured = interpretLedgerRowStructured(latest);
   return {
     amount: Number(latest.amount_in || latest.amount_out || 0),
-    paymentMode: structured.payment_mode,
-    utr: structured.reference_number,
+    paymentMode: stripLedgerMetaTag(structured.payment_mode),
+    utr: stripLedgerMetaTag(latest.payment_reference) ?? stripLedgerMetaTag(structured.reference_number),
     paidAt: latest.transaction_date,
     actorId: latest.created_by,
     transactionId: latest.id,
+    postedAt: latest.created_at ?? null,
   };
 }
 
 /**
- * Finance-posted client receipts (trips.amount_paid) count as advance for the
- * queue even when they were not tagged `ledger_category = compliance_advance`.
- * Ops often collects advance from the ledger before marking Compliance Verified.
+ * Advance is paid from the Verified stage, so only a `compliance_advance` row
+ * posted at or after `compliance_verified_at` counts. A row with no posting
+ * time (older cached data) is trusted.
  */
-export function advanceFromTripReceipts(
-  trip: Pick<TripRow, "id" | "amount_paid" | "updated_at" | "created_at">,
-): CompliancePaymentSummary | null {
-  const amount = Number(trip.amount_paid ?? 0);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
-  return {
-    amount,
-    paymentMode: null,
-    utr: null,
-    paidAt: trip.updated_at ?? trip.created_at ?? new Date().toISOString(),
-    actorId: null,
-    transactionId: `amount-paid:${trip.id}`,
-  };
+export function isAdvancePostedAfterVerification(
+  advance: Pick<CompliancePaymentSummary, "postedAt">,
+  complianceVerifiedAt: string,
+): boolean {
+  if (!advance.postedAt) return true;
+  const posted = Date.parse(advance.postedAt);
+  const verified = Date.parse(complianceVerifiedAt);
+  if (!Number.isFinite(posted) || !Number.isFinite(verified)) return true;
+  return posted >= verified;
 }
 
 /**
@@ -353,6 +361,9 @@ export function advanceFromTripReceipts(
  * Pending Docs while a required file is missing, and in Compliance Pending
  * once every required file is on file, including holds. Delivery does not
  * take it out of that lane.
+ *
+ * `advance` must already be gated by the caller (summarizeComplianceTrip): a
+ * compliance_advance posted after compliance_verified_at, never a Finance receipt.
  *
  * Awaiting POD is parallel: a completed (Trip Operations Delivered) trip
  * also appears there until hard-copy is marked, even while it is still in
@@ -729,7 +740,17 @@ export async function fetchComplianceTripInputs(trips: TripRow[]): Promise<Compl
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
   const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
-  const advance = taggedAdvance ?? advanceFromTripReceipts(trip);
+  // The advance is paid from Verified (compliance_verified_at — set by plain and
+  // exception approval). Only a compliance_advance posted after verification
+  // moves the trip on; Finance client receipts (trips.amount_paid) never do, and
+  // a row posted before verification keeps the trip in Compliance Pending /
+  // Verified with no Advance Processed pill.
+  const verifiedAt = flags?.compliance_verified_at ?? null;
+  const advance =
+    verifiedAt && taggedAdvance && isAdvancePostedAfterVerification(taggedAdvance, verifiedAt)
+      ? taggedAdvance
+      : null;
+  const advanceBeforeVerification = taggedAdvance && !advance ? taggedAdvance : null;
   // Phase 4: the gate is pod_received_at (the pre-existing, pervasively-used
   // signal), not the courier/AWB/received-by columns — those are display
   // metadata only. See ComplianceTripFlags.pod_received_at.
@@ -785,9 +806,18 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     ),
     flags?.received_lr_numbers ?? [],
   );
+  // Flags are the live trip columns (and get patched on verify); the list row can be
+  // stale or omit them. Payment prerequisites read summary.trip, so keep it in step.
+  const tripWithFlags = flags
+    ? {
+        ...trip,
+        compliance_verified_at: flags.compliance_verified_at,
+        pod_received_at: flags.pod_received_at,
+      }
+    : trip;
 
   return {
-    trip,
+    trip: tripWithFlags,
     stage,
     documents,
     vehicleDocuments,
@@ -803,6 +833,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     complianceDeclinedBy: flags?.compliance_declined_by ?? null,
     complianceDeclineReason: flags?.compliance_decline_reason ?? null,
     advance,
+    advanceBeforeVerification,
     balance,
     hardCopyPod: {
       received: hardCopyReceived,
@@ -882,6 +913,40 @@ export async function fetchTripScopedInputs(
     });
   }
   return byTrip;
+}
+
+/** A client receipt posted in Finance for a trip (feeds `trips.amount_paid`). */
+export type ComplianceFinanceReceipt = CompliancePaymentSummary;
+
+const ADVANCE_LEDGER_SELECT =
+  "id, trip_id, amount_in, amount_out, description, transaction_date, created_at, created_by, ledger_category, payment_reference";
+
+/**
+ * Live ledger rows behind a trip's advance: the `compliance_advance` posting and
+ * the Finance client receipts that feed `trips.amount_paid`. Not org-filtered —
+ * the amount_paid trigger sums receipts from every org on the trip, and RLS
+ * already scopes what this user may read.
+ */
+export async function fetchTripAdvanceLedger(tripId: string): Promise<{
+  complianceAdvance: CompliancePaymentSummary | null;
+  receipts: ComplianceFinanceReceipt[];
+}> {
+  const { data, error } = await supabase()
+    .from("transactions")
+    .select(ADVANCE_LEDGER_SELECT)
+    .eq("trip_id", tripId)
+    .gt("amount_in", 0)
+    .order("transaction_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as RawTxnRow[];
+  const receipts = rows
+    .filter((row) => row.ledger_category !== "compliance_advance" && row.ledger_category !== "compliance_balance")
+    .map((row) => toPaymentSummary([row]))
+    .filter((row): row is ComplianceFinanceReceipt => row != null);
+  return {
+    complianceAdvance: toPaymentSummary(rows.filter((row) => row.ledger_category === "compliance_advance")),
+    receipts,
+  };
 }
 
 /** Payment inputs (compliance transactions + `trips.amount_paid`) for one or more trips. */

@@ -623,5 +623,8 @@ export const queryKeys = {
       ["q", "tripCompliance", "list", "vault-v2", orgId, page] as const,
     detail: (orgId: string, tripId: string) =>
       ["q", "tripCompliance", "detail", "v1", orgId, tripId] as const,
+    /** Advance Processed table enrichment (bank, approver, payment ref) per trip set. */
+    advanceProcessed: (orgId: string, signature: string) =>
+      ["q", "tripCompliance", "advanceProcessed", "v1", orgId, signature] as const,
   },
 } as const;

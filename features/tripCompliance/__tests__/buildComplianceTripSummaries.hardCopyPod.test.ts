@@ -109,7 +109,7 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       error: null,
     };
     const [summary] = await buildComplianceTripSummaries([makeTrip()]);
-    expect(summary.stage).toBe("hard_copy_pod_received"); // awaiting-Ops bucket, not yet balance_pending
+    expect(summary.stage).toBe("hard_copy_pod_received"); // delivered + verified, hard copy not yet marked
   });
 
   it("moves to balance_pending once hard-copy POD is received (via pod_received_at)", async () => {

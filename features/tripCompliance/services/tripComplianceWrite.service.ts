@@ -1,6 +1,18 @@
 import { supabase } from "@/lib/supabase";
 import { createLedgerEntry, updateLedgerEntry, type CreateLedgerEntryData } from "@/features/finance/services/finance.service";
-import { buildLedgerSyncDescriptionLine } from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  buildLedgerSyncDescriptionLine,
+  interpretLedgerRowStructured,
+} from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  isCashPaymentMode,
+  normalizeComplianceRequestId,
+  normalizeComplianceUtr,
+  validateComplianceRequestId,
+  validateComplianceUtr,
+  withLedgerDescriptionRequestId,
+  withLedgerDescriptionUtr,
+} from "@/features/tripCompliance/utils/compliancePaymentReference.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
 import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
@@ -266,6 +278,23 @@ function checkComplianceLedgerPrerequisite(
   return { ok: true };
 }
 
+type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "pod_received_at">;
+
+/**
+ * Callers pass a cached trip (list summary, bulk validation map) that can be
+ * minutes old, so the prerequisite reads the live flags. A failed read falls
+ * back to the cached trip; RLS still rejects the insert either way.
+ */
+async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags> {
+  const { data, error } = await supabase()
+    .from("trips")
+    .select("compliance_verified_at, pod_received_at")
+    .eq("id", trip.id)
+    .maybeSingle();
+  if (error || !data) return trip;
+  return data as ComplianceLedgerFlags;
+}
+
 /**
  * Post a compliance advance/balance payment through the canonical Finance
  * ledger write path (`createLedgerEntry` → `transactions`). This is the ONLY
@@ -287,7 +316,7 @@ export async function postCompliancePayment(params: {
   const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
   if (!guard.ok) return { error: new Error(guard.reason) };
 
-  const prerequisite = checkComplianceLedgerPrerequisite(params.category, params.trip);
+  const prerequisite = checkComplianceLedgerPrerequisite(params.category, await readComplianceLedgerFlags(params.trip));
   if (!prerequisite.ok) return { error: new Error(prerequisite.reason) };
 
   const amountCheck = validateCompliancePaymentAmount({ amount: params.amount, trip: params.trip });
@@ -338,6 +367,92 @@ export async function postCompliancePayment(params: {
     };
   }
   return { error };
+}
+
+type CompliancePaymentRowTarget = {
+  tripId: string;
+  transactionId: string;
+  /** `finance_receipt` = a client receipt posted in Finance (feeds `trips.amount_paid`). */
+  category: ComplianceLedgerCategory | "finance_receipt";
+};
+
+/**
+ * Reads the payment row and confirms it is this trip's advance / receipt. Not
+ * org-filtered: receipts on a shared trip may belong to the partner org; the
+ * trip match plus RLS decide what this user may edit.
+ */
+async function readCompliancePaymentRow(
+  target: CompliancePaymentRowTarget,
+): Promise<{ row: { description: string | null } | null; error: Error | null }> {
+  const notFound = { row: null, error: new Error("Payment not found. Refresh and try again.") };
+  if (target.transactionId.startsWith("amount-paid:")) return notFound;
+  const { data: row, error } = await supabase()
+    .from("transactions")
+    .select("id, trip_id, description, ledger_category, amount_in")
+    .eq("id", target.transactionId)
+    .maybeSingle();
+  if (error) return { row: null, error: new Error(error.message) };
+  const isComplianceRow =
+    row?.ledger_category === "compliance_advance" || row?.ledger_category === "compliance_balance";
+  const matches =
+    row != null &&
+    row.trip_id === target.tripId &&
+    (target.category === "finance_receipt"
+      ? !isComplianceRow && Number(row.amount_in ?? 0) > 0
+      : row.ledger_category === target.category);
+  return matches ? { row, error: null } : notFound;
+}
+
+async function writeCompliancePaymentRow(
+  transactionId: string,
+  payload: Record<string, unknown>,
+  fallbackPayload?: Record<string, unknown>,
+): Promise<{ error: Error | null }> {
+  const update = (body: Record<string, unknown>) =>
+    supabase().from("transactions").update(body).eq("id", transactionId).select("id").maybeSingle();
+  let { data, error } = await update(payload);
+  if (error && fallbackPayload && /payment_reference/i.test(error.message)) {
+    ({ data, error } = await update(fallbackPayload));
+  }
+  if (error) return { error: new Error(error.message) };
+  if (!data) return { error: new Error("You don't have permission to edit this payment.") };
+  return { error: null };
+}
+
+/**
+ * Edit only the UTR of a posted compliance payment. Amount, mode, date, party and
+ * notes are left untouched, so the ledger's double entry does not change.
+ * `updateLedgerEntry` is not used because it truncates `transaction_date` to a
+ * day (moving "Paid at") and rebuilds the description without notes.
+ */
+export async function updateCompliancePaymentReference(
+  params: CompliancePaymentRowTarget & { utr: string },
+): Promise<{ error: Error | null }> {
+  const invalid = validateComplianceUtr(params.utr);
+  if (invalid) return { error: new Error(invalid) };
+  const utr = normalizeComplianceUtr(params.utr);
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  const mode = interpretLedgerRowStructured({ description: row.description }).payment_mode;
+  if (isCashPaymentMode(mode)) {
+    return { error: new Error("Cash payments don't carry a UTR.") };
+  }
+  const description = withLedgerDescriptionUtr(row.description, utr);
+  return writeCompliancePaymentRow(params.transactionId, { description, payment_reference: utr }, { description });
+}
+
+/** Edit only the Request ID of a posted compliance payment (stored on its description). */
+export async function updateCompliancePaymentRequestId(
+  params: CompliancePaymentRowTarget & { requestId: string },
+): Promise<{ error: Error | null }> {
+  const invalid = validateComplianceRequestId(params.requestId);
+  if (invalid) return { error: new Error(invalid) };
+  const requestId = normalizeComplianceRequestId(params.requestId);
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  return writeCompliancePaymentRow(params.transactionId, {
+    description: withLedgerDescriptionRequestId(row.description, requestId),
+  });
 }
 
 /**

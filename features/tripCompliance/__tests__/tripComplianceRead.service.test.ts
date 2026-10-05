@@ -1,13 +1,21 @@
 import {
-    advanceFromTripReceipts,
     buildComplianceOutstandingSummary,
     canApproveComplianceWithException,
     canMarkComplianceVerified,
     deriveComplianceStage,
+    isAdvancePostedAfterVerification,
+    stripLedgerMetaTag,
     summarizeComplianceTrip,
     tripAppearsInAwaitingPod,
 } from "@/features/tripCompliance/services/tripComplianceRead.service";
-import type { ComplianceDocumentRow, ComplianceTripInputs } from "@/features/tripCompliance/tripCompliance.types";
+import { shouldShowPaymentStatusPill } from "@/features/tripCompliance/utils/complianceCardVisual.util";
+import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import type {
+    ComplianceDocumentRow,
+    ComplianceEntityDocument,
+    ComplianceTripFlags,
+    ComplianceTripInputs,
+} from "@/features/tripCompliance/tripCompliance.types";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 const PAYMENT = {
@@ -243,7 +251,7 @@ describe("deriveComplianceStage", () => {
     ).toBe("compliance_pending");
   });
 
-  it("is HARD_COPY_POD_RECEIVED once delivered but hard-copy POD not yet marked received", () => {
+  it("is AWAITING_POD (exclusive) once delivered and verified until hard-copy POD is marked received", () => {
     expect(
       deriveComplianceStage({
         documentCount: 3,
@@ -395,27 +403,163 @@ describe("summarizeComplianceTrip — unverified trips stay off Awaiting POD", (
   });
 });
 
-describe("advanceFromTripReceipts", () => {
-  it("treats trips.amount_paid as an advance signal", () => {
+describe("stripLedgerMetaTag", () => {
+  it("drops the trailing QMETA tag from a parsed payment mode", () => {
     expect(
-      advanceFromTripReceipts({
-        id: "trip-1",
-        amount_paid: 11000,
-        updated_at: "2026-09-21T10:00:00Z",
-        created_at: "2026-09-01T00:00:00Z",
-      }),
-    ).toMatchObject({ amount: 11000, transactionId: "amount-paid:trip-1" });
+      stripLedgerMetaTag('UPI [[QMETA:{"trip_number":"BKG-bvtx24","category":"Compliance Advance"}]]'),
+    ).toBe("UPI");
+    expect(stripLedgerMetaTag("NEFT")).toBe("NEFT");
+    expect(stripLedgerMetaTag('[[QMETA:{"trip_number":"T1"}]]')).toBeNull();
+    expect(stripLedgerMetaTag(null)).toBeNull();
+  });
+});
+
+describe("isAdvancePostedAfterVerification", () => {
+  it("counts an advance posted at or after verification", () => {
+    expect(isAdvancePostedAfterVerification({ postedAt: "2026-10-05T08:39:04Z" }, "2026-10-05T07:55:16Z")).toBe(true);
+    expect(isAdvancePostedAfterVerification({ postedAt: "2026-10-05T07:55:16Z" }, "2026-10-05T07:55:16Z")).toBe(true);
   });
 
-  it("ignores unpaid trips", () => {
-    expect(
-      advanceFromTripReceipts({
-        id: "trip-1",
-        amount_paid: 0,
-        updated_at: "2026-09-21T10:00:00Z",
-        created_at: "2026-09-01T00:00:00Z",
-      }),
-    ).toBeNull();
+  it("rejects an advance posted before verification", () => {
+    expect(isAdvancePostedAfterVerification({ postedAt: "2026-10-01T11:14:07Z" }, "2026-10-02T00:00:00Z")).toBe(false);
+  });
+
+  it("trusts a row with no posting time", () => {
+    expect(isAdvancePostedAfterVerification({ postedAt: null }, "2026-10-02T00:00:00Z")).toBe(true);
+    expect(isAdvancePostedAfterVerification({}, "2026-10-02T00:00:00Z")).toBe(true);
+  });
+});
+
+describe("summarizeComplianceTrip — the advance is paid from Verified", () => {
+  const FLAGS: ComplianceTripFlags = {
+    compliance_verified_at: null,
+    compliance_verified_by: null,
+    compliance_decision: null,
+    compliance_exception_reason: null,
+    compliance_outstanding_summary: null,
+    compliance_declined_at: null,
+    compliance_declined_by: null,
+    compliance_decline_reason: null,
+    pod_hard_copy_courier: null,
+    pod_hard_copy_awb_number: null,
+    pod_hard_copy_received_by: null,
+    pod_received_at: null,
+  };
+  const ADVANCE = { ...PAYMENT, amount: 114500, transactionId: "578b883e", postedAt: "2026-10-01T11:14:07Z" };
+
+  function entityDoc(entityType: "vehicle" | "driver", entityId: string, docType: string): ComplianceEntityDocument {
+    return {
+      id: `${entityType}-${docType}`,
+      organization_id: "org-1",
+      entity_type: entityType,
+      entity_id: entityId,
+      doc_type: docType,
+      doc_label: null,
+      doc_number: null,
+      issued_date: null,
+      expiry_date: "2030-01-01",
+      issued_by: null,
+      status: "verified",
+      storage_path: `org-1/${entityType}/${docType}.pdf`,
+      notes: null,
+      verified_by: null,
+      verified_at: null,
+      created_by: null,
+      created_at: "2026-01-01",
+      updated_at: "2026-01-01",
+    } as ComplianceEntityDocument;
+  }
+
+  // Shaped like SAT812GOGTRIP000504 on preprod: in transit, never verified, yet a
+  // compliance_advance row was posted on 2026-10-01.
+  function summary(opts: {
+    verifiedAt?: string | null;
+    amountPaid?: number;
+    tagged?: boolean;
+    postedAt?: string;
+    podReceivedAt?: string;
+  }) {
+    return summarizeComplianceTrip({
+      trip: {
+        id: "trip-504",
+        organization_id: "org-1",
+        status: "in_transit",
+        amount_paid: opts.amountPaid ?? 0,
+        updated_at: "2026-10-01T03:45:44Z",
+        created_at: "2026-09-30T13:12:55Z",
+      } as unknown as TripRow,
+      documents: ["lr", "eway_bill", "invoice"].map((type) =>
+        doc({ id: `d-${type}`, trip_id: "trip-504", document_type: type, status: "verified", verified_at: "2026-10-01" }),
+      ),
+      flags: {
+        ...FLAGS,
+        compliance_verified_at: opts.verifiedAt ?? null,
+        pod_received_at: opts.podReceivedAt ?? null,
+      },
+      taggedAdvance:
+        opts.tagged === false ? null : { ...ADVANCE, postedAt: opts.postedAt ?? ADVANCE.postedAt },
+      balance: null,
+      vehicleDocuments: ["rc", "insurance", "fitness"].map((type) => entityDoc("vehicle", "v1", type)),
+      driverDocuments: [entityDoc("driver", "d1", "license")],
+      vaultVehicleId: null,
+    });
+  }
+
+  it("keeps an unverified trip with a stale compliance_advance on Compliance Pending, with no Advance Processed pill", () => {
+    const s = summary({});
+    expect(s.stage).toBe("compliance_pending");
+    expect(s.advance).toBeNull();
+    expect(shouldShowPaymentStatusPill(s)).toBe(false);
+  });
+
+  it("does not treat a Finance receipt (amount_paid) as an advance on an unverified trip", () => {
+    const s = summary({ tagged: false, amountPaid: 114500 });
+    expect(s.stage).toBe("compliance_pending");
+    expect(s.advance).toBeNull();
+  });
+
+  it("offers no advance payment for an unverified trip", () => {
+    const readiness = deriveComplianceQueueReadiness(summary({}));
+    expect(readiness.paymentReady).toBe(false);
+    expect(readiness.advance.status).toBe("blocked");
+  });
+
+  it("keeps a trip in Verified when its advance was posted before verification, even with the POD received", () => {
+    for (const podReceivedAt of [undefined, "2026-10-03T00:00:00Z"]) {
+      const s = summary({ verifiedAt: "2026-10-02T00:00:00Z", podReceivedAt });
+      expect(s.stage).toBe("compliance_verified");
+      expect(s.advance).toBeNull();
+      expect(s.advanceBeforeVerification?.amount).toBe(114500);
+      expect(shouldShowPaymentStatusPill(s)).toBe(false);
+    }
+  });
+
+  it("blocks Pay with a clear reason instead of offering a second advance", () => {
+    const readiness = deriveComplianceQueueReadiness(summary({ verifiedAt: "2026-10-02T00:00:00Z" }));
+    expect(readiness.paymentReady).toBe(false);
+    expect(readiness.advance.status).toBe("blocked");
+    expect(readiness.advance.reason).toMatch(/posted before compliance was verified/i);
+  });
+
+  it("keeps a verified trip with only a Finance receipt in Verified, ready for the advance, even with the POD received", () => {
+    const s = summary({
+      verifiedAt: "2026-10-02T00:00:00Z",
+      tagged: false,
+      amountPaid: 114500,
+      podReceivedAt: "2026-10-03T00:00:00Z",
+    });
+    expect(s.stage).toBe("compliance_verified");
+    expect(s.advance).toBeNull();
+    expect(deriveComplianceQueueReadiness(s).readyCategory).toBe("compliance_advance");
+  });
+
+  it("counts an advance posted after verification (exception approval sets the same column)", () => {
+    const s = summary({ verifiedAt: "2026-10-02T00:00:00Z", postedAt: "2026-10-02T09:00:00Z" });
+    // In-transit exclusive stage stays Verified; the advance is still counted.
+    expect(s.stage).toBe("compliance_verified");
+    expect(s.advance?.amount).toBe(114500);
+    expect(s.advanceBeforeVerification).toBeNull();
+    expect(shouldShowPaymentStatusPill(s)).toBe(true);
   });
 });
 
