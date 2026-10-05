@@ -1,33 +1,55 @@
 /**
- * Phase A5 — relationship-aware summary, additive to DriverHomeScreen.
- * Not a rewrite of the execution screen below it: Employment, Fleet and
- * Market are relationships/capabilities of one identity, shown together,
- * never a mode switch. Each row reuses an already-existing hook — no new
- * employer query, no new Fleet Owner capability check, no new Market query
- * beyond the one small trip-count read this file itself needs (see
- * usePilotWorkSummaryQuery's own comment for why that one is unavoidable).
+ * Relationship summary above DriverHomeScreen, keyed on the server-resolved
+ * operating mode (get_my_driver_operating_mode):
+ *   Driver — "Working with <business>", jobs assigned by that business.
+ *            No Marketplace row.
+ *   DCO    — own vehicle + Marketplace (opportunities, bids, awards).
+ *            Previous fleets are shown as history only.
+ * Reuses existing hooks; the only new read is the operating mode itself.
  */
 import Theme from '@/constants/Theme';
 import { useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { splitEmployerRelationships } from '@/features/drivers/domain/driverOperatingMode';
 import { useDriverHomeDriversQuery } from '@/lib/queries/useDriverHomeDriversQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useFleetOwnerOpenLoadsQuery } from '@/lib/queries/useFleetOwnerOpenLoadsQuery';
+import { useMyMarketAwardsQuery } from '@/lib/queries/useMyMarketAwardsQuery';
 import { useMyMarketBidsQuery } from '@/lib/queries/useMyMarketBidsQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { usePilotWorkSummaryQuery } from '@/lib/queries/usePilotWorkSummaryQuery';
+import { ownerVehicleTitle } from '@/features/driver/services/ownerVehicles.service';
 import { ROUTES } from '@/lib/routes';
 import { useRouter, type Href } from 'expo-router';
-import { Briefcase, ChevronRight, ShoppingBag, Truck } from 'lucide-react-native';
+import { Briefcase, ChevronRight, History, ShoppingBag, Truck } from 'lucide-react-native';
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type React from 'react';
+
+const TERMINAL_TRIP_STATUSES = new Set(['completed', 'cancelled']);
+
+function orgNames(rows: { organizations?: { name?: string | null } | null }[]): string[] {
+  const names = new Set<string>();
+  for (const r of rows) {
+    const n = r.organizations?.name?.trim();
+    if (n) names.add(n);
+  }
+  return [...names];
+}
 
 export function PilotRelationshipSummary({ uid }: { uid: string | null }) {
   const router = useRouter();
   const colors = useDriverThemeColors();
   const cardBorder = colors.border;
 
+  const { operatingMode, isDco, marketplaceAllowed } = useDriverOperatingModeQuery(uid);
+
   const linkedDriversQuery = useDriverHomeDriversQuery(uid);
-  const employers = linkedDriversQuery.employerLinkedDrivers;
+  const { current, previous } = useMemo(
+    () => splitEmployerRelationships(linkedDriversQuery.drivers),
+    [linkedDriversQuery.drivers],
+  );
+  const currentNames = useMemo(() => orgNames(current), [current]);
+  const previousNames = useMemo(() => orgNames(previous), [previous]);
   const activeDriverIds = useMemo(
     () => linkedDriversQuery.activeLinkedDrivers.map((d) => d.id),
     [linkedDriversQuery.activeLinkedDrivers],
@@ -35,61 +57,87 @@ export function PilotRelationshipSummary({ uid }: { uid: string | null }) {
   const { activeCount, upcomingCount } = usePilotWorkSummaryQuery(activeDriverIds);
 
   const { vehicles } = useOwnerVehiclesQuery(uid);
-  const { isFleetOwner } = useDriverFleetOwnerQuery(uid);
+  const activeVehicles = useMemo(() => vehicles.filter((v) => v.status === 'active'), [vehicles]);
   const { loads } = useFleetOwnerOpenLoadsQuery(uid);
   const { bids } = useMyMarketBidsQuery(uid);
+  const { awards } = useMyMarketAwardsQuery(uid);
   const pendingBids = useMemo(() => bids.filter((b) => b.status === 'pending').length, [bids]);
+  const activeAwards = useMemo(
+    () => awards.filter((t) => !TERMINAL_TRIP_STATUSES.has(String(t.status ?? ''))).length,
+    [awards],
+  );
 
-  // Nothing to show for a brand-new profile with no employer, no vehicle, and
-  // no Fleet Owner capability yet — avoid an empty shell above the real screen.
-  const hasAnything = employers.length > 0 || vehicles.length > 0 || isFleetOwner;
-  if (!hasAnything) return null;
+  if (isDco) {
+    const vehicleLine =
+      activeVehicles.length > 0
+        ? activeVehicles.length === 1
+          ? ownerVehicleTitle(activeVehicles[0])
+          : `${ownerVehicleTitle(activeVehicles[0])} +${activeVehicles.length - 1}`
+        : 'No active vehicle';
+    const dcoSecondary = {
+      DCO: 'Independent operator',
+      DCO_VEHICLE_REQUIRED: 'Add an active vehicle to operate as DCO',
+      DCO_SUSPENDED: 'DCO suspended by Pulse admin',
+      DCO_EMPLOYMENT_CONFLICT: 'Still linked as an employee driver — leave that fleet',
+      DRIVER: '',
+    }[operatingMode.mode];
+    const dcoNeedsStatus =
+      operatingMode.mode === 'DCO_SUSPENDED' || operatingMode.mode === 'DCO_EMPLOYMENT_CONFLICT';
+
+    return (
+      <View style={styles.stack}>
+        <Row
+          icon={<Truck size={16} color={colors.emerald} />}
+          colors={colors}
+          cardBorder={cardBorder}
+          title="DCO · Vehicle"
+          primary={vehicleLine}
+          secondary={dcoSecondary}
+          onPress={() =>
+            router.push(
+              (dcoNeedsStatus ? ROUTES.driverDcoStatus() : ROUTES.driverMyFleet()) as Href,
+            )
+          }
+        />
+
+        {marketplaceAllowed ? (
+          <Row
+            icon={<ShoppingBag size={16} color={colors.emerald} />}
+            colors={colors}
+            cardBorder={cardBorder}
+            title="Marketplace"
+            primary={`${loads.length} opportunit${loads.length === 1 ? 'y' : 'ies'} available`}
+            secondary={`${pendingBids} pending bid${pendingBids === 1 ? '' : 's'} · ${awards.length} awarded · ${activeAwards} active`}
+            onPress={() => router.push(ROUTES.driverAvailableLoads() as Href)}
+          />
+        ) : null}
+
+        {previousNames.length > 0 ? (
+          <Row
+            icon={<History size={16} color={colors.textMuted} />}
+            colors={colors}
+            cardBorder={cardBorder}
+            title="Previous fleets"
+            primary={previousNames.join(', ')}
+            secondary="History only — not current employment"
+          />
+        ) : null}
+      </View>
+    );
+  }
+
+  if (currentNames.length === 0) return null;
 
   return (
     <View style={styles.stack}>
-      {employers.length > 0 ? (
-        <Row
-          icon={<Briefcase size={16} color={colors.emerald} />}
-          colors={colors}
-          cardBorder={cardBorder}
-          title="Your Work"
-          primary={
-            employers.length === 1
-              ? employers[0].organizations?.name?.trim() || 'Your employer'
-              : `${employers.length} employers`
-          }
-          secondary={`${activeCount} active · ${upcomingCount} upcoming`}
-          onPress={undefined}
-        />
-      ) : null}
-
       <Row
-        icon={<Truck size={16} color={colors.emerald} />}
+        icon={<Briefcase size={16} color={colors.emerald} />}
         colors={colors}
         cardBorder={cardBorder}
-        title="Your Fleet"
-        primary={vehicles.length > 0 ? `${vehicles.length} vehicle${vehicles.length === 1 ? '' : 's'}` : 'No vehicle yet'}
-        secondary={vehicles.length > 0 ? 'Tap to manage' : 'Add your vehicle to unlock Market'}
-        onPress={() =>
-          router.push(
-            (vehicles.length > 0
-              ? ROUTES.driverMyFleet()
-              : ROUTES.driverBecomeFleetOwner()) as Href,
-          )
-        }
+        title="Driver · Working with"
+        primary={currentNames.length === 1 ? currentNames[0] : `${currentNames.length} businesses`}
+        secondary={`Jobs assigned by your business · ${activeCount} active · ${upcomingCount} upcoming`}
       />
-
-      {isFleetOwner ? (
-        <Row
-          icon={<ShoppingBag size={16} color={colors.emerald} />}
-          colors={colors}
-          cardBorder={cardBorder}
-          title="Market"
-          primary={`${loads.length} load${loads.length === 1 ? '' : 's'} available`}
-          secondary={`${pendingBids} pending bid${pendingBids === 1 ? '' : 's'}`}
-          onPress={() => router.push(ROUTES.driverAvailableLoads() as Href)}
-        />
-      ) : null}
     </View>
   );
 }

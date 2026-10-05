@@ -1,6 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { listOpenMarketplaceLoadsForFleetOwner } from '@/features/driver/services/fleetOwnerLoads.service';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   infrastructureRetryDelay,
@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 export function useFleetOwnerOpenLoadsQuery(userId?: string | null) {
   const { status, profile } = useAuth();
   const uid = userId ?? profile?.uid ?? '';
-  const { isFleetOwner } = useDriverFleetOwnerQuery(uid);
+  const { marketplaceAllowed } = useDriverOperatingModeQuery(uid);
 
   const query = useQuery({
     queryKey: queryKeys.driverApp.fleetOwnerOpenLoads(uid),
@@ -20,7 +20,7 @@ export function useFleetOwnerOpenLoadsQuery(userId?: string | null) {
       if (error) throw error;
       return loads;
     },
-    enabled: !!uid && isFleetOwner && status !== 'restoring',
+    enabled: !!uid && marketplaceAllowed && status !== 'restoring',
     staleTime: 30_000,
     gcTime: 10 * 60_000,
     retry: infrastructureShouldRetry,
@@ -30,6 +30,6 @@ export function useFleetOwnerOpenLoadsQuery(userId?: string | null) {
 
   return {
     ...query,
-    loads: query.data ?? [],
+    loads: marketplaceAllowed ? (query.data ?? []) : [],
   };
 }

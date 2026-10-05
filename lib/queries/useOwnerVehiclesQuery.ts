@@ -1,5 +1,5 @@
 /**
- * Fleet Owner personal vehicle list / detail queries.
+ * DCO (owner-operator) personal vehicle list / detail queries.
  */
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -12,17 +12,14 @@ import {
   infrastructureRetryDelay,
   infrastructureShouldRetry,
 } from '@/lib/queryRetry';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
-import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 export function useOwnerVehiclesQuery(userId?: string | null) {
   const { status, profile } = useAuth();
   const uid = userId ?? profile?.uid ?? '';
-  const { isFleetOwner } = useDriverFleetOwnerQuery(uid);
-  const { isDcoApproved } = useDcoStatusQuery(uid);
-  const canOwnVehicles = isFleetOwner || isDcoApproved;
+  const { canManageOwnerVehicles: canOwnVehicles } = useDriverOperatingModeQuery(uid);
 
   const query = useQuery({
     queryKey: queryKeys.driverApp.ownerVehicles(uid),
@@ -45,6 +42,9 @@ export function useOwnerVehiclesQuery(userId?: string | null) {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.driverApp.ownerVehicles(uid),
     });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.driverApp.driverOperatingMode(uid),
+    });
   }, [queryClient, uid]);
 
   return { ...query, vehicles: query.data ?? [], invalidate };
@@ -56,8 +56,7 @@ export function useOwnerVehicleDetailQuery(
 ) {
   const { status, profile } = useAuth();
   const uid = userId ?? profile?.uid ?? '';
-  const { isFleetOwner } = useDriverFleetOwnerQuery(uid);
-  const { isDcoApproved } = useDcoStatusQuery(uid);
+  const { canManageOwnerVehicles } = useDriverOperatingModeQuery(uid);
   const id = vehicleId?.trim() || '';
 
   return useQuery({
@@ -67,7 +66,7 @@ export function useOwnerVehicleDetailQuery(
       if (error) throw error;
       return vehicle;
     },
-    enabled: !!uid && !!id && (isFleetOwner || isDcoApproved) && status !== 'restoring',
+    enabled: !!uid && !!id && canManageOwnerVehicles && status !== 'restoring',
     staleTime: 30_000,
     retry: infrastructureShouldRetry,
     retryDelay: infrastructureRetryDelay,

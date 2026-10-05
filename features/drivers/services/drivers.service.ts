@@ -2050,7 +2050,9 @@ export async function acceptDriverInvite(inviteId: string): Promise<{
     const message =
       code === "23505"
         ? "You're already registered with this organization."
-        : error.message;
+        : error.message?.includes("dco_not_employee_driver")
+          ? "DCOs cannot join a business as employee drivers. You can operate independently as a DCO."
+          : error.message;
     return {
       error: new Error(message),
       driver_id: null,

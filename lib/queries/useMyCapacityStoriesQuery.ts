@@ -1,6 +1,6 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { listMyFleetOwnerCapacityStories } from '@/features/driver/services/fleetOwnerCapacityStory.service';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   infrastructureRetryDelay,
@@ -12,7 +12,7 @@ import { useCallback } from 'react';
 export function useMyCapacityStoriesQuery(userId?: string | null) {
   const { status, profile } = useAuth();
   const uid = userId ?? profile?.uid ?? '';
-  const { isFleetOwner } = useDriverFleetOwnerQuery(uid);
+  const { isDco } = useDriverOperatingModeQuery(uid);
 
   const query = useQuery({
     queryKey: queryKeys.driverApp.capacityStories(uid),
@@ -21,7 +21,7 @@ export function useMyCapacityStoriesQuery(userId?: string | null) {
       if (error) throw error;
       return stories;
     },
-    enabled: !!uid && isFleetOwner && status !== 'restoring',
+    enabled: !!uid && isDco && status !== 'restoring',
     staleTime: 20_000,
     retry: infrastructureShouldRetry,
     retryDelay: infrastructureRetryDelay,

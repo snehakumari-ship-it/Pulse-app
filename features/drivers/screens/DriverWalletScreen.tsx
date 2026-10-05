@@ -19,7 +19,7 @@ import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import {
     buildBulkTripClaimWhatsappMessage,
     buildSettlementShareMessage,
@@ -174,7 +174,7 @@ export default function DriverWalletScreen() {
     useOptionalDriverInviteModal()?.fleetConnectionRevision ?? 0;
   useDriverAvatar();
   const { avatarUri } = useDriverAvatarUri();
-  const { isFleetOwner } = useDriverFleetOwnerQuery(profile?.uid ?? null);
+  const { isDco } = useDriverOperatingModeQuery(profile?.uid ?? null);
   const [_driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [linkedDrivers, setLinkedDrivers] = useState<driversService.DriverRow[]>([]);
   const [invites, setInvites] = useState<driversService.DriverInviteRow[]>([]);
@@ -2531,9 +2531,9 @@ export default function DriverWalletScreen() {
           onPress={() => setMainTab('fleet')}
           activeOpacity={0.92}
         >
-          <FontAwesome name={isFleetOwner ? 'user' : 'users'} size={12} color={mainTab === 'fleet' ? colors.emerald : colors.textMuted} />
+          <FontAwesome name={isDco ? 'user' : 'users'} size={12} color={mainTab === 'fleet' ? colors.emerald : colors.textMuted} />
           <Text style={[styles.mainTabText, mainTab === 'fleet' ? { color: colors.emerald } : { color: colors.textMuted }]}>
-            {isFleetOwner ? 'Self' : 'Fleet'}
+            {isDco ? 'Self' : 'Fleet'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -2580,7 +2580,7 @@ export default function DriverWalletScreen() {
       )}
 
       {mainTab === 'fleet' ? (
-        isFleetOwner ? (
+        isDco ? (
           <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
             <DriverSelfLedgerPanel
               entries={ledgerEntries}

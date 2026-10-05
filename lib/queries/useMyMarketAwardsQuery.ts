@@ -1,6 +1,7 @@
 import { useDriverHomeDriversQuery } from '@/lib/queries/useDriverHomeDriversQuery';
 import { getTripsByDriverIds } from '@/features/trips/services/trips.service';
 import type { DriverTripRow } from '@/types/trip-views';
+import { driverJobSource } from '@/features/drivers/domain/driverOperatingMode';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   infrastructureRetryDelay,
@@ -31,7 +32,7 @@ export function useMyMarketAwardsQuery(userId: string | null) {
         offset: 0,
       });
       if (error) throw error;
-      return (trips ?? []).filter((t) => t.source === 'market_bid');
+      return (trips ?? []).filter((t) => driverJobSource(t) === 'marketplace_award');
     },
     enabled: !linkedDriversQuery.isLoading,
     staleTime: 30_000,

@@ -1,6 +1,5 @@
 /**
- * Fleet Owner personal vehicles — owner_user_id ownership (not org).
- * @see docs/DRIVER_FLEET_OWNER_PHASE1.md
+ * DCO (owner-operator) personal vehicles — owner_user_id ownership (not org).
  */
 import { supabase } from '@/lib/supabase';
 

@@ -33,7 +33,7 @@ const RING_FLEET = [Theme.darkGreen, Theme.accentGold] as const;
 const RING_SPONSORED = [Theme.accentBrown, Theme.accentBrownDeep] as const;
 
 type Props = {
-  isFleetOwner: boolean;
+  isDco: boolean;
   avatarUri?: string | null;
   displayName?: string | null;
   capacityStories: FleetOwnerCapacityStory[];
@@ -166,7 +166,7 @@ function StoryBubble({
 }
 
 export function DriverPulseStoryReel({
-  isFleetOwner,
+  isDco,
   avatarUri,
   displayName,
   capacityStories,
@@ -185,7 +185,7 @@ export function DriverPulseStoryReel({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        {isFleetOwner ? (
+        {isDco ? (
           <StoryBubble
             label="Mine"
             ringColors={hasCapacity ? RING_MINE_ACTIVE : RING_MINE_IDLE}

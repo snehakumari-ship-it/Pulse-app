@@ -13,8 +13,7 @@ import {
   ownerVehicleSubtitle,
   ownerVehicleTitle,
 } from '@/features/driver/services/ownerVehicles.service';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
-import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
 import { useRouter } from 'expo-router';
@@ -38,12 +37,8 @@ export default function MyFleetScreen() {
   const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
-  const { isFleetOwner, isLoading: fleetOwnerLoading } = useDriverFleetOwnerQuery(
-    profile?.uid,
-  );
-  const { isDcoApproved, isLoading: dcoLoading } = useDcoStatusQuery(profile?.uid);
-  const ownerLoading = fleetOwnerLoading || dcoLoading;
-  const canOwnVehicles = isFleetOwner || isDcoApproved;
+  const { canManageOwnerVehicles: canOwnVehicles, isLoading: ownerLoading } =
+    useDriverOperatingModeQuery(profile?.uid);
   const { vehicles, isLoading, isRefetching, refetch, error } =
     useOwnerVehiclesQuery(profile?.uid);
 
@@ -59,39 +54,27 @@ export default function MyFleetScreen() {
       <View style={[styles.root, { backgroundColor: pageBg }]}>
         <DriverSubScreenHeader
           title="My Fleet"
-          subtitle="Fleet Owner or DCO required"
+          subtitle="DCO required"
           onBack={handleBack}
         />
         <View style={styles.gatePad}>
           <Text style={[styles.gateTitle, { color: colors.text }]}>
-            Become a Fleet Owner or DCO first
+            Become a DCO first
           </Text>
           <Text style={[styles.gateBody, { color: colors.textMuted }]}>
-            Personal vehicles belong to your Fleet Owner or DCO profile — not a Business
+            Personal vehicles belong to your DCO (owner-operator) profile — not a Business
             organization.
           </Text>
           <Pressable
             onPress={() =>
-              router.push(
-                ROUTES.driverBecomeFleetOwner() as Parameters<typeof router.push>[0],
-              )
+              router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
             }
             style={({ pressed }) => [
               styles.cta,
               { backgroundColor: colors.emerald, opacity: pressed ? 0.88 : 1 },
             ]}
           >
-            <Text style={styles.ctaText}>Become a Fleet Owner</Text>
-          </Pressable>
-          <Pressable
-            onPress={() =>
-              router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
-            }
-            hitSlop={6}
-          >
-            <Text style={[styles.dcoLink, { color: colors.emerald }]}>
-              Or request DCO status
-            </Text>
+            <Text style={styles.ctaText}>Become a DCO</Text>
           </Pressable>
         </View>
       </View>

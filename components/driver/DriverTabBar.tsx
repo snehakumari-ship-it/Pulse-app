@@ -4,6 +4,7 @@ import Theme from '@/constants/Theme';
 import Typography from '@/constants/Typography';
 import { driverTabMicroLabel } from '@/constants/DriverTypography';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import * as Haptics from 'expo-haptics';
@@ -55,6 +56,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const insets = useSafeAreaInsets();
   const colors = useDriverThemeColors();
   const { isDark } = useDriverTheme();
+  const { isDco } = useDriverOperatingModeQuery();
   const focusedRoute = state.routes[state.index];
   const current = focusedRoute?.name;
 
@@ -103,6 +105,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
   const renderTab = (tab: (typeof TAB_CONFIG)[number]) => {
     const isActive = current === tab.name;
+    const label = tab.name === 'available-loads' && !isDco ? 'Loads' : tab.label;
     return (
       <View key={tab.name} style={styles.dockColumn}>
         <View
@@ -123,7 +126,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
           style={styles.dockButton}
           activeOpacity={0.9}
           accessibilityRole="button"
-          accessibilityLabel={tab.label}
+          accessibilityLabel={label}
           accessibilityState={{ selected: isActive }}
           hitSlop={{
             top: Layout.touchTargetHitSlop,
@@ -147,7 +150,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
               ]}
               numberOfLines={1}
             >
-              {tab.label.toUpperCase()}
+              {label.toUpperCase()}
             </Text>
           </AnimatedTabIcon>
         </TouchableOpacity>

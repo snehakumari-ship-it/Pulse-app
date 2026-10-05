@@ -63,7 +63,7 @@ import * as tripDocumentsService from '@/features/trips/services/tripDocuments.s
 import { findOrgDuplicateLrNumberForTrip } from '@/features/trips/services/orgLrDuplicate.service';
 import { ORG_LR_DUPLICATE_MESSAGE } from '@/features/trips/services/orgLrNumber.util';
 import * as tripsService from '@/features/trips/services/trips.service';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import {
   ownerVehicleSubtitle,
@@ -414,10 +414,9 @@ export function DriverTripFlowCard({
   const [stepLoading, setStepLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
 
-  // Owner Vehicle Link (3B.4/3C follow-up) — Fleet Owner explicit vehicle
-  // selection for this trip. Never auto-selected, including when the FO has
-  // exactly one vehicle. See docs/DRIVER_FLEET_OWNER_PHASE1.md.
-  const { isFleetOwner } = useDriverFleetOwnerQuery(profile?.uid);
+  // Owner Vehicle Link — DCO explicit vehicle selection for this trip.
+  // Never auto-selected, including when the DCO has exactly one vehicle.
+  const { canManageOwnerVehicles } = useDriverOperatingModeQuery(profile?.uid);
   const { vehicles: ownerVehicles, isLoading: ownerVehiclesLoading } =
     useOwnerVehiclesQuery(profile?.uid);
   const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
@@ -1598,7 +1597,7 @@ export function DriverTripFlowCard({
         />
       ) : null}
 
-      {isFleetOwner && step !== 'completed' ? (
+      {canManageOwnerVehicles && step !== 'completed' ? (
         <Pressable
           onPress={openVehiclePicker}
           style={({ pressed }) => [

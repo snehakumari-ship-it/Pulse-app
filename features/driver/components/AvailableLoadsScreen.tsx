@@ -1,5 +1,6 @@
 /**
- * Phase 3A — Available Loads (read-only marketplace discovery for Fleet Owners).
+ * Market tab: Reach opportunities for every driver, plus the Marketplace
+ * (market_bids) layer, which is DCO-only — see get_my_driver_operating_mode.
  */
 import {
   DRIVER_DETAIL_HORIZONTAL_PAD,
@@ -18,7 +19,8 @@ import { marketBidStatusLabel, type MarketBidStatus } from '@/features/driver/se
 import { DriverWorkOpportunityCard } from '@/features/driver/components/DriverWorkOpportunityCard';
 import { MyBidsContent } from '@/features/driver/components/MyBidsScreen';
 import { cityOf, StoriesContent, type SharedFeedFilters } from '@/features/reach/screens/DriverStoriesScreen';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
+import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOperatingMode';
 import { useFleetOwnerOpenLoadsQuery } from '@/lib/queries/useFleetOwnerOpenLoadsQuery';
 import { useMyMarketBidsQuery } from '@/lib/queries/useMyMarketBidsQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
@@ -39,9 +41,11 @@ export default function AvailableLoadsScreen() {
   // A7.3: the DCO Available surface's "My Bids" entry deep-links here with
   // ?segment=mybids so it lands directly on this segment instead of Find Work.
   const { segment: initialSegment } = useLocalSearchParams<{ segment?: string }>();
-  const [segment, setSegment] = useState<'find' | 'mybids'>(
+  const [selectedSegment, setSegment] = useState<'find' | 'mybids'>(
     initialSegment === 'mybids' ? 'mybids' : 'find',
   );
+  const { isDco } = useDriverOperatingModeQuery(uid);
+  const segment = isDco ? selectedSegment : 'find';
   const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';
 
   // Earnings-page pattern: Market chrome scrolls with the feed (not pinned).
@@ -165,7 +169,11 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
   const router = useRouter();
   const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
-  const { isFleetOwner, isLoading: ownerLoading } = useDriverFleetOwnerQuery(uid);
+  const {
+    operatingMode,
+    marketplaceAllowed,
+    isLoading: modeLoading,
+  } = useDriverOperatingModeQuery(uid);
   const { loads, isLoading, error, refetch: refetchLoads } = useFleetOwnerOpenLoadsQuery(uid);
   const { vehicles } = useOwnerVehiclesQuery(uid);
   const { bids } = useMyMarketBidsQuery(uid);
@@ -210,18 +218,18 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
     });
   }, [loads, filters, fleetTypes]);
 
-  if (!ownerLoading && !isFleetOwner) {
+  if (!modeLoading && !marketplaceAllowed) {
+    const gate = marketplaceGate(operatingMode.mode);
     return (
       <View style={styles.marketGate}>
         <Text style={[styles.marketplaceLabel, { color: colors.textMuted }]}>MARKETPLACE</Text>
-        <Text style={[styles.gateBody, { color: colors.textMuted }]}>
-          Open marketplace demand comes from businesses. Become a Fleet Owner
-          to also bid in the Marketplace here.
-        </Text>
+        <Text style={[styles.gateBody, { color: colors.textMuted }]}>{gate.body}</Text>
         <Pressable
           onPress={() =>
             router.push(
-              ROUTES.driverBecomeFleetOwner() as Parameters<typeof router.push>[0],
+              (gate.target === 'my-fleet'
+                ? ROUTES.driverMyFleet()
+                : ROUTES.driverDcoStatus()) as Parameters<typeof router.push>[0],
             )
           }
           style={({ pressed }) => [
@@ -229,7 +237,7 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
             { backgroundColor: colors.emerald, opacity: pressed ? 0.88 : 1 },
           ]}
         >
-          <Text style={styles.ctaText}>Become a Fleet Owner</Text>
+          <Text style={styles.ctaText}>{gate.cta}</Text>
         </Pressable>
       </View>
     );
@@ -290,6 +298,39 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
       </View>
     </View>
   );
+}
+
+function marketplaceGate(mode: DriverOperatingModeKind): {
+  body: string;
+  cta: string;
+  target: 'dco-status' | 'my-fleet';
+} {
+  switch (mode) {
+    case 'DCO_VEHICLE_REQUIRED':
+      return {
+        body: 'Add an active vehicle to your fleet to see and bid on Marketplace loads as a DCO.',
+        cta: 'Manage my vehicle',
+        target: 'my-fleet',
+      };
+    case 'DCO_SUSPENDED':
+      return {
+        body: 'Your DCO status is suspended, so Marketplace is unavailable.',
+        cta: 'View DCO status',
+        target: 'dco-status',
+      };
+    case 'DCO_EMPLOYMENT_CONFLICT':
+      return {
+        body: 'You are still linked to a business as an employee driver. Leave that fleet to operate independently as a DCO.',
+        cta: 'View DCO status',
+        target: 'dco-status',
+      };
+    default:
+      return {
+        body: 'Marketplace bidding is for DCOs (driver-cum-owners) with their own vehicle. As a driver, your jobs are assigned by your business.',
+        cta: 'About DCO',
+        target: 'dco-status',
+      };
+  }
 }
 
 function LoadCard({

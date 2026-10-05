@@ -45,10 +45,15 @@ jest.mock('@/features/experience/components/MilestoneHowToModal', () => ({
   MilestoneHowToModal: () => null,
 }));
 jest.mock('@/lib/queries/useDcoStatusQuery', () => ({
-  useDcoStatusQuery: () => ({ data: null, isLoading: false }),
+  useDcoStatusQuery: () => ({ data: null, status: 'NONE', isLoading: false }),
 }));
-jest.mock('@/lib/queries/useDriverFleetOwnerQuery', () => ({
-  useDriverFleetOwnerQuery: () => ({ isFleetOwner: false }),
+jest.mock('@/lib/queries/useDriverOperatingModeQuery', () => ({
+  useDriverOperatingModeQuery: () => ({
+    isDco: false,
+    canManageOwnerVehicles: false,
+    marketplaceAllowed: false,
+    operatingMode: { mode: 'DRIVER', marketplaceAllowed: false },
+  }),
 }));
 jest.mock('@/features/vehicles/services/vehicles.service', () => ({
   getVehicleById: jest.fn(() => Promise.resolve({ error: null, vehicle: null })),

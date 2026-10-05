@@ -1,5 +1,7 @@
 /**
- * Phase 3A — sanitized open marketplace loads for Fleet Owners (read-only).
+ * Sanitized open marketplace loads for a DCO (owner-operator). The RPC name is
+ * historical; eligibility is the server-resolved DCO operating mode, not a
+ * separate Fleet Owner identity.
  */
 import { supabase } from '@/lib/supabase';
 import { isVehicleTypeCompatibleWithFleet } from '@/features/marketplace/utils/fleetFit.util';

@@ -57,7 +57,7 @@ import {
   useRecommendReachCampaignMutation,
   useSubmitDriverDirectBidMutation,
 } from '@/lib/queries/useReachCampaignsQuery';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useMyCapacityStoriesQuery } from '@/lib/queries/useMyCapacityStoriesQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
@@ -305,7 +305,7 @@ export function StoriesContent({
   const { user } = useAuth();
   const userId = user?.uid ?? null;
   const { avatarUri } = useDriverAvatarUri();
-  const { isFleetOwner } = useDriverFleetOwnerQuery(userId);
+  const { isDco } = useDriverOperatingModeQuery(userId);
   const capacityQ = useMyCapacityStoriesQuery(userId);
   const vehiclesQ = useOwnerVehiclesQuery(userId);
 
@@ -374,11 +374,11 @@ export function StoriesContent({
   );
 
   const fleetVehicleTypes = useMemo(() => {
-    if (!isFleetOwner) return [] as string[];
+    if (!isDco) return [] as string[];
     return vehiclesQ.vehicles
       .map((v) => v.vehicle_type)
       .filter((t): t is string => !!t && t.trim().length > 0);
-  }, [isFleetOwner, vehiclesQ.vehicles]);
+  }, [isDco, vehiclesQ.vehicles]);
 
   const pickupOptions = useMemo(() => {
     const set = new Set<string>();
@@ -889,7 +889,7 @@ export function StoriesContent({
         </View>
 
             <DriverPulseStoryReel
-              isFleetOwner={isFleetOwner}
+              isDco={isDco}
               avatarUri={avatarUri}
               displayName={user?.displayName}
               capacityStories={filteredCapacityStories}

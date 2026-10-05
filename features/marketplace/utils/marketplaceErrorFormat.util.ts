@@ -39,6 +39,12 @@ export function formatMarketplaceTransactionError(message: string | null | undef
   if (m.includes('invalid_state')) {
     return 'This bid has already been decided.';
   }
+  if (m.includes('marketplace_access_denied') || m.includes('dco_required')) {
+    return 'Marketplace bidding is for DCOs with an active vehicle. You can operate independently as a DCO.';
+  }
+  if (m.includes('dco_not_employee_driver')) {
+    return 'DCOs cannot join a business as employee drivers. You can operate independently as a DCO.';
+  }
   if (m.includes('unauthorized')) {
     return "You don't have permission to do this.";
   }

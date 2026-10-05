@@ -11,8 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { createOwnerVehicle } from '@/features/driver/services/ownerVehicles.service';
 import { applyIndianVehicleKeystroke } from '@/lib/indianVehicleInput.util';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
-import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
 import { validateIndianVehicleNumber } from '@/lib/validation';
@@ -42,9 +41,7 @@ export default function AddOwnerVehicleScreen() {
   const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
-  const { isFleetOwner } = useDriverFleetOwnerQuery(uid);
-  const { isDcoApproved } = useDcoStatusQuery(uid);
-  const canOwnVehicles = isFleetOwner || isDcoApproved;
+  const { canManageOwnerVehicles: canOwnVehicles } = useDriverOperatingModeQuery(uid);
   const { invalidate } = useOwnerVehiclesQuery(uid);
 
   const [vehicleNumber, setVehicleNumber] = useState('');
@@ -68,7 +65,7 @@ export default function AddOwnerVehicleScreen() {
 
   const handleSave = useCallback(async () => {
     if (!uid || !canOwnVehicles) {
-      setError('Fleet Owner or DCO status required.');
+      setError('Approved DCO status required.');
       return;
     }
     const ve = validateIndianVehicleNumber(vehicleNumber);
@@ -281,8 +278,8 @@ export default function AddOwnerVehicleScreen() {
           </Pressable>
 
           <Text style={[styles.footnote, { color: colors.textMuted }]}>
-            Registers a vehicle on your Fleet Owner profile only. It does not create
-            trips or Business organization assets.
+            Registers a vehicle on your DCO (owner-operator) profile only. It does not
+            create trips or Business organization assets.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>

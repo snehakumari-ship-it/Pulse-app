@@ -1,15 +1,11 @@
-/**
- * DCO (driver-cum-owner / independent owner-operator) admin-approval
- * status for the signed-in driver. Unrelated to the pre-existing "DCO
- * Available" A7.3 surface (queryKeys.driverApp.availability) — same
- * three-letter acronym, different domain; see dcoOwnerOperator's own note.
- */
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getMyDcoProfile,
-  type DcoProfile,
-  type DcoStatus,
-} from '@/features/driver/services/dco.service';
+  DEFAULT_DRIVER_OPERATING_MODE,
+  canManageOwnerVehicles,
+  isDcoOperatingMode,
+  type DriverOperatingMode,
+} from '@/features/drivers/domain/driverOperatingMode';
+import { getMyDriverOperatingMode } from '@/features/driver/services/driverOperatingMode.service';
 import { queryKeys } from '@/lib/queryKeys';
 import {
   infrastructureRetryDelay,
@@ -18,44 +14,42 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
-export function useDcoStatusQuery(userId?: string | null) {
+/** Server-resolved Driver vs DCO mode. Fails closed (plain driver, no Marketplace) until loaded. */
+export function useDriverOperatingModeQuery(userId?: string | null) {
   const { status: authStatus, profile } = useAuth();
   const uid = userId ?? profile?.uid ?? '';
   const isDriver = profile?.role === 'driver';
 
   const query = useQuery({
-    queryKey: queryKeys.driverApp.dcoOwnerOperator(uid),
-    queryFn: async (): Promise<DcoProfile | null> => {
-      const { error, profile: dcoProfile } = await getMyDcoProfile(uid);
+    queryKey: queryKeys.driverApp.driverOperatingMode(uid),
+    queryFn: async (): Promise<DriverOperatingMode> => {
+      const { error, mode } = await getMyDriverOperatingMode();
       if (error) throw error;
-      return dcoProfile;
+      return mode ?? DEFAULT_DRIVER_OPERATING_MODE;
     },
     enabled: !!uid && isDriver && authStatus !== 'restoring',
     staleTime: 30_000,
     gcTime: 10 * 60_000,
     retry: infrastructureShouldRetry,
     retryDelay: infrastructureRetryDelay,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
 
   const queryClient = useQueryClient();
   const invalidate = useCallback(() => {
     if (!uid) return;
     void queryClient.invalidateQueries({
-      queryKey: queryKeys.driverApp.dcoOwnerOperator(uid),
-    });
-    void queryClient.invalidateQueries({
       queryKey: queryKeys.driverApp.driverOperatingMode(uid),
     });
   }, [queryClient, uid]);
 
-  const status: DcoStatus = query.data?.status ?? 'NONE';
-
+  const operatingMode = query.data ?? DEFAULT_DRIVER_OPERATING_MODE;
   return {
     ...query,
-    dcoProfile: query.data ?? null,
-    status,
-    isDcoApproved: status === 'APPROVED',
+    operatingMode,
+    isDco: isDcoOperatingMode(operatingMode),
+    canManageOwnerVehicles: canManageOwnerVehicles(operatingMode),
+    marketplaceAllowed: operatingMode.marketplaceAllowed,
     invalidate,
   };
 }

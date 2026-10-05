@@ -227,20 +227,20 @@ export const queryKeys = {
      * linked-driver set changes. */
     dailySummary: (driverIdsKey: string) =>
       ["q", "driver-app", "daily-summary", driverIdsKey] as const,
-    /** Explicit Fleet Owner capability (not employment). */
-    fleetOwner: (userId: string) =>
-      ["q", "driver-app", userId, "fleet-owner"] as const,
     /** DCO (driver-cum-owner / independent owner-operator) admin-approval
      * status — unrelated to the "DCO Available" A7.3 surface above; named
      * dcoOwnerOperator here specifically to avoid confusion with that. */
     dcoOwnerOperator: (userId: string) =>
       ["q", "driver-app", userId, "dco-owner-operator"] as const,
+    /** Server-resolved Driver vs DCO operating mode (get_my_driver_operating_mode). */
+    driverOperatingMode: (userId: string) =>
+      ["q", "driver-app", userId, "driver-operating-mode"] as const,
     /** Personal owner vehicles (Phase 1b). */
     ownerVehicles: (userId: string) =>
       ["q", "driver-app", userId, "owner-vehicles"] as const,
     ownerVehicle: (userId: string, vehicleId: string) =>
       ["q", "driver-app", userId, "owner-vehicles", vehicleId] as const,
-    /** Phase 3A: open marketplace loads for Fleet Owner (read-only). */
+    /** Open marketplace loads for a DCO (owner-operator). */
     fleetOwnerOpenLoads: (userId: string) =>
       ["q", "driver-app", userId, "fleet-owner-open-loads"] as const,
     /** Phase 3B.1: FO capacity Stories authored by this driver. */

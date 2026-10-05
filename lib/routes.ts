@@ -76,16 +76,14 @@ export const ROUTES = {
   driverExpenseCapture: () => '/(driver)/expense-capture' as const,
   /** Device-local general expense (no trip) + WhatsApp share. */
   driverGeneralExpense: () => '/(driver)/general-expense' as const,
-  /** Become Fleet Owner (Phase 1 capability enablement). */
-  driverBecomeFleetOwner: () => '/(driver)/become-fleet-owner' as const,
-  /** DCO (driver-cum-owner) admin-approval status request/view. */
+  /** Become a DCO (driver-come-owner / owner-operator) — the single owner-operator onboarding path. */
   driverDcoStatus: () => '/(driver)/dco-status' as const,
-  /** My Fleet list (personal owner vehicles). */
+  /** My Fleet list (DCO personal owner vehicles). */
   driverMyFleet: () => '/(driver)/my-fleet' as const,
   driverMyFleetAdd: () => '/(driver)/my-fleet/add' as const,
   driverMyFleetVehicle: (vehicleId: string) =>
     `/(driver)/my-fleet/${encodeURIComponent(vehicleId)}` as const,
-  /** Market: open marketplace loads for Fleet Owner / DCO bidding. */
+  /** Market: open marketplace loads for DCO bidding. */
   driverAvailableLoads: () => '/(driver)/available-loads' as const,
   driverAvailableLoad: (indentId: string, opts?: { bid?: boolean }) => {
     const path = `/(driver)/available-loads/${encodeURIComponent(indentId)}`;

@@ -1,7 +1,6 @@
 /**
- * DCO (driver-cum-owner / independent owner-operator) status — request and
- * view approval state. Administrative approval, separate from and not
- * requiring the unrelated Fleet Owner capability (BecomeFleetOwnerScreen).
+ * Become a DCO (driver-come-owner / independent owner-operator) — the single
+ * owner-operator onboarding path: request and view admin approval state.
  * @see supabase/migrations/20270310200000_dco_schema_foundation.sql
  * @see supabase/migrations/20270310210000_dco_eligibility_and_admin_rpcs.sql
  */
@@ -15,6 +14,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { requestDcoStatus } from '@/features/driver/services/dco.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
+import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOperatingMode';
 import { ROUTES } from '@/lib/routes';
 import { useRouter } from 'expo-router';
 import {
@@ -51,6 +52,7 @@ export default function DcoStatusScreen() {
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
   const { status, dcoProfile, isLoading, invalidate } = useDcoStatusQuery(profile?.uid);
+  const { operatingMode } = useDriverOperatingModeQuery(profile?.uid);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -128,6 +130,7 @@ export default function DcoStatusScreen() {
         ) : (
           <StatusBlock
             status={status}
+            operatingMode={operatingMode.mode}
             reason={dcoProfile?.decisionReason ?? null}
             isDark={isDark}
             colors={colors}
@@ -185,12 +188,14 @@ export default function DcoStatusScreen() {
 
 function StatusBlock({
   status,
+  operatingMode,
   reason,
   isDark,
   colors,
   cardBorder,
 }: {
   status: 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+  operatingMode: DriverOperatingModeKind;
   reason: string | null;
   isDark: boolean;
   colors: ReturnType<typeof useDriverThemeColors>;
@@ -211,7 +216,12 @@ function StatusBlock({
       tint: colors.emerald,
       bg: isDark ? colors.emeraldMuted : 'rgba(220,252,231,0.9)',
       title: 'DCO approved',
-      body: 'You can bid in the marketplace as an independent owner-operator.',
+      body:
+        operatingMode === 'DCO'
+          ? 'You can bid in the marketplace as an independent owner-operator.'
+          : operatingMode === 'DCO_EMPLOYMENT_CONFLICT'
+            ? 'You are still linked to a business as an employee driver. Leave that fleet to use Marketplace.'
+            : 'Add an active vehicle to your fleet to use Marketplace.',
     },
     REJECTED: {
       icon: XCircle,

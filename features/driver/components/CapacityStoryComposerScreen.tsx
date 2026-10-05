@@ -17,7 +17,7 @@ import {
   ownerVehicleTitle,
 } from '@/features/driver/services/ownerVehicles.service';
 import { LocationSearchField } from '@/features/trips/components/add-trip/LocationSearchField';
-import { useDriverFleetOwnerQuery } from '@/lib/queries/useDriverFleetOwnerQuery';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useMyCapacityStoriesQuery } from '@/lib/queries/useMyCapacityStoriesQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
@@ -76,7 +76,7 @@ export default function CapacityStoryComposerScreen() {
   const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
-  const { isFleetOwner, isLoading: ownerLoading } = useDriverFleetOwnerQuery(uid);
+  const { marketplaceAllowed, isLoading: ownerLoading } = useDriverOperatingModeQuery(uid);
   const { vehicles, isLoading: vehiclesLoading } = useOwnerVehiclesQuery(uid);
   const { invalidate } = useMyCapacityStoriesQuery(uid);
 
@@ -141,29 +141,27 @@ export default function CapacityStoryComposerScreen() {
     }
   };
 
-  if (!ownerLoading && !isFleetOwner) {
+  if (!ownerLoading && !marketplaceAllowed) {
     return (
       <View style={[styles.root, { backgroundColor: pageBg }]}>
         <DriverSubScreenHeader
           title="Share availability"
-          subtitle="Fleet Owner required"
+          subtitle="DCO required"
           onBack={() =>
             router.canGoBack() ? router.back() : router.replace('/(driver)/stories')
           }
         />
         <View style={{ padding: 20, gap: 10 }}>
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
-            Become a Fleet Owner and add a vehicle first.
+            Become a DCO and add an active vehicle first.
           </Text>
           <Pressable
             onPress={() =>
-              router.push(
-                ROUTES.driverBecomeFleetOwner() as Parameters<typeof router.push>[0],
-              )
+              router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
             }
             style={[styles.cta, { backgroundColor: Theme.buttonPrimary, borderColor: Theme.buttonPrimaryBorder }]}
           >
-            <Text style={styles.ctaText}>Become a Fleet Owner</Text>
+            <Text style={styles.ctaText}>Become a DCO</Text>
           </Pressable>
         </View>
       </View>

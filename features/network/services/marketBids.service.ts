@@ -31,6 +31,7 @@ export type MarketBidForIndentRow = {
   bidder_masked_phone: string | null;
   /** Unmasked — only non-null once accepted AND fee_payment_status is paid/not_required. */
   bidder_phone: string | null;
+  /** Legacy RPC display flag on list_market_bids_for_indent — not a Driver App identity/auth gate. */
   is_fleet_owner: boolean;
   amount: number;
   note: string | null;
