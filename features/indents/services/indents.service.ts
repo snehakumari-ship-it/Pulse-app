@@ -320,6 +320,54 @@ export async function getIndentsByOrganization(
   return { error: null, indents, truncated: indents.length >= FINITE_LIST_CAP };
 }
 
+/**
+ * How many older code matches the Trips toolbar may merge in.
+ * Ordered oldest-first so this fills the tail cut off by FINITE_LIST_CAP,
+ * instead of repeating the newest rows the hub already has.
+ */
+const TRIPS_INDENT_CODE_SEARCH_LIMIT = 25;
+
+/**
+ * PostgREST `.or()` filter for a Trips toolbar code search.
+ * Matches indent_operational_code, indent_code, and indent_number.
+ * Returns null when the query is blank or would break the `.or()` parser.
+ */
+export function tripsIndentCodeSearchOrFilter(query: string): string | null {
+  const needle = query.trim();
+  if (!needle || /[,()]/.test(needle)) return null;
+  const escaped = needle.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+  const pattern = `%${escaped}%`;
+  return [
+    `indent_operational_code.ilike.${pattern}`,
+    `indent_code.ilike.${pattern}`,
+    `indent_number.ilike.${pattern}`,
+  ].join(",");
+}
+
+/**
+ * Trips toolbar only. Looks up this org's indents by code outside the
+ * finite list window. Does not change getIndentsByOrganization.
+ */
+export async function searchIndentsByCodeForTrips(
+  orgId: string,
+  query: string,
+): Promise<{ error: Error | null; indents: IndentRow[] }> {
+  const orFilter = tripsIndentCodeSearchOrFilter(query);
+  const id = orgId.trim();
+  if (!id || !orFilter) return { error: null, indents: [] };
+
+  const { data, error } = await supabase()
+    .from("indents")
+    .select("*")
+    .eq("organization_id", id)
+    .or(orFilter)
+    .order("created_at", { ascending: true })
+    .limit(TRIPS_INDENT_CODE_SEARCH_LIMIT);
+  if (error) return { error: new Error(error.message), indents: [] };
+  const indents = await attachActiveTripRefs((data ?? []) as IndentRow[]);
+  return { error: null, indents };
+}
+
 export async function getIndentsDelta(
   orgId: string,
   since: { updatedAt: string; tieBreakerId?: string | null },

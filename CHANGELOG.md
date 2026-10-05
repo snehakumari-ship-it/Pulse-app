@@ -1,3 +1,11 @@
+## nihas/V1.0.15 — 2026-10-05
+
+- **What:** Trips search finds an indent by its code even when that indent is older than the first 500 loaded rows. A paid test marketplace fee can be refunded and the award revoked together. Razorpay and cash payments stay blocked and the award stays awarded.
+- **Why:** Searching SAT812GOGIND000788 showed no trips because the indent never loaded. Revoke on SAT812GOGIND000870 failed because the ₹3,600 test fee was already paid.
+- **Files/areas:** Trips search, Award revoke, marketplace fee
+- **Migrations:** `20270930235100_refund_test_marketplace_fee_and_revoke_indent.sql` (applied on preprod)
+- **Tested:** Jest on indent-code search, the refund confirmation, the error messages, and the migration SQL. Not clicked through on preprod.
+
 ## nihas/V1.0.14 — 2026-10-05
 
 - **What:** Compliance Pending table drops Payment and adds Invoice, LR, and Truck No. Extra e-way bills and LRs show as +N on the card and in the table, and every number is written in the Excel export. Table export follows the current stage, search, and date sort, and a toast states what is being downloaded.

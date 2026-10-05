@@ -100,8 +100,10 @@ import {
 import {
   indentMatchesHubDateFilter,
   indentMatchesHubSearch,
+  mergeIndentSearchHits,
   tripsHubAllToolbarCountLabel,
 } from "@/features/trips/utils/indentHubToolbarFilter";
+import { useTripsIndentCodeSearch } from "@/features/trips/hooks/useTripsIndentCodeSearch";
 import type { TripHubPartyMeta } from "@/features/trips/utils/tripHubPartyMeta";
 import {
   getTripHubInTransitPing,
@@ -402,18 +404,30 @@ export default function TripsScreen() {
   // owns that have not yet been allocated to a trip. Allocation is read from
   // the trips this screen already fetches (`trips.indent_id`), not a new query.
   const { data: allIndents = [] } = useIndentsQuery(orgId);
+  const indentCodeSearchQuery = searchQuery.trim();
+  const { data: indentCodeSearchHits = [] } = useTripsIndentCodeSearch(
+    orgId,
+    indentCodeSearchQuery,
+  );
+  const hubIndents = useMemo(
+    () =>
+      indentCodeSearchQuery
+        ? mergeIndentSearchHits(allIndents, indentCodeSearchHits)
+        : allIndents,
+    [allIndents, indentCodeSearchHits, indentCodeSearchQuery],
+  );
   const indentIdsWithTrip = useMemo(
     () => new Set(trips.map((t) => t.indent_id).filter((id): id is string => Boolean(id))),
     [trips],
   );
   const unallocatedIndents = useMemo(
     () =>
-      allIndents.filter(
+      hubIndents.filter(
         (i) =>
           (i.organization_id ?? "") === (orgId ?? "") &&
           isIndentUnallocated(i, indentIdsWithTrip),
       ),
-    [allIndents, orgId, indentIdsWithTrip],
+    [hubIndents, orgId, indentIdsWithTrip],
   );
   const dateFilteredUnallocatedIndents = useMemo(
     () =>
@@ -434,13 +448,13 @@ export default function TripsScreen() {
   );
   const cancelledIndents = useMemo(
     () =>
-      allIndents.filter((i) => {
+      hubIndents.filter((i) => {
         if ((i.organization_id ?? "") !== (orgId ?? "")) return false;
         if (i.deleted_at) return false;
         const status = String(i.status ?? "").trim().toLowerCase();
         return status === "cancelled" || status === "expired";
       }),
-    [allIndents, orgId],
+    [hubIndents, orgId],
   );
   const dateFilteredCancelledIndents = useMemo(
     () =>
