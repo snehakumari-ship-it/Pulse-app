@@ -8,6 +8,7 @@ import {
   parseDriverExpenseKindParam,
 } from "@/features/trips/operations/shared/driverExpenseCategoryNav.util";
 import { useLeaveTripExpenseEntry } from "@/features/trips/operations/shared/useLeaveTripExpenseEntry";
+import { getDriverOwnedTrip } from "@/features/driver/services/driverOwnedTrip.service";
 import { getAccessibleTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { ROUTES } from "@/lib/routes";
 import { type Href, Redirect, useLocalSearchParams } from "expo-router";
@@ -139,7 +140,9 @@ export default function TripOtherExpenseEntryRoute() {
     }
     setLoading(true);
     setError(null);
-    void getAccessibleTripById(tripId).then((res) => {
+    const load =
+      profile?.role === "driver" ? getDriverOwnedTrip(tripId) : getAccessibleTripById(tripId);
+    void load.then((res) => {
       if (!mounted) return;
       setTrip(res.trip ?? null);
       setError(res.error ? res.error.message : res.trip ? null : "Trip not found.");
@@ -148,7 +151,7 @@ export default function TripOtherExpenseEntryRoute() {
     return () => {
       mounted = false;
     };
-  }, [tripId]);
+  }, [profile?.role, tripId]);
 
   useEffect(() => {
     return loadTrip();
