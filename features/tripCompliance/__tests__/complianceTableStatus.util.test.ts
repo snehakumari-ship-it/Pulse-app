@@ -6,6 +6,8 @@ import type { ComplianceDocumentRow, ComplianceTripSummary } from "@/features/tr
 import type { ComplianceDocRow } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import {
   canVerifyTrip,
+  complianceVaultDocNumber,
+  complianceVaultDocNumbers,
   deriveComplianceEwayBill,
   deriveComplianceGroupStatus,
   isComplianceDeclineActive,
@@ -119,6 +121,7 @@ describe("deriveComplianceEwayBill — pick (AC-2, AC-5)", () => {
     expect(r.number).toBe("E1");
     expect(r.validTillLabel).toBe("10-Sep-26");
     expect(r.extraCount).toBe(2);
+    expect(r.numbers).toEqual(["E1", "E2", "E3"]);
   });
 });
 
@@ -192,6 +195,7 @@ describe("deriveComplianceEwayBill — empty (AC-4)", () => {
       validTillLabel: null,
       expired: false,
       extraCount: 0,
+      numbers: [],
     });
   });
 });
@@ -323,5 +327,52 @@ describe("isFinanceDeclinedTrip", () => {
         summary({ complianceDeclinedAt: "2026-10-01T10:07:50Z", complianceVerifiedAt: "2026-10-01T10:26:36Z" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("complianceVaultDocNumber", () => {
+  it("reads the invoice number ground ops typed in Asset Vault", () => {
+    const number = complianceVaultDocNumber(
+      [doc({ document_type: "invoice", document_number: "45821" })],
+      "invoice",
+    );
+    expect(number).toBe("45821");
+  });
+
+  it("lists every e-way bill and every LR, not only the first", () => {
+    expect(
+      complianceVaultDocNumbers(
+        [
+          doc({
+            document_type: "eway_bill",
+            document_number: JSON.stringify({
+              entries: [{ ewayNo: "111" }, { ewayNo: "222" }, { ewayNo: "333" }],
+            }),
+          }),
+        ],
+        "eway_bill",
+      ),
+    ).toEqual(["111", "222", "333"]);
+    expect(
+      complianceVaultDocNumbers(
+        [
+          doc({ document_type: "lr", document_number: "BHD1" }),
+          doc({ document_type: "lr", document_number: "BHD2", id: "lr-2" }),
+        ],
+        "lr",
+      ),
+    ).toEqual(["BHD1", "BHD2"]);
+  });
+
+  it("reads the LR number and the e-way number", () => {
+    expect(
+      complianceVaultDocNumber([doc({ document_type: "lr", document_number: "BHD" })], "lr"),
+    ).toBe("BHD");
+    expect(
+      complianceVaultDocNumber(
+        [doc({ document_type: "eway_bill", document_number: JSON.stringify({ ewayNo: "1234", validTill: "04-Sep-26" }) })],
+        "eway_bill",
+      ),
+    ).toBe("1234");
   });
 });

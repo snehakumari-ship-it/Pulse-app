@@ -10,6 +10,7 @@ import Theme from "@/constants/Theme";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import { COMPLIANCE_STATUS_META, ComplianceStatusChip } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import {
   COMPLIANCE_DECLINE_ACTION_LABEL,
@@ -22,6 +23,7 @@ import {
 } from "@/features/tripCompliance/tripCompliance.types";
 import {
   complianceEventAt,
+  compareComplianceSummariesByEvent,
   formatComplianceTimestamp,
   paymentStatusVisual,
   shouldShowPaymentStatusPill,
@@ -38,11 +40,13 @@ import {
 import { deriveComplianceQueueReadiness, paymentReadinessLabel } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   canVerifyTrip,
+  complianceVaultDocNumbers,
   deriveComplianceEwayBill,
   deriveComplianceGroupStatus,
   isComplianceDeclineActive,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
+import { formatIndianVehicleNumber } from "@/lib/format";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react-native";
 import React, { useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -61,8 +65,11 @@ export type ComplianceTripsTableProps = {
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   onPay?: (tripId: string) => void;
   canManageFinance?: boolean;
-  /** Compliance Pending table: trip status column, no Advance/Balance. */
+  /** Compliance Pending table: trip status column, invoice number, no Payment/Advance/Balance. */
   compliancePendingLayout?: boolean;
+  /** Date column sort. The page owns this so pagination and export follow it. */
+  dateSort?: RequiredDateSort;
+  onDateSortChange?: (sort: RequiredDateSort) => void;
 };
 
 type RequiredDateSort = "asc" | "desc";
@@ -75,18 +82,16 @@ function tripToLocation(summary: ComplianceTripSummary): string {
   return summary.trip.drop_location?.trim() || summary.trip.drop_area?.trim() || "—";
 }
 
+function truckNumber(summary: ComplianceTripSummary): string {
+  const raw = summary.trip.vehicle_display_number?.trim() || "";
+  return formatIndianVehicleNumber(raw).trim() || raw || "—";
+}
+
 function formatRequiredDate(summary: ComplianceTripSummary): string {
   const raw = complianceEventAt(summary.trip);
   if (!raw) return "—";
   const formatted = formatComplianceTimestamp(raw);
   return formatted || "—";
-}
-
-function requiredDateSortKey(summary: ComplianceTripSummary): number | null {
-  const raw = complianceEventAt(summary.trip);
-  if (!raw) return null;
-  const ms = Date.parse(raw);
-  return Number.isNaN(ms) ? null : ms;
 }
 
 type DocScope = "trip" | "vehicle" | "driver";
@@ -147,12 +152,7 @@ function EwayBillCell({ summary }: { summary: ComplianceTripSummary }) {
         showExpired ? ", expired" : ""
       }${eway.extraCount > 0 ? `, ${eway.extraCount} more` : ""}`}
     >
-      <View style={styles.ewayLine}>
-        <Text style={[styles.cell, styles.ewayNumber]} numberOfLines={1} selectable>
-          {eway.number ?? "—"}
-        </Text>
-        {eway.extraCount > 0 ? <Text style={styles.muted}>{`+${eway.extraCount}`}</Text> : null}
-      </View>
+      <ComplianceNumberStack numbers={eway.numbers} variant="table" />
       <View style={styles.ewayLine}>
         <Text style={[styles.muted, styles.ewayDate, showExpired && styles.dangerText]} numberOfLines={1}>
           {`Valid till ${eway.validTillLabel ?? "—"}`}
@@ -316,6 +316,23 @@ function TripRowContent({
           {tripToLocation(summary)}
         </Text>
         <EwayBillCell summary={summary} />
+        {compliancePendingLayout ? (
+          <View style={styles.colInvoice}>
+            <ComplianceNumberStack
+              numbers={complianceVaultDocNumbers(summary.documents, "invoice")}
+              variant="table"
+            />
+          </View>
+        ) : null}
+        <View style={styles.colInvoice}>
+          <ComplianceNumberStack
+            numbers={complianceVaultDocNumbers(summary.documents, "lr")}
+            variant="table"
+          />
+        </View>
+        <Text style={[styles.cell, styles.colInvoice]} numberOfLines={1}>
+          {truckNumber(summary)}
+        </Text>
         <View style={styles.colDocs}>
           <GroupStatusPill
             tripId={tripId}
@@ -388,14 +405,16 @@ function TripRowContent({
             </View>
           ) : null}
         </View>
-        <View style={styles.colBlockers}>
-          <Text style={[styles.cell, readiness.paymentReady ? styles.readyText : styles.blockedText]} numberOfLines={1}>
-            {payLabel.label}
-          </Text>
-          <Text style={styles.muted} numberOfLines={1}>
-            {readiness.nextAction}
-          </Text>
-        </View>
+        {compliancePendingLayout ? null : (
+          <View style={styles.colBlockers}>
+            <Text style={[styles.cell, readiness.paymentReady ? styles.readyText : styles.blockedText]} numberOfLines={1}>
+              {payLabel.label}
+            </Text>
+            <Text style={styles.muted} numberOfLines={1}>
+              {readiness.nextAction}
+            </Text>
+          </View>
+        )}
         {compliancePendingLayout ? null : (
           <>
             <Text style={[styles.cell, styles.colMoney]}>
@@ -510,19 +529,20 @@ export function ComplianceTripsTable({
   onPay,
   canManageFinance,
   compliancePendingLayout = false,
+  dateSort,
+  onDateSortChange,
 }: ComplianceTripsTableProps) {
-  const [requiredDateSort, setRequiredDateSort] = useState<RequiredDateSort>("desc");
+  const [internalDateSort, setInternalDateSort] = useState<RequiredDateSort>("desc");
+  const requiredDateSort = dateSort ?? internalDateSort;
+  const toggleDateSort = () => {
+    const next: RequiredDateSort = requiredDateSort === "asc" ? "desc" : "asc";
+    if (onDateSortChange) onDateSortChange(next);
+    else setInternalDateSort(next);
+  };
 
   const sortedSummaries = useMemo(() => {
     const copy = [...summaries];
-    copy.sort((a, b) => {
-      const da = requiredDateSortKey(a);
-      const db = requiredDateSortKey(b);
-      if (da == null && db == null) return 0;
-      if (da == null) return 1;
-      if (db == null) return -1;
-      return requiredDateSort === "asc" ? da - db : db - da;
-    });
+    copy.sort((a, b) => compareComplianceSummariesByEvent(a, b, requiredDateSort));
     return copy;
   }, [summaries, requiredDateSort]);
 
@@ -535,11 +555,16 @@ export function ComplianceTripsTable({
           <SortHeader
             label="Date"
             sort={requiredDateSort}
-            onToggle={() => setRequiredDateSort((s) => (s === "asc" ? "desc" : "asc"))}
+            onToggle={toggleDateSort}
           />
           <Text style={[styles.cell, styles.colLoc, styles.headerText]}>From</Text>
           <Text style={[styles.cell, styles.colLoc, styles.headerText]}>To</Text>
           <Text style={[styles.cell, styles.colEway, styles.headerText]}>E-way Bill</Text>
+          {compliancePendingLayout ? (
+            <Text style={[styles.cell, styles.colInvoice, styles.headerText]}>Invoice</Text>
+          ) : null}
+          <Text style={[styles.cell, styles.colInvoice, styles.headerText]}>LR</Text>
+          <Text style={[styles.cell, styles.colInvoice, styles.headerText]}>Truck No</Text>
           <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Trip</Text>
           <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Vehicle</Text>
           <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Driver</Text>
@@ -547,7 +572,9 @@ export function ComplianceTripsTable({
             <Text style={[styles.cell, styles.colTripStatus, styles.headerText]}>Trip Status</Text>
           ) : null}
           <Text style={[styles.cell, styles.colStage, styles.headerText]}>Stage</Text>
-          <Text style={[styles.cell, styles.colBlockers, styles.headerText]}>Payment</Text>
+          {compliancePendingLayout ? null : (
+            <Text style={[styles.cell, styles.colBlockers, styles.headerText]}>Payment</Text>
+          )}
           {compliancePendingLayout ? null : (
             <>
               <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Advance</Text>
@@ -619,8 +646,8 @@ const styles = StyleSheet.create({
   colDate: { flex: 0.8, minWidth: 0 },
   colLoc: { flex: 1, minWidth: 0 },
   colEway: { flex: 1.1, minWidth: 0, justifyContent: "center", gap: 1 },
+  colInvoice: { flex: 0.9, minWidth: 0, justifyContent: "center" },
   ewayLine: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
-  ewayNumber: { flexShrink: 1 },
   ewayDate: { flexShrink: 1 },
   colDocs: { flex: 0.75, minWidth: 0, justifyContent: "center" },
   statusTouch: { minHeight: 44, justifyContent: "center", alignSelf: "flex-start" },

@@ -5,9 +5,11 @@
  */
 import {
   formatVaultDocDate,
+  readStoredInvoiceNumber,
   vaultDocDateToIso,
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { parseEwayFieldEntries } from "@/features/trips/services/ewayBillFields.util";
+import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
 import type {
   ComplianceDocumentRow,
   ComplianceTripSummary,
@@ -25,6 +27,8 @@ export type ComplianceEwayBillSummary = {
   validTillLabel: string | null;
   expired: boolean;
   extraCount: number;
+  /** Every e-way number on the newest bill row, in stored order. */
+  numbers: string[];
 };
 
 export type ComplianceGroupStatus = {
@@ -68,6 +72,7 @@ export function deriveComplianceEwayBill(
     validTillLabel: null,
     expired: false,
     extraCount: 0,
+    numbers: [],
   };
   let entries: ReturnType<typeof parseEwayFieldEntries> = [];
   // Trip Detail loads trip_documents with `order by uploaded_at desc` (Postgres:
@@ -111,14 +116,61 @@ export function deriveComplianceEwayBill(
       : validTillRaw
     : null;
 
+  const numbers = entries
+    .map((entry) => entry.ewayNo.trim())
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+
   return {
     number,
     validTillRaw,
     validTillIso,
     validTillLabel,
     expired,
-    extraCount: Math.max(0, entries.length - 1),
+    extraCount: Math.max(0, numbers.length - 1),
+    numbers,
   };
+}
+
+function uniqueInOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/**
+ * Every number ground ops typed for this document type.
+ * E-way: each bill on the newest row. LR: each number, including a typed range.
+ * Invoice: each uploaded invoice number, oldest first.
+ */
+export function complianceVaultDocNumbers(
+  documents: ComplianceDocumentRow[],
+  type: string,
+): string[] {
+  const kind = type.trim().toLowerCase();
+  if (kind === "eway_bill") return deriveComplianceEwayBill(documents).numbers;
+  const matches = documents.filter((doc) => (doc.document_type ?? "").toLowerCase() === kind);
+  if (kind === "invoice") {
+    const ordered = [...matches].sort((a, b) => (a.uploaded_at ?? "").localeCompare(b.uploaded_at ?? ""));
+    return uniqueInOrder(ordered.map((doc) => readStoredInvoiceNumber(doc.document_number)));
+  }
+  if (kind === "lr") {
+    return uniqueInOrder(matches.flatMap((doc) => lrNumbersFromDocumentNumber(doc.document_number)));
+  }
+  return [];
+}
+
+/** Single-line form of {@link complianceVaultDocNumbers}. Export uses this with a separator. */
+export function complianceVaultDocNumber(
+  documents: ComplianceDocumentRow[],
+  type: string,
+): string {
+  return complianceVaultDocNumbers(documents, type).join(", ");
 }
 
 /** Approved iff the group has required rows and every one is `verified`. */

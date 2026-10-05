@@ -1,3 +1,11 @@
+## nihas/V1.0.14 — 2026-10-05
+
+- **What:** Compliance Pending table drops Payment and adds Invoice, LR, and Truck No. Extra e-way bills and LRs show as +N on the card and in the table, and every number is written in the Excel export. Table export follows the current stage, search, and date sort, and a toast states what is being downloaded.
+- **Why:** The pending queue does not use the payment column, and a single truncated number hid the rest of the bills and LRs.
+- **Files/areas:** Compliance table, Compliance cards, Compliance export
+- **Migrations:** none
+- **Tested:** Jest on document numbers and the Compliance Pending table columns. Export not clicked through on preprod.
+
 ## nihas/V1.0.13 — 2026-10-05
 
 - **What:** Compliance Pending cards show the trip status (Loading, In Transit, Completed) next to the compliance pill. The table puts that status in its own Trip Status column and hides Advance and Balance on that tab only.
