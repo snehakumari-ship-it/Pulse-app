@@ -200,7 +200,14 @@ describe("payment", () => {
     expect(mockOps.map((op) => op.name).sort()).toEqual(["transactions", "trips"]);
     expect(mockOps.every((op) => op.filters.includes("trip_id in 1") || op.filters.includes("id in 1"))).toBe(true);
     expect(next[0].trip.amount_paid).toBe(5000);
-    expect(summarizeComplianceTrip(next[0]).advance?.amount).toBe(5000);
+    expect(summarizeComplianceTrip(next[0]).advance).toBeNull();
+    const verified = {
+      ...next[0],
+      flags: { ...next[0].flags, compliance_verified_at: "2026-10-01T00:00:00Z" },
+    } as ComplianceTripInputs;
+    // A Finance client receipt is not the compliance advance, even once verified.
+    expect(summarizeComplianceTrip(verified).advance).toBeNull();
+    expect(summarizeComplianceTrip(verified).stage).not.toBe("advance_payment_processed");
     expect(next[1]).toBe(loaded[1]);
   });
 });

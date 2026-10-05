@@ -8,6 +8,8 @@ import {
   evaluateCompliancePaymentGuard,
   type ComplianceLedgerCategory,
 } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
+import { isCompletedDeliveredStatus } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
+import { isFinanceDeclinedTrip } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 export type PaymentReadinessStatus = "ready" | "blocked" | "posted";
 
@@ -114,6 +116,12 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
   let advance: CompliancePaymentLane;
   if (summary.advance) {
     advance = lane("compliance_advance", "posted", `Advance posted ₹${summary.advance.amount.toLocaleString("en-IN")}`);
+  } else if (summary.advanceBeforeVerification && !complianceVerificationIncomplete) {
+    advance = lane(
+      "compliance_advance",
+      "blocked",
+      `An advance of ₹${summary.advanceBeforeVerification.amount.toLocaleString("en-IN")} was posted before compliance was verified. Ask Finance to reverse it, then post the advance from Verified.`,
+    );
   } else if (!advanceGuard.ok) {
     advance = lane("compliance_advance", "blocked", advanceGuard.reason ?? "Advance is blocked.");
   } else if (expiredVehicleDocs.length > 0) {
@@ -122,7 +130,7 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
       "blocked",
       `Expired vehicle document${expiredVehicleDocs.length === 1 ? "" : "s"}: ${expiredVehicleDocs.join(", ")}.`,
     );
-  } else if (summary.complianceDeclinedAt && summary.complianceVerifiedAt) {
+  } else if (isFinanceDeclinedTrip(summary)) {
     advance = lane(
       "compliance_advance",
       "blocked",
@@ -237,7 +245,7 @@ export function paymentReadinessLabel(readiness: ComplianceQueueReadiness): { la
 /**
  * Cross-cutting Payment Pending queue: advance still owed after compliance is
  * verified — independent of the exclusive `summary.stage` chip. Once advance is
- * posted, derivation moves the trip to Awaiting POD.
+ * posted, derivation moves the trip to Advance Processed.
  */
 export function isCompliancePaymentPending(summary: ComplianceTripSummary): boolean {
   if (summary.advance || summary.balance) return false;
@@ -256,4 +264,13 @@ export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boole
   if (summary.advance || summary.balance) return false;
   if (summary.hardCopyPod?.received) return false;
   return true;
+}
+
+/**
+ * Awaiting POD work queue: exclusive Awaiting POD stage, or an Advance
+ * Processed trip that is already delivered with hard-copy still unmarked.
+ */
+export function isComplianceAwaitingPod(summary: ComplianceTripSummary): boolean {
+  if (summary.stage === "hard_copy_pod_received") return true;
+  return summary.stage === "advance_payment_processed" && isCompletedDeliveredStatus(summary.trip.status);
 }

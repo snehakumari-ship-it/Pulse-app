@@ -12,6 +12,7 @@ import { ComplianceExportConfirmModal } from "@/features/tripCompliance/componen
 import { CompliancePaymentConfirmModal } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
 import { ComplianceDocumentWorkspace } from "@/features/tripCompliance/components/ComplianceDocumentWorkspace";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
+import { ComplianceAdvanceProcessedTable } from "@/features/tripCompliance/components/ComplianceAdvanceProcessedTable";
 import { ComplianceVerifiedOutcomeFilter } from "@/features/tripCompliance/components/ComplianceVerifiedOutcomeFilter";
 import {
   isComplianceVerifiedRejected,
@@ -46,6 +47,7 @@ import {
 } from "@/features/tripCompliance/utils/awaitingPodSubview.util";
 import {
   COMPLIANCE_FILTER_COUNT_TONE,
+  COMPLIANCE_STAGE_TONE,
   matchesComplianceTripSearch,
   supplierComplianceSearchLabels,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
@@ -53,9 +55,15 @@ import {
   countVerifiedStageTrips,
 } from "@/features/tripCompliance/utils/complianceExportReport.util";
 import {
+  downloadAdvanceProcessedReport,
   downloadComplianceTableExport,
   exportVerifiedStageComplianceReport,
+  prepareAdvanceProcessedReport,
 } from "@/features/tripCompliance/services/complianceExportReport.service";
+import {
+  countAdvanceProcessedExport,
+  type AdvanceProcessedExportRow,
+} from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
 import {
   complianceExportDateSpan,
   complianceTableExportMessage,
@@ -135,6 +143,8 @@ function StageChip({
 
 /** Window in which a retried Decline submit reuses its idempotency key. */
 const DECLINE_KEY_REUSE_MS = 2 * 60 * 1000;
+const ADVANCE_PROCESSED_TONE = COMPLIANCE_STAGE_TONE.advance_payment_processed;
+const AWAITING_UTR_TONE = COMPLIANCE_STAGE_TONE.hard_copy_pod_received;
 
 export default function ComplianceScreen() {
   const layout = useLayoutInsets();
@@ -443,6 +453,69 @@ export default function ComplianceScreen() {
     setPay({ summary, category: readiness.readyCategory });
   }, []);
 
+  /** After an advance posts from Verified / Payment Pending, follow the trip to Advance Processed. */
+  const moveToAdvanceProcessed = useCallback(
+    async (tripId: string, category: ComplianceLedgerCategory) => {
+      await syncChange({ type: "payment", tripId }).catch(() => undefined);
+      if (category !== "compliance_advance") return;
+      if (stage !== "compliance_verified" && stage !== "payment_pending") return;
+      setStage("advance_payment_processed");
+      setCardTripId(tripId);
+    },
+    [setStage, stage, syncChange],
+  );
+
+  /** Advance Processed Export Report: rows are prepared on open so the card shows real counts. */
+  const isAdvanceProcessedStage = stage === "advance_payment_processed";
+  const [apExport, setApExport] = useState<{
+    open: boolean;
+    preparing: boolean;
+    exporting: boolean;
+    rows: AdvanceProcessedExportRow[];
+  }>({ open: false, preparing: false, exporting: false, rows: [] });
+  const apExportRequest = useRef(0);
+  useEffect(() => {
+    if (!isAdvanceProcessedStage) {
+      apExportRequest.current += 1;
+      setApExport((cur) => (cur.open && !cur.exporting ? { ...cur, open: false } : cur));
+    }
+  }, [isAdvanceProcessedStage]);
+  const apExportCounts = useMemo(() => countAdvanceProcessedExport(apExport.rows), [apExport.rows]);
+
+  const openAdvanceProcessedExport = useCallback(() => {
+    const orgId = currentOrganization?.id;
+    if (!orgId) return;
+    const request = ++apExportRequest.current;
+    setApExport({ open: true, preparing: true, exporting: false, rows: [] });
+    prepareAdvanceProcessedReport(orgId, filtered)
+      .then((rows) => {
+        if (request !== apExportRequest.current) return;
+        setApExport((cur) => ({ ...cur, preparing: false, rows }));
+      })
+      .catch((error: unknown) => {
+        if (request !== apExportRequest.current) return;
+        setApExport((cur) => ({ ...cur, open: false, preparing: false }));
+        alertMessage("Couldn't prepare report", error instanceof Error ? error.message : "Please try again.");
+      });
+  }, [currentOrganization?.id, filtered]);
+
+  const closeAdvanceProcessedExport = useCallback(() => {
+    apExportRequest.current += 1;
+    setApExport((cur) => (cur.exporting ? cur : { ...cur, open: false, preparing: false }));
+  }, []);
+
+  const confirmAdvanceProcessedExport = useCallback(async () => {
+    if (apExport.exporting || apExport.preparing || apExport.rows.length === 0) return;
+    setApExport((cur) => ({ ...cur, exporting: true }));
+    try {
+      await downloadAdvanceProcessedReport(apExport.rows);
+      setApExport((cur) => ({ ...cur, open: false, exporting: false }));
+    } catch (error) {
+      setApExport((cur) => ({ ...cur, exporting: false }));
+      alertMessage("Couldn't export report", error instanceof Error ? error.message : "Please try again.");
+    }
+  }, [apExport.exporting, apExport.preparing, apExport.rows]);
+
   const verifiedExportTripCounts = useMemo(
     () => countVerifiedStageTrips(summaries),
     [summaries],
@@ -744,6 +817,15 @@ export default function ComplianceScreen() {
                 : "No Loading→Completed trips in the Compliance queue yet."}
           </Text>
         </View>
+      ) : viewMode === "table" && stage === "advance_payment_processed" && !search.trim() ? (
+        <ScrollView style={styles.queueScroll} contentContainerStyle={styles.queueScrollContent} keyboardShouldPersistTaps="handled">
+          <ComplianceAdvanceProcessedTable
+            summaries={visible}
+            organizationId={currentOrganization?.id ?? ""}
+            onOpenTrip={openTrip}
+            onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
+          />
+        </ScrollView>
       ) : viewMode === "table" ? (
         <ScrollView style={styles.queueScroll} contentContainerStyle={styles.queueScrollContent} keyboardShouldPersistTaps="handled">
           <ComplianceTripsTable
@@ -798,7 +880,7 @@ export default function ComplianceScreen() {
                     alertMessage("Couldn't post payment", payError.message);
                     return;
                   }
-                  void syncChange({ type: "payment", tripId: summary.trip.id });
+                  await moveToAdvanceProcessed(summary.trip.id, category);
                 }
               : undefined
           }
@@ -936,6 +1018,20 @@ export default function ComplianceScreen() {
               ) : null}
             </TouchableOpacity>
           ) : null}
+          {canViewFinance && isAdvanceProcessedStage ? (
+            <TouchableOpacity
+              style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
+              onPress={openAdvanceProcessedExport}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel="Export Report"
+            >
+              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              {!isNarrow ? (
+                <Text style={styles.reportBtnText}>{compactActions ? "Export" : "Export Report"}</Text>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
           {canManageFinance ? (
             <TouchableOpacity
               style={[styles.bulkBtn, compactActions && styles.actionBtnCompact]}
@@ -973,6 +1069,26 @@ export default function ComplianceScreen() {
         }}
       />
 
+      <ComplianceExportConfirmModal
+        visible={apExport.open && isAdvanceProcessedStage}
+        eyebrow="Advance Processed stage only"
+        verifiedCount={0}
+        rejectedCount={0}
+        includedCount={apExportCounts.total}
+        stats={[
+          { key: "utr", label: "UTR added", value: apExportCounts.withUtr, tone: ADVANCE_PROCESSED_TONE },
+          { key: "awaiting", label: "Awaiting UTR", value: apExportCounts.awaitingUtr, tone: AWAITING_UTR_TONE },
+        ]}
+        preparing={apExport.preparing}
+        exporting={apExport.exporting}
+        emptyHint="Nothing in Advance Processed stage to export yet."
+        confirmLabel="Export"
+        onCancel={closeAdvanceProcessedExport}
+        onConfirm={() => {
+          void confirmAdvanceProcessedExport();
+        }}
+      />
+
       <CompliancePaymentConfirmModal
         visible={pay != null}
         summary={pay?.summary ?? null}
@@ -1000,7 +1116,7 @@ export default function ComplianceScreen() {
             return;
           }
           setPay(null);
-          void syncChange({ type: "payment", tripId: pay.summary.trip.id });
+          await moveToAdvanceProcessed(pay.summary.trip.id, pay.category);
         }}
       />
     </View>

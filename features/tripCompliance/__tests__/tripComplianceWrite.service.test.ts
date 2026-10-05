@@ -10,6 +10,7 @@ import {
   postCompliancePayment,
   validateCompliancePaymentAmount,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
+import { processComplianceBulkPayments } from "@/features/tripCompliance/services/tripComplianceBulkPayment.service";
 import type { TripRow } from "@/features/trips/services/trips.service";
 
 const mockCreateLedgerEntry = createLedgerEntry as jest.Mock;
@@ -41,15 +42,28 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
 }
 
 let mockTxnsResult: { data: unknown[]; error: null };
+/** Live `trips` flags read by postCompliancePayment; null = row not readable (falls back to the passed trip). */
+let mockLiveTripFlags: Pick<TripRow, "compliance_verified_at" | "pod_received_at"> | null = null;
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (table: string) => {
       if (table === "transactions") return mockMakeThenable(mockTxnsResult);
+      if (table === "trips") {
+        const builder: Record<string, unknown> = {};
+        builder.select = () => builder;
+        builder.eq = () => builder;
+        builder.maybeSingle = async () => ({ data: mockLiveTripFlags, error: null });
+        return builder;
+      }
       throw new Error(`unexpected table ${table}`);
     },
   }),
 }));
+
+beforeEach(() => {
+  mockLiveTripFlags = null;
+});
 
 describe("checkCompliancePaymentAllowed — duplicate payment / already-settled protection", () => {
   beforeEach(() => {
@@ -256,5 +270,96 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
     });
     expect(result.error?.message).toMatch(/compliance must be approved/i);
     expect(result.error?.message).not.toMatch(/row-level security|policy/i);
+  });
+});
+
+describe("postCompliancePayment — advance gate reads the live trip, not the cached one", () => {
+  beforeEach(() => {
+    mockTxnsResult = { data: [], error: null };
+    mockCreateLedgerEntry.mockReset();
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: {} });
+  });
+
+  it("rejects an advance when the cached trip looks verified but compliance_verified_at is null in the DB", async () => {
+    mockLiveTripFlags = { compliance_verified_at: null, pod_received_at: null };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({ compliance_verified_at: "2026-09-01T00:00:00Z" }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+    });
+    expect(result.error?.message).toMatch(/compliance must be approved/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it("allows an advance when the cached trip is stale but the DB has compliance_verified_at set", async () => {
+    mockLiveTripFlags = { compliance_verified_at: "2026-10-02T00:00:00Z", pod_received_at: null };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({ compliance_verified_at: null }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not add a gate to balance beyond the POD rule", async () => {
+    mockTxnsResult = {
+      data: [{ trip_id: "trip-1", ledger_category: "compliance_advance", description: "Compliance Advance | Mode: UPI" }],
+      error: null,
+    };
+    mockLiveTripFlags = { compliance_verified_at: null, pod_received_at: "2026-10-03T00:00:00Z" };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_balance",
+      amount: 25000,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("processComplianceBulkPayments — same advance gate per row", () => {
+  beforeEach(() => {
+    mockTxnsResult = { data: [], error: null };
+    mockCreateLedgerEntry.mockReset();
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: {} });
+  });
+
+  const bulkRow = (tripId: string) => ({
+    row: { rowIndex: 2, tripId, amount: 25000, paymentModeId: "UPI", utr: "UTR-BULK-1" },
+    errors: [],
+  });
+
+  it("rejects an advance row whose trip is not compliance-verified", async () => {
+    const trip = makeTrip({ compliance_verified_at: null });
+    const results = await processComplianceBulkPayments({
+      organizationId: "org-1",
+      category: "compliance_advance",
+      rows: [bulkRow(trip.id)] as never,
+      tripsById: new Map([[trip.id, trip]]),
+    });
+    expect(results[0].error?.message).toMatch(/compliance must be approved/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it("posts an advance row whose trip is compliance-verified", async () => {
+    const trip = makeTrip();
+    const results = await processComplianceBulkPayments({
+      organizationId: "org-1",
+      category: "compliance_advance",
+      rows: [bulkRow(trip.id)] as never,
+      tripsById: new Map([[trip.id, trip]]),
+    });
+    expect(results[0].error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
   });
 });

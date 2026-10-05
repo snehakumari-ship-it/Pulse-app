@@ -10,8 +10,14 @@ import {
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
 import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
+import {
+  ComplianceAdvancePaidDetails,
+  type AdvanceUtrTarget,
+} from "@/features/tripCompliance/components/ComplianceAdvancePaidDetails";
+import { ComplianceAdvancePayeeDetails } from "@/features/tripCompliance/components/ComplianceAdvancePayeeDetails";
 import { COMPLIANCE_STATUS_META } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
+import { updateCompliancePaymentReference } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
     guessCompliancePreviewMime,
     signCompliancePreviewUrl,
@@ -24,6 +30,7 @@ import {
     COMPLIANCE_DRIVER_DOCUMENT_TYPES,
     COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
     documentRequiresExpiry,
+    type ComplianceStage,
     type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
 import {
@@ -62,7 +69,13 @@ import {
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { getSupplierBankAccount } from "@/features/suppliers/services/supplierVendorOnboarding.service";
+import { resolveBankBranch } from "@/features/suppliers/utils/ifscDirectory.util";
+import { subscribeSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+
+/** Stages whose bank card stays as it was (no beneficiary / branch, no live refresh). */
+const PRE_VERIFIED_STAGES: ReadonlySet<ComplianceStage> = new Set(["pending_for_docs", "compliance_pending"]);
+
 import {
     formatInvoiceVaultNumberLabel,
     formatLrVaultNumberLabel,
@@ -845,9 +858,20 @@ export function ComplianceDocumentWorkspace({
     accountNumber: string | null;
     ifsc: string | null;
     bankName: string | null;
+    beneficiaryName: string | null;
+    branchName: string | null;
     onFile: boolean;
   } | null>(null);
   const [supplierBankLoading, setSupplierBankLoading] = useState(false);
+  const [supplierBankRevision, setSupplierBankRevision] = useState(0);
+  const bankSupplierId = (summary?.trip.supplier_id ?? "").trim();
+  const bankLiveRefresh = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
+  useEffect(() => {
+    if (!bankSupplierId || !bankLiveRefresh) return;
+    return subscribeSupplierBankChanged((changedId) => {
+      if (changedId === bankSupplierId) setSupplierBankRevision((n) => n + 1);
+    });
+  }, [bankSupplierId, bankLiveRefresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -860,9 +884,14 @@ export function ComplianceDocumentWorkspace({
     }
     setSupplierBankLoading(true);
     void fetchSupplierBankProofBundle(orgId, supplierId)
-      .then((bundle) => {
+      .then(async (bundle) => {
+        const branchName = PRE_VERIFIED_STAGES.has(summary.stage)
+          ? ""
+          : await resolveBankBranch(bundle.account?.branch_name, bundle.account?.ifsc_code);
         if (cancelled) return;
         setSupplierBankProof({
+          beneficiaryName: bundle.account?.beneficiary_name?.trim() || null,
+          branchName: branchName || null,
           previewPath: bundle.previewPath,
           detailLine: bundle.detailLine,
           kycDocId: bundle.kycDoc?.id ?? null,
@@ -889,6 +918,7 @@ export function ComplianceDocumentWorkspace({
     organizationId,
     summary,
     checklistPreviewMode,
+    supplierBankRevision,
   ]);
 
   const financeRows = useMemo(() => {
@@ -1423,16 +1453,23 @@ export function ComplianceDocumentWorkspace({
   const typedLines = typedDetailsLines(activeRow);
   const financeBankSelected =
     isFinanceMode && checklistSelectedRow?.type === "bank_docs";
+  const showBankPayeeDetails = Boolean(summary && !PRE_VERIFIED_STAGES.has(summary.stage));
   const supplierBankAccountRows =
     financeBankSelected && supplierBankProof
       ? (
           [
+            ...(showBankPayeeDetails
+              ? [{ label: "Beneficiary", value: supplierBankProof.beneficiaryName?.trim() || "" }]
+              : []),
             {
               label: "Account number",
               value: supplierBankProof.accountNumber?.trim() || "",
             },
             { label: "IFSC", value: supplierBankProof.ifsc?.trim() || "" },
             { label: "Bank name", value: supplierBankProof.bankName?.trim() || "" },
+            ...(showBankPayeeDetails
+              ? [{ label: "Branch", value: supplierBankProof.branchName?.trim() || "" }]
+              : []),
           ] as { label: string; value: string }[]
         ).filter((row) => row.value.length > 0)
       : [];
@@ -1453,7 +1490,9 @@ export function ComplianceDocumentWorkspace({
   const readyPaymentCategory = readiness?.readyCategory ?? null;
   const showReject = Boolean(
     summary?.complianceVerifiedAt &&
-      !summary.complianceDeclinedAt &&
+      !isComplianceVerifiedRejected(summary) &&
+      !summary.advance &&
+      !summary.balance &&
       onRejectCompliance &&
       canVerify,
   );
@@ -2259,6 +2298,7 @@ export function ComplianceDocumentWorkspace({
                   ) : checklistPreviewMode === "advance" && summary && !isCompliancePendingStage ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
+                      supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                       readiness={readiness}
                       canPay={showPay}
                       paymentCategory={readyPaymentCategory}
@@ -2271,6 +2311,20 @@ export function ComplianceDocumentWorkspace({
                           onConfirmPayment &&
                           isComplianceVerifiedRejected(summary),
                       )}
+                      onUpdateUtr={
+                        canManageFinance
+                          ? async (target, transactionId, utr, category) => {
+                              const { error } = await updateCompliancePaymentReference({
+                                tripId: target.trip.id,
+                                transactionId,
+                                category,
+                                utr,
+                              });
+                              if (error) throw error;
+                              onChanged({ type: "payment", tripId: target.trip.id });
+                            }
+                          : undefined
+                      }
                     />
                   ) : showEntityUnassigned ? (
                     <View style={styles.checklistPreviewEmpty}>
@@ -2681,8 +2735,19 @@ function ChecklistTripDetailsPanel({
     accountNumber: string;
     beneficiaryName: string;
     ifsc: string;
+    bankName: string;
     branchName: string;
   } | null>(null);
+
+  const payeeDetails = !PRE_VERIFIED_STAGES.has(summary.stage);
+  const [bankRevision, setBankRevision] = useState(0);
+  useEffect(() => {
+    const supplierId = (trip.supplier_id ?? "").trim();
+    if (!payeeDetails || !supplierId) return;
+    return subscribeSupplierBankChanged((changedId) => {
+      if (changedId === supplierId) setBankRevision((n) => n + 1);
+    });
+  }, [payeeDetails, trip.supplier_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2692,23 +2757,37 @@ function ChecklistTripDetailsPanel({
       setBankDetails(null);
       return;
     }
-    void getSupplierBankAccount(orgId, supplierId).then(({ account }) => {
+    void getSupplierBankAccount(orgId, supplierId).then(async ({ account }) => {
       if (cancelled) return;
       if (!account) {
         setBankDetails(null);
         return;
       }
+      const fallbackBeneficiary = supplierLabel !== "—" ? supplierLabel : "—";
+      if (!payeeDetails) {
+        setBankDetails({
+          accountNumber: account.account_number?.trim() || "—",
+          beneficiaryName: fallbackBeneficiary,
+          ifsc: account.ifsc_code?.trim() || "—",
+          bankName: account.bank_name?.trim() || "—",
+          branchName: account.bank_name?.trim() || "—",
+        });
+        return;
+      }
+      const branch = await resolveBankBranch(account.branch_name, account.ifsc_code);
+      if (cancelled) return;
       setBankDetails({
         accountNumber: account.account_number?.trim() || "—",
-        beneficiaryName: supplierLabel !== "—" ? supplierLabel : "—",
+        beneficiaryName: account.beneficiary_name?.trim() || fallbackBeneficiary,
         ifsc: account.ifsc_code?.trim() || "—",
-        branchName: account.bank_name?.trim() || "—",
+        bankName: account.bank_name?.trim() || "—",
+        branchName: branch || "—",
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [trip.organization_id, trip.supplier_id, supplierLabel]);
+  }, [trip.organization_id, trip.supplier_id, supplierLabel, payeeDetails, bankRevision]);
 
   const rows: { label: string; value: string }[] = [
     { label: "Trip ID", value: getTripDisplayNumber(trip, trip.organization_id ?? null) },
@@ -2732,6 +2811,7 @@ function ChecklistTripDetailsPanel({
     { label: "Account number", value: bankDetails?.accountNumber ?? "—" },
     { label: "Beneficiary name", value: bankDetails?.beneficiaryName ?? (supplierLabel !== "—" ? supplierLabel : "—") },
     { label: "IFSC no", value: bankDetails?.ifsc ?? "—" },
+    ...(payeeDetails ? [{ label: "Bank name", value: bankDetails?.bankName ?? "—" }] : []),
     { label: "Branch name", value: bankDetails?.branchName ?? "—" },
     { label: "Profit", value: profit },
     { label: "Profit %", value: profitPercent },
@@ -2766,8 +2846,19 @@ function ChecklistAdvancePaymentPanel({
   onOpenPayModal,
   onReject,
   canPayRejected = false,
+  onUpdateUtr,
+  supplierName,
 }: {
   summary: ComplianceTripSummary;
+  /** Resolved supplier display name for the "Paid to" card. */
+  supplierName: string | null;
+  /** Edit only the UTR of the posted advance. Rejects with a user-facing error. */
+  onUpdateUtr?: (
+    summary: ComplianceTripSummary,
+    transactionId: string,
+    utr: string,
+    category: AdvanceUtrTarget,
+  ) => Promise<void>;
   /** Verified + Rejected trip: offer Confirm payment under the blockers anyway. */
   canPayRejected?: boolean;
   readiness: ReturnType<typeof deriveComplianceQueueReadiness> | null;
@@ -2868,18 +2959,18 @@ function ChecklistAdvancePaymentPanel({
       </View>
 
       {advance ? (
-        <View style={styles.checklistInfoCard}>
-          <ChecklistDetailRow label="Amount" value={`₹${advance.amount.toLocaleString("en-IN")}`} />
-          <View style={styles.checklistDetailRowBorder}>
-            <ChecklistDetailRow label="Mode" value={advance.paymentMode?.trim() || "—"} />
-          </View>
-          <View style={styles.checklistDetailRowBorder}>
-            <ChecklistDetailRow label="UTR" value={advance.utr?.trim() || "—"} />
-          </View>
-          <View style={styles.checklistDetailRowBorder}>
-            <ChecklistDetailRow label="Paid at" value={formatComplianceTimestamp(advance.paidAt)} />
-          </View>
-        </View>
+        <ComplianceAdvancePaidDetails
+          advance={advance}
+          tripId={summary.trip.id}
+          onUpdateUtr={
+            onUpdateUtr
+              ? (transactionId, utr, category) => onUpdateUtr(summary, transactionId, utr, category)
+              : undefined
+          }
+        />
+      ) : null}
+      {advance && !PRE_VERIFIED_STAGES.has(summary.stage) ? (
+        <ComplianceAdvancePayeeDetails trip={summary.trip} supplierName={supplierName} />
       ) : null}
 
       {showInlineForm ? (

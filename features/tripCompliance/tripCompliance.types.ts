@@ -127,6 +127,8 @@ export type CompliancePaymentSummary = {
   paidAt: string;
   actorId: string | null;
   transactionId: string;
+  /** `transactions.created_at` — when the row was posted (paidAt is the user-entered day). */
+  postedAt?: string | null;
 };
 
 export type ComplianceTripSummary = {
@@ -147,6 +149,12 @@ export type ComplianceTripSummary = {
   complianceDeclinedBy: string | null;
   complianceDeclineReason: string | null;
   advance: CompliancePaymentSummary | null;
+  /**
+   * A `compliance_advance` row posted while the trip was not yet verified. Not
+   * counted as the advance (the trip stays in Compliance Pending / Verified);
+   * it blocks a second advance until Finance reverses it.
+   */
+  advanceBeforeVerification?: CompliancePaymentSummary | null;
   balance: CompliancePaymentSummary | null;
   hardCopyPod: {
     received: boolean;
