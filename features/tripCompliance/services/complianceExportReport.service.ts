@@ -14,6 +14,7 @@ import {
 } from "@/features/suppliers/services/supplierVendorOnboarding.service";
 import { getSupplierById, getSupplierDetails } from "@/features/suppliers/services/suppliers.service";
 import { buildComplianceTripSummaries } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import { isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
   resolveComplianceTdsRate,
@@ -78,7 +79,7 @@ async function fetchVerifiedStageSummaries(orgId: string): Promise<ComplianceTri
   const { error, trips } = await getTripsForOrg(orgId);
   if (error) throw error;
   const summaries = await buildComplianceTripSummaries(selectCompliancePipelineTrips(trips));
-  return summaries.filter((summary) => summary.stage === "compliance_verified");
+  return summaries.filter(isComplianceVerifiedQueue);
 }
 
 function supplierLabelFromRow(row: {

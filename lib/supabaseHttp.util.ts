@@ -408,6 +408,15 @@ export function shouldQueueDataFetch(
   const url = requestUrlString(input);
   if (url.includes("/auth/v1/")) return false;
   if (isLoadCenterCatalogRpc(input)) return false;
+  // User-initiated compliance writes must not wait behind preview/list GETs.
+  // Sitting in that queue is what turns Approve/Verify into a 20s timeout.
+  if (
+    /\/rest\/v1\/rpc\/(verify_trip_document|mark_trip_compliance_verified|decline_trip_compliance|approve_trip_compliance_with_exception|reject_trip_compliance)\b/i.test(
+      url,
+    )
+  ) {
+    return false;
+  }
   const method = String(init?.method ?? "GET").toUpperCase();
   if (method === "GET" || method === "HEAD") return true;
   // PostgREST RPCs are POST. Leaving them ungated let Get Load / Network

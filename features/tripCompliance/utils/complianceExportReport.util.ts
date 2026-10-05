@@ -1,9 +1,10 @@
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { isComplianceVerifiedRejected } from "@/features/tripCompliance/utils/complianceCardVisual.util";
+import { isComplianceVerifiedQueue } from "@/features/tripCompliance/utils/complianceReadiness.util";
 
 /** Trips currently sitting in the Verified stage chip. */
 export function verifiedStageSummaries(summaries: ComplianceTripSummary[]): ComplianceTripSummary[] {
-  return summaries.filter((summary) => summary.stage === "compliance_verified");
+  return summaries.filter(isComplianceVerifiedQueue);
 }
 
 /** Present documents on Verified-stage trips — what Export Report can download. */
