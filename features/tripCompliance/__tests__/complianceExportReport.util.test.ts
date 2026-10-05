@@ -29,13 +29,15 @@ describe("complianceExportReport.util", () => {
 
   it("counts verified and rejected trips in the Verified stage only", () => {
     const at = "2026-09-28T10:00:00Z";
+    const later = "2026-09-28T12:00:00Z";
     const rows = [
       { stage: "compliance_verified", complianceVerifiedAt: at, complianceDeclinedAt: null },
       { stage: "compliance_verified", complianceVerifiedAt: at, complianceDeclinedAt: null },
-      { stage: "compliance_verified", complianceVerifiedAt: at, complianceDeclinedAt: at },
+      // Post-verify finance decline leaves Verified (Declined chip / PD·CP subtabs).
+      { stage: "compliance_verified", complianceVerifiedAt: at, complianceDeclinedAt: later },
       { stage: "compliance_pending", complianceVerifiedAt: null, complianceDeclinedAt: at },
     ] as ComplianceTripSummary[];
-    expect(countVerifiedStageTrips(rows)).toEqual({ verified: 2, rejected: 1, total: 3 });
+    expect(countVerifiedStageTrips(rows)).toEqual({ verified: 2, rejected: 0, total: 2 });
     expect(countVerifiedStageTrips([])).toEqual({ verified: 0, rejected: 0, total: 0 });
   });
 
