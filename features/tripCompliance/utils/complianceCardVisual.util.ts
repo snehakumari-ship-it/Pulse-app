@@ -361,3 +361,24 @@ export function complianceEventAt(trip: {
 }): string | null {
   return trip.pickup_date || trip.started_at || trip.created_at || null;
 }
+
+function complianceEventSortKey(summary: ComplianceTripSummary): number | null {
+  const raw = complianceEventAt(summary.trip);
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Date order for the Compliance table and its export. Trips with no date stay last. */
+export function compareComplianceSummariesByEvent(
+  a: ComplianceTripSummary,
+  b: ComplianceTripSummary,
+  direction: "asc" | "desc",
+): number {
+  const da = complianceEventSortKey(a);
+  const db = complianceEventSortKey(b);
+  if (da == null && db == null) return 0;
+  if (da == null) return 1;
+  if (db == null) return -1;
+  return direction === "asc" ? da - db : db - da;
+}

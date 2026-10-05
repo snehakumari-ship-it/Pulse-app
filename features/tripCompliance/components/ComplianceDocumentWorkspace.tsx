@@ -8,6 +8,7 @@ import {
     type CompliancePaymentConfirmValues,
 } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
+import { ComplianceNumberStack } from "@/features/tripCompliance/components/ComplianceNumberStack";
 import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
 import { COMPLIANCE_STATUS_META } from "@/features/tripCompliance/components/ComplianceStatusIcon";
 import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
@@ -32,6 +33,7 @@ import {
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
+  complianceVaultDocNumbers,
   isComplianceDeclineActive,
   isFinanceDeclinedTrip,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
@@ -1645,6 +1647,10 @@ export function ComplianceDocumentWorkspace({
       Boolean(
         displayRow.entityDoc?.source === "supplier-kyc" || supplierBankProof?.onFile,
       );
+    const vaultNumbers =
+      isCompliancePendingStage && reviewScope === "trip"
+        ? complianceVaultDocNumbers(summary?.documents ?? [], displayRow.type)
+        : [];
     const statusLabel =
       displayRow.status === "missing"
         ? isBankDocs && supplierBankLoading
@@ -1701,6 +1707,7 @@ export function ComplianceDocumentWorkspace({
               </View>
             ) : null}
           </View>
+          <ComplianceNumberStack numbers={vaultNumbers} variant="card" />
           {!(bankFromSupplier && displayRow.status !== "missing") ? (
             <Text
               style={[

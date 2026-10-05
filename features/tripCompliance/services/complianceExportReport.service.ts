@@ -20,6 +20,7 @@ import {
   resolveComplianceTdsRate,
   type ComplianceDocumentChargeConfig,
 } from "@/features/tripCompliance/utils/compliancePaymentAmount.util";
+import { buildComplianceTableWorkbook } from "@/features/tripCompliance/utils/complianceTableExport.util";
 import {
   buildVerifiedExportCsvRow,
   buildVerifiedExportWorkbook,
@@ -68,6 +69,16 @@ async function exportComplianceWorkbook(workbook: XLSX.WorkBook, fileName: strin
   } else {
     await Share.share({ url: uri, title: "Compliance Report" });
   }
+}
+
+/** Download the Compliance table the user is filtering, as xlsx. */
+export async function downloadComplianceTableExport(
+  summaries: ComplianceTripSummary[],
+  compliancePendingLayout: boolean,
+): Promise<void> {
+  const workbook = buildComplianceTableWorkbook(summaries, compliancePendingLayout);
+  const name = compliancePendingLayout ? "compliance-pending" : "compliance-table";
+  await exportComplianceWorkbook(workbook, `${name}-${exportFileStamp()}.xlsx`);
 }
 
 function exportFileStamp(now: Date = new Date()): string {

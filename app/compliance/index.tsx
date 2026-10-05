@@ -26,6 +26,7 @@ import {
   useComplianceStageFilter,
   useComplianceTripsQuery,
   useComplianceChangeSync,
+  type ComplianceQueueFilter,
 } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
 import {
   declineTripCompliance,
@@ -51,7 +52,15 @@ import {
 import {
   countVerifiedStageTrips,
 } from "@/features/tripCompliance/utils/complianceExportReport.util";
-import { exportVerifiedStageComplianceReport } from "@/features/tripCompliance/services/complianceExportReport.service";
+import {
+  downloadComplianceTableExport,
+  exportVerifiedStageComplianceReport,
+} from "@/features/tripCompliance/services/complianceExportReport.service";
+import {
+  complianceExportDateSpan,
+  complianceTableExportMessage,
+  sortComplianceTableRows,
+} from "@/features/tripCompliance/utils/complianceTableExport.util";
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
   isComplianceDeclineActive,
@@ -71,6 +80,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Download, FileText, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type TextStyle } from "react-native";
+
+function complianceQueueLabel(stage: ComplianceQueueFilter): string {
+  if (stage === "all") return "All";
+  if (stage === "pod_received") return "POD Received";
+  if (stage === "payment_pending") return "Payment Pending";
+  return COMPLIANCE_STAGE_FILTER_LABEL[stage];
+}
 
 function StageChip({
   label,
@@ -360,6 +376,8 @@ export default function ComplianceScreen() {
     [showOutcomeFilter, outcomeFilter, stagePool],
   );
 
+  const [tableDateSort, setTableDateSort] = useState<"asc" | "desc">("desc");
+  const [exportToast, setExportToast] = useState<string | null>(null);
   const searched = useMemo(() => {
     // With an active query, search the full Compliance queue (not only the
     // selected stage chip) so supplier / trip matches aren't hidden by filter.
@@ -373,6 +391,10 @@ export default function ComplianceScreen() {
       ]);
     });
   }, [outcomePool, stageQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
+  const ordered = useMemo(
+    () => (viewMode === "table" ? sortComplianceTableRows(searched, tableDateSort) : searched),
+    [searched, tableDateSort, viewMode],
+  );
   const {
     page,
     setPage,
@@ -382,9 +404,9 @@ export default function ComplianceScreen() {
     hasPrev,
     hasNext,
     pageSize,
-  } = useComplianceListPagination(searched, {
+  } = useComplianceListPagination(ordered, {
     pageSize: COMPLIANCE_QUEUE_PAGE_SIZE,
-    resetKey: `${stage}|${pendingSlice}|${outcomeFilter}|${awaitingPodSubview}|${search.trim()}`,
+    resetKey: `${stage}|${pendingSlice}|${outcomeFilter}|${awaitingPodSubview}|${search.trim()}|${viewMode}|${tableDateSort}`,
   });
 
   useEffect(() => {
@@ -441,6 +463,39 @@ export default function ComplianceScreen() {
       setExporting(false);
     }
   }, [currentOrganization?.id, exporting]);
+
+  useEffect(() => {
+    if (!exportToast) return;
+    const timer = setTimeout(() => setExportToast(null), 5000);
+    return () => clearTimeout(timer);
+  }, [exportToast]);
+
+  const exportTable = useCallback(async () => {
+    const rows = sortComplianceTableRows(searched, tableDateSort);
+    const span = complianceExportDateSpan(rows);
+    const extra: string[] = [];
+    if (stage === "compliance_pending" && pendingSlice === "hold") extra.push("Compliance Hold");
+    if (stage === "compliance_pending" && pendingSlice === "finance_declined") extra.push("Declined by finance");
+    if (stage === "hard_copy_pod_received" && awaitingPodSubview !== "all") {
+      extra.push(AWAITING_POD_SUBVIEW_LABEL[awaitingPodSubview]);
+    }
+    const message = complianceTableExportMessage({
+      count: rows.length,
+      filterLabel: complianceQueueLabel(stage),
+      extraFilters: extra,
+      search,
+      from: span?.from ?? null,
+      to: span?.to ?? null,
+      sort: tableDateSort,
+    });
+    setExportToast(message);
+    if (rows.length === 0) return;
+    try {
+      await downloadComplianceTableExport(rows, stage === "compliance_pending");
+    } catch (error) {
+      alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
+    }
+  }, [awaitingPodSubview, pendingSlice, search, searched, stage, tableDateSort]);
 
   const openComplianceCard = useCallback((tripId: string, tab: "trip" | "vehicle" | "driver" = "trip") => {
     setCardTripId(tripId);
@@ -707,6 +762,8 @@ export default function ComplianceScreen() {
             }}
             canManageFinance={canManageFinance}
             compliancePendingLayout={stage === "compliance_pending"}
+            dateSort={tableDateSort}
+            onDateSortChange={setTableDateSort}
           />
         </ScrollView>
       ) : (
@@ -851,6 +908,20 @@ export default function ComplianceScreen() {
           <View style={styles.footerCenter} />
         )}
         <View style={[styles.footerSide, styles.footerSideEnd]}>
+          {viewMode === "table" ? (
+            <TouchableOpacity
+              style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
+              onPress={() => {
+                void exportTable();
+              }}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel="Export table"
+            >
+              <Download size={13} color={Theme.textPrimary} strokeWidth={2} />
+              {!isNarrow ? <Text style={styles.reportBtnText}>Export</Text> : null}
+            </TouchableOpacity>
+          ) : null}
           {canViewFinance && isVerifiedStage ? (
             <TouchableOpacity
               style={[styles.reportBtn, compactActions && styles.actionBtnCompact]}
@@ -882,6 +953,12 @@ export default function ComplianceScreen() {
         </View>
       </View>
       </View>
+
+      {exportToast ? (
+        <View style={styles.exportToast} accessibilityRole="alert" accessibilityLiveRegion="polite">
+          <Text style={styles.exportToastText}>{exportToast}</Text>
+        </View>
+      ) : null}
 
       <ComplianceExportConfirmModal
         visible={exportOpen && isVerifiedStage}
@@ -1175,4 +1252,15 @@ const styles = StyleSheet.create({
   pagerBtnText: { fontSize: 11, fontWeight: "500", lineHeight: 14, color: Theme.textPrimary },
   pagerBtnTextDisabled: { color: Theme.textMuted },
   pagerMeta: { fontSize: 11, fontWeight: "500", lineHeight: 14, color: Theme.textMuted },
+  exportToast: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 44,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: Theme.textPrimaryDark,
+  },
+  exportToastText: { fontSize: 12, fontWeight: "600", lineHeight: 16, color: Theme.cardWhite },
 });
