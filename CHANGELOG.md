@@ -1,3 +1,11 @@
+## nihas/V1.0.10 — 2026-10-05
+
+- **What:** Destination search on New Lane Contract accepts typing.
+- **Why:** The place sheet was mounted outside the lane dialog, so the dialog focus trap pulled the cursor out of the search box.
+- **Files/areas:** Place picker overlay, lane contract destination
+- **Migrations:** none
+- **Tested:** unit test for the overlay host. Live lane form not clicked through in this session.
+
 ## nihas/V1.0.8 — 2026-10-02
 
 - **What:** Unverified trips stay in Pending Docs while a required file is missing, and in Compliance Pending once every required file is in, including holds. A completed trip also stays listed in Awaiting POD until hard-copy is marked.
