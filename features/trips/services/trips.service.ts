@@ -7,10 +7,6 @@ import {
     selectTripOperationalReference,
 } from "@/features/operations/numbering";
 import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
-import {
-    applyIndentCommerceOrigin,
-    indentIdsForCommerceLookup,
-} from "@/features/trips/utils/applyIndentCommerceOrigin";
 import { shouldFallbackTripsTableScan } from "@/features/trips/utils/tripOrgFetch.util";
 import { shouldMarkAssignedOnFirstAssign } from "@/features/trips/utils/tripReassign.util";
 import { TRIP_REASSIGN_STALE_ERROR } from "@/features/trips/utils/tripReassignConflict.util";
@@ -1000,38 +996,18 @@ export async function getTripsByDriverIds(
   return { error: null, trips: dedupeDriverTripsForDriverOrgs(raw, driverOrgIds) };
 }
 
-/** Cheap indent.execution_plan_id lookup — never Primitive A. */
-async function stampCommerceOriginOnTripRows(trips: TripRow[]): Promise<TripRow[]> {
-  const indentIds = indentIdsForCommerceLookup(trips);
-  if (indentIds.length === 0) {
-    return applyIndentCommerceOrigin(trips, []);
-  }
-  const { data, error } = await supabase()
-    .from("indents")
-    .select("id, execution_plan_id")
-    .in("id", indentIds);
-  if (error || !data) {
-    return applyIndentCommerceOrigin(trips, []);
-  }
-  return applyIndentCommerceOrigin(
-    trips,
-    data as Array<{ id: string; execution_plan_id?: string | null }>,
-  );
-}
-
-/** Legacy driver screens: safe read via view, mapped to TripRow for UI. */
+/** Legacy driver screens: safe read via view, mapped to TripRow for UI.
+ * Commerce origin comes from trips_driver_view.execution_plan_id / is_commerce.
+ * Do not SELECT indents here — driver RLS blocks that read. */
 export async function getDriverUiTripsByDriverIds(
   driverIds: string[],
   opts?: PageOpts,
 ): Promise<{ error: Error | null; trips: TripRow[]; hasMore?: boolean }> {
   const res = await getTripsByDriverIds(driverIds, opts);
   if (res.error) return { error: res.error, trips: [] };
-  const trips = await stampCommerceOriginOnTripRows(
-    res.trips.map(driverRowToTripRow),
-  );
   return {
     error: null,
-    trips,
+    trips: res.trips.map(driverRowToTripRow),
     hasMore: res.hasMore,
   };
 }

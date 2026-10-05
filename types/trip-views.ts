@@ -70,7 +70,7 @@ export type DriverTripRow = {
   trip_number?: string | null;
   indent_id?: string | null;
   source_indent_id?: string | null;
-  /** Present when the driver view (or stamp) exposes indent commerce origin. */
+  /** Authoritative Commerce origin from trips_driver_view (indents.execution_plan_id). */
   execution_plan_id?: string | null;
   is_commerce?: boolean;
   /** Asset vs market — drives driver expense / odometer capabilities. */

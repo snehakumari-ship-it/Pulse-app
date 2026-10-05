@@ -1,3 +1,4 @@
+import { getDriverTripExperience } from '@/features/trips/domain/driverTripExperience';
 import {
   driverRowToTripRow,
   supplierRowToTripRow,
@@ -97,6 +98,65 @@ describe('trip view row types', () => {
       expect(mapped.organization_id).toBe('');
       expect(mapped.source).toBe('assigned');
       expect(mapped.completed_at).toBeNull();
+    });
+  });
+
+  describe('commerce origin from trips_driver_view', () => {
+    it('maps a standard FTL row to STANDARD_FTL', () => {
+      const mapped = driverRowToTripRow({
+        ...driverRow,
+        indent_id: 'indent-ftl',
+        source_indent_id: null,
+        execution_plan_id: null,
+        is_commerce: false,
+      });
+      expect(mapped.execution_plan_id).toBeNull();
+      expect(mapped.is_commerce).toBe(false);
+      expect(getDriverTripExperience(mapped)).toBe('STANDARD_FTL');
+    });
+
+    it('maps Commerce via indent_id to COMMERCE_MULTI_ORDER', () => {
+      const mapped = driverRowToTripRow({
+        ...driverRow,
+        indent_id: 'indent-commerce',
+        source_indent_id: null,
+        execution_plan_id: 'plan-1',
+        is_commerce: true,
+      });
+      expect(mapped.execution_plan_id).toBe('plan-1');
+      expect(mapped.is_commerce).toBe(true);
+      expect(getDriverTripExperience(mapped)).toBe('COMMERCE_MULTI_ORDER');
+    });
+
+    it('maps Commerce via source_indent_id to COMMERCE_MULTI_ORDER', () => {
+      const mapped = driverRowToTripRow({
+        ...driverRow,
+        indent_id: null,
+        source_indent_id: 'indent-mover',
+        execution_plan_id: 'plan-mover',
+        is_commerce: true,
+        source: 'mover_asset',
+      });
+      expect(mapped.indent_id).toBeNull();
+      expect(mapped.source_indent_id).toBe('indent-mover');
+      expect(mapped.execution_plan_id).toBe('plan-mover');
+      expect(mapped.is_commerce).toBe(true);
+      expect(getDriverTripExperience(mapped)).toBe('COMMERCE_MULTI_ORDER');
+    });
+
+    it('does not treat extra stops or orders as Commerce without a plan id', () => {
+      const mapped = driverRowToTripRow({
+        ...driverRow,
+        execution_plan_id: null,
+        is_commerce: false,
+      });
+      expect(
+        getDriverTripExperience({
+          ...mapped,
+          stops: 4,
+          orders: 6,
+        } as never),
+      ).toBe('STANDARD_FTL');
     });
   });
 });

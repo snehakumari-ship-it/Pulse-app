@@ -13778,10 +13778,12 @@ export type Database = {
           dropoff_location: string | null
           dropoff_scheduled_at: string | null
           end_odometer_km: number | null
+          execution_plan_id: string | null
           gps_distance_km: number | null
           id: string | null
           indent_id: string | null
           instructions: string | null
+          is_commerce: boolean
           odometer_distance_km: number | null
           odometer_notes: string | null
           odometer_updated_at: string | null
@@ -13824,10 +13826,12 @@ export type Database = {
           dropoff_location?: string | null
           dropoff_scheduled_at?: never
           end_odometer_km?: number | null
+          execution_plan_id?: never
           gps_distance_km?: number | null
           id?: string | null
           indent_id?: string | null
           instructions?: string | null
+          is_commerce?: never
           odometer_distance_km?: number | null
           odometer_notes?: string | null
           odometer_updated_at?: string | null
@@ -13870,10 +13874,12 @@ export type Database = {
           dropoff_location?: string | null
           dropoff_scheduled_at?: never
           end_odometer_km?: number | null
+          execution_plan_id?: never
           gps_distance_km?: number | null
           id?: string | null
           indent_id?: string | null
           instructions?: string | null
+          is_commerce?: never
           odometer_distance_km?: number | null
           odometer_notes?: string | null
           odometer_updated_at?: string | null
