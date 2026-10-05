@@ -28,6 +28,7 @@ import {
 import {
   formatComplianceTimestamp,
   isComplianceVerifiedRejected,
+  tripOpsStatusBadge,
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
@@ -2982,6 +2983,8 @@ function TripListRow({
   const router = useRouter();
   const trip = summary.trip;
   const verification = verificationStatusVisual(summary);
+  const tripStatus =
+    summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
   const isRejected = isFinanceDeclinedTrip(summary);
   const declineRemark =
     isRejected || isComplianceDeclineActive(summary)
@@ -3111,6 +3114,16 @@ function TripListRow({
           </View>
         </View>
         <View style={styles.rowMeta}>
+          {tripStatus ? (
+            <View
+              style={[styles.statusPill, { backgroundColor: tripStatus.tone.bg }]}
+              accessibilityLabel={`Trip status ${tripStatus.label}`}
+            >
+              <Text style={[styles.statusText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
+                {tripStatus.label.toUpperCase()}
+              </Text>
+            </View>
+          ) : null}
           <View style={[styles.statusPill, { backgroundColor: verification.tone.bg }]}>
             <Text style={[styles.statusText, { color: verification.tone.fg }]} numberOfLines={1}>
               {verification.label.toUpperCase()}
@@ -3248,10 +3261,10 @@ const styles = StyleSheet.create({
   },
   rowHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 6,
+    flexDirection: "column",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 4,
     flexShrink: 0,
     maxWidth: 132,
   },

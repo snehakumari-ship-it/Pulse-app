@@ -7,6 +7,7 @@ import {
   complianceTripDisplayId,
   formatComplianceTimestamp,
   matchesComplianceTripSearch,
+  tripOpsStatusBadge,
   verificationStatusVisual,
   shouldShowPaymentStatusPill,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
@@ -40,6 +41,12 @@ function summary(overrides: Partial<ComplianceTripSummary> = {}): ComplianceTrip
 describe("complianceCardVisual", () => {
   it("splits city and region on comma", () => {
     expect(splitPlace("Warangal, Telangana")).toEqual({ city: "Warangal", region: "Telangana" });
+  });
+
+  it("labels the trip operations status for the Compliance Pending badge", () => {
+    expect(tripOpsStatusBadge("in_transit")?.label).toBe("In Transit");
+    expect(tripOpsStatusBadge("completed")?.label).toBe("Completed");
+    expect(tripOpsStatusBadge("")).toBeNull();
   });
 
   it("maps payment labels from existing payment/stage fields", () => {
