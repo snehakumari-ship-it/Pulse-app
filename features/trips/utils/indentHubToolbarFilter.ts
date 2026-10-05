@@ -66,6 +66,27 @@ export function filterIndentsForTripsToolbar(
   );
 }
 
+/**
+ * Append Trips code-search hits that are not already in the loaded list.
+ * Loaded rows win, so a hit already inside the finite window is not duplicated.
+ * Returns `loaded` unchanged when there is nothing new to add.
+ */
+export function mergeIndentSearchHits<T extends { id: string }>(
+  loaded: readonly T[],
+  hits: readonly T[],
+): T[] {
+  if (hits.length === 0) return loaded as T[];
+  const seen = new Set(loaded.map((row) => row.id));
+  const extra: T[] = [];
+  for (const row of hits) {
+    if (!row.id || seen.has(row.id)) continue;
+    seen.add(row.id);
+    extra.push(row);
+  }
+  if (extra.length === 0) return loaded as T[];
+  return [...loaded, ...extra];
+}
+
 /** Active ALL toolbar: unallocated indent cards + trip rows (client-side). */
 export function tripsHubAllToolbarCountLabel(opts: {
   visibleIndentCount: number;

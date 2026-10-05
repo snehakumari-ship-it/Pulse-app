@@ -90,8 +90,15 @@ import {
     useMyDirectQuotesQuery,
 } from "@/lib/queries/useIndentsQuery";
 import { mergeIndentReviewHubOffers } from "@/features/indents/utils/bidding/indentReviewHubOffers.util";
-import { revokeIndentAward } from "@/features/network/services/marketBids.service";
+import {
+  refundTestMarketplaceFeeAndRevokeIndent,
+  revokeIndentAward,
+} from "@/features/network/services/marketBids.service";
 import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
+import {
+  awardRevokePresentation,
+  TEST_FEE_REVOKE_REASON,
+} from "@/features/marketplace/utils/testFeeRevoke.util";
 import { indentHasAwardRevokedTag } from "@/features/trips/utils/indentHubCardPresentation";
 import { showAppAlert } from "@/lib/appAlert";
 import { confirmDialog } from "@/lib/confirmDialog";
@@ -648,19 +655,25 @@ export function IndentDetailScreen({
     [indentId, indent, awarding, selectedQuoteId, quotes],
   );
 
+  const revokePresentation = awardRevokePresentation(marketBidsQ.data ?? []);
   const handleRevokeAward = useCallback(async () => {
-    if (!indent?.id || revokingAward) return;
+    if (!indent?.id || revokingAward || (marketBidsQ.isPending && !marketBidsQ.data)) return;
     const confirmed = await confirmDialog({
-      title: "Revoke award",
-      message:
-        "Move this load back to open bidding? The previous winner is tagged Award revoked. You can award the same offer or another one.",
-      confirmLabel: "Revoke award",
+      title: revokePresentation.confirmTitle,
+      message: revokePresentation.confirmMessage,
+      confirmLabel: revokePresentation.confirmLabel,
       destructive: true,
     });
     if (!confirmed) return;
     try {
       setRevokingAward(true);
-      const { error, awardRevokedAt } = await revokeIndentAward(indent.id);
+      const { error, awardRevokedAt } =
+        revokePresentation.mode === "refund_test"
+          ? await refundTestMarketplaceFeeAndRevokeIndent(
+              indent.id,
+              TEST_FEE_REVOKE_REASON,
+            )
+          : await revokeIndentAward(indent.id);
       if (error) {
         showAppAlert(
           "Could not revoke award",
@@ -699,7 +712,15 @@ export function IndentDetailScreen({
     } finally {
       setRevokingAward(false);
     }
-  }, [indent, invalidateIndents, queryClient, refetchQuotes, revokingAward]);
+  }, [
+    indent,
+    invalidateIndents,
+    marketBidsQ.data,
+    queryClient,
+    refetchQuotes,
+    revokePresentation,
+    revokingAward,
+  ]);
 
   const awardConfirmQuote =
     awardConfirmQuoteId != null
@@ -1199,7 +1220,7 @@ export function IndentDetailScreen({
   const mobilePrimaryAction = (() => {
     if (isOwner && statusLower === "awarded") {
       return {
-        label: revokingAward ? "Revoking…" : "Revoke award",
+        label: revokingAward ? revokePresentation.busyLabel : revokePresentation.buttonLabel,
         onPress: () => {
           void handleRevokeAward();
         },
@@ -1714,9 +1735,9 @@ export function IndentDetailScreen({
                   onPress={() => {
                     void handleRevokeAward();
                   }}
-                  disabled={revokingAward}
+                  disabled={revokingAward || (marketBidsQ.isPending && !marketBidsQ.data)}
                   activeOpacity={0.9}
-                  accessibilityLabel="Revoke award"
+                  accessibilityLabel={revokePresentation.buttonLabel}
                   hitSlop={Layout.touchTargetHitSlop}
                 >
                   <Text
@@ -1725,7 +1746,9 @@ export function IndentDetailScreen({
                       stackedHub && styles.footerAwardBtnTextMobile,
                     ]}
                   >
-                    {revokingAward ? "Revoking…" : "Revoke award"}
+                    {revokingAward
+                      ? revokePresentation.busyLabel
+                      : revokePresentation.buttonLabel}
                   </Text>
                 </TouchableOpacity>
               ) : canAward &&
