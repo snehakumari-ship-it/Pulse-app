@@ -1,7 +1,13 @@
-/** Days after delivery with no POD penalty. Day 16 is the first charged day. */
+/** Days after trip completion with no POD penalty. Day 16 is the first charged day. */
 export const POD_RECEIVING_FREE_DAYS = 15;
-/** Rupees charged for each day after the free window. */
+/** Rupees per delay day for delay days 1 through 10 (calendar days 16 through 25). */
 export const POD_AGING_PENALTY_PER_DAY = 50;
+/** Last delay day that is still charged per day. Delay day 11 onward is the flat slab. */
+export const POD_AGING_PER_DAY_LIMIT = 10;
+/** Flat penalty from delay day 11 when the POD is still not received. */
+export const POD_AGING_FLAT_PENALTY_OPEN = 1500;
+/** Flat penalty from delay day 11 once the POD has been received. */
+export const POD_AGING_FLAT_PENALTY_RECEIVED = 1000;
 
 export type PodReceivingAging = {
   days: number;
@@ -15,17 +21,45 @@ function calendarDay(value: string): number | null {
   return Date.UTC(year, month - 1, date);
 }
 
-/** Days from delivery to dispatch. Null until both dates are set. */
+/** Local calendar day, matching the date fields (YYYY-MM-DD). */
+export function todayIsoDate(now: Date = new Date()): string {
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * Penalty from days since trip completion.
+ * 0–15: none. 16–25: ₹50 per delay day (₹50–₹500).
+ * Day 26 onward: ₹1,000 if the POD is received, otherwise ₹1,500.
+ */
+export function podAgingPenalty(daysFromCompleted: number, podReceived = false): number {
+  const delayDays = Math.max(0, daysFromCompleted - POD_RECEIVING_FREE_DAYS);
+  if (delayDays <= 0) return 0;
+  if (delayDays <= POD_AGING_PER_DAY_LIMIT) return delayDays * POD_AGING_PENALTY_PER_DAY;
+  return podReceived ? POD_AGING_FLAT_PENALTY_RECEIVED : POD_AGING_FLAT_PENALTY_OPEN;
+}
+
+/**
+ * End of the aging window. Dispatch date once the POD is sent, otherwise today,
+ * so a submitted POD does not keep accruing after it left.
+ */
+export function podAgingEndDate(dispatchDate: string | null | undefined, today: string): string {
+  const dispatch = String(dispatchDate ?? "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dispatch) ? dispatch : today;
+}
+
+/** Days from the trip completed date through the dispatch date, or today if it is not dispatched yet. */
 export function podReceivingAging(
-  deliveryDate: string | null | undefined,
-  dispatchDate: string | null | undefined,
+  completedDate: string | null | undefined,
+  asOfDate: string | null | undefined,
+  podReceived = false,
 ): PodReceivingAging | null {
-  const delivery = calendarDay(String(deliveryDate ?? ""));
-  const dispatch = calendarDay(String(dispatchDate ?? ""));
-  if (delivery == null || dispatch == null) return null;
-  const days = Math.round((dispatch - delivery) / 86_400_000);
-  const lateDays = Math.max(0, days - POD_RECEIVING_FREE_DAYS);
-  return { days, penalty: lateDays * POD_AGING_PENALTY_PER_DAY };
+  const completed = calendarDay(String(completedDate ?? ""));
+  const asOf = calendarDay(String(asOfDate ?? ""));
+  if (completed == null || asOf == null) return null;
+  const days = Math.round((asOf - completed) / 86_400_000);
+  return { days, penalty: podAgingPenalty(days, podReceived) };
 }
 
 /**

@@ -11,8 +11,10 @@ import {
 } from "@/features/debit-control/utils/debitControlPod.model";
 import {
   formatPodReceivingAging,
+  podAgingEndDate,
   podDelaySubmissionAmount,
   podReceivingAging,
+  todayIsoDate,
 } from "@/features/debit-control/utils/podAging.util";
 import {
   chargeDraftFromLines,
@@ -116,7 +118,7 @@ export function PodClientValidationPanel({
     setSaved(false);
   }, [loaded.data, tripId, clientPrice, supplierRate, startDate, deliveryDate, seededFor]);
 
-  const aging = podReceivingAging(delivery, dispatchDate);
+  const aging = podReceivingAging(delivery, podAgingEndDate(dispatchDate, todayIsoDate()), true);
   const podDelayAmount = podDelaySubmissionAmount(aging?.penalty);
   useEffect(() => {
     if (loaded.data?.validatedAt || saved) return;

@@ -26,7 +26,7 @@ import {
   type DebitControlReceivedTrip,
   type PodChargeLines,
 } from "@/features/debit-control/utils/debitControlPod.model";
-import { podReceivingAging } from "@/features/debit-control/utils/podAging.util";
+import { podAgingEndDate, podReceivingAging, todayIsoDate } from "@/features/debit-control/utils/podAging.util";
 import { canMarkPodInward, type PodInwardDraft } from "@/features/debit-control/utils/podInwardForm.util";
 import { supabase } from "@/lib/supabase";
 
@@ -439,7 +439,11 @@ export async function validateDebitControlPods(input: {
     const tripId = text(trip.tripId);
     const totalClient = netChargeTotal(trip.client);
     const totalVendor = netChargeTotal(trip.vendor);
-    const aging = podReceivingAging(trip.deliveryDate, trip.dispatchDate);
+    const aging = podReceivingAging(
+      trip.deliveryDate,
+      podAgingEndDate(trip.dispatchDate, todayIsoDate()),
+      true,
+    );
     const { error } = await supabase()
       .from("trip_workflow_events")
       .insert({
