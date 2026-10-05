@@ -50,12 +50,22 @@ Before **any** remote push (`supabase db push --linked`, `npm run db:push`, or
 3. Preflight prints **`supabase migration list --linked`** — inspect Local vs
    Remote before applying. Already-applied empty placeholders (e.g. historical
    `mcp_applied`) may WARN only; do not create new ones.
-4. Only then run `npm run db:push` (or `supabase db push --linked`).
+4. Only then choose the apply command. `npm run db:push` is fail-closed: it refuses when any Local-only version is listed in `supabase/release-sets/FROZEN.versions` or is not named by a release set. It is not a one-file push.
+
+### Release sets (controlled production batches)
+
+`supabase db push` has no version allowlist. A file in `supabase/migrations/` is part of the next default push unless the apply command uses a release set.
+
+- `supabase/release-sets/FROZEN.versions` — versions that must not be introduced by a linked push. Do not mark them applied, rename them, move them, or delete them to make a push smaller.
+- `supabase/release-sets/<name>.versions` — the only Local-only versions a named production push may introduce.
+- `npm run db:push-set -- <name> --dry-run` builds an ephemeral project directory (`supabase --workdir`) containing migrations already on Remote plus that allowlist. Remote history versions that have no file in this repo get a comment-only stand-in inside that snapshot only, because the CLI refuses a push when remote history is missing locally. Those versions are already recorded, so the CLI does not execute the stand-in. Deferred and frozen files are not copied. The snapshot's linked Local-only list must equal the set. Then `db push --linked --include-all --dry-run` runs. Nothing is applied.
+- Apply, only after a separate authorization: `MIGRATION_APPLY_CONFIRM=<name> npm run db:push-set -- <name>`. The CLI records `schema_migrations` only for SQL it executes. Versions left out of the snapshot stay unapplied.
+- V1.0.1 set: `v1.0.1` → `20270913091000` only.
 
 Do **not** push, then use `migration repair … applied`, when the local file was empty.
 
 - **Local full replay:** `supabase db reset` (replays all migrations from scratch; destructive to local data unless you rely on seeds).
-- **Remote:** `supabase db push` (applies only unapplied migrations in order). Use `--include-all` when the CLI instructs you to (out-of-order local files vs remote history).
+- **Remote:** `npm run db:push-set -- <name>` after dry-run. The snapshot is what the CLI applies. Raw `supabase db push` still applies every unapplied file in the directory it is pointed at; do not point it at the full `supabase/migrations/` tree while frozen or unapproved files are Local-only. Use `--include-all` when the approved version sorts between versions already on Remote.
 - **Do not** make production schema changes only in the Supabase SQL editor or Table Editor on remote — that bypasses migration files and breaks history / `db push` for the team.
 
 ## Checking sync
@@ -63,7 +73,7 @@ Do **not** push, then use `migration repair … applied`, when the local file wa
 - Prefer **`npm run db:preflight`** (non-empty check + `migration list --linked`) over ad hoc list-only.
 - Run `supabase migration list --linked` before pushing when unsure.
 - **Local = Remote** for all rows → in sync; nothing to repair for naming alone.
-- Remote missing versions that exist locally → `supabase db push` (or `--include-all` if prompted).
+- Remote missing versions that exist locally → an approved `db:push-set`, not a raw push of every Local-only file.
 - Local missing versions that exist on remote → `supabase db pull` **or** align with team process (see caveat below).
 
 ### `db pull` caveat

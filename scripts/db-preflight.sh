@@ -17,6 +17,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# shellcheck source=lib/migration-release-set.sh
+source "$ROOT/scripts/lib/migration-release-set.sh"
+
 MIG_DIR="supabase/migrations"
 if [[ ! -d "$MIG_DIR" ]]; then
   echo "ERROR: $MIG_DIR not found" >&2
@@ -109,11 +112,41 @@ if ((warn_count > 0)); then
   echo "      Do not copy this pattern for new work. New empty Local-only files hard-fail."
 fi
 
+SETS="$ROOT/supabase/release-sets"
+if [[ ! -f "$SETS/FROZEN.versions" ]]; then
+  echo "ERROR: missing $SETS/FROZEN.versions" >&2
+  exit 1
+fi
+
+echo "── Pending classification (applied rows are omitted) ──"
+pending_file="$(mktemp)"
+printf '%s\n' "$pending_versions" >"$pending_file"
+frozen_pending=0
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  echo "CLASSIFY $line"
+  case "$line" in
+    FROZEN\ *) frozen_pending=1 ;;
+  esac
+done < <(classify_pending_versions "$pending_file" "$SETS")
+rm -f "$pending_file"
+echo
+
 if ((pending_count == 0)); then
   echo "OK: no Local-only migrations pending push."
 else
   echo "OK: $pending_count pending version(s), all non-empty ($pending_ok file(s))."
 fi
 
+if ((frozen_pending > 0)); then
+  echo >&2
+  echo "ERROR: frozen Local-only migration(s) are in supabase/migrations." >&2
+  echo "A default linked push would apply them. Refusing." >&2
+  echo "Frozen versions stay in the tree and stay unapplied." >&2
+  echo "Use npm run db:push-set -- <set> --dry-run for an approved release set." >&2
+  exit 1
+fi
+
 echo
-echo "Preflight passed. Next: npm run db:push (or supabase db push --linked)."
+echo "Preflight passed. Default npm run db:push stays fail-closed while any pending version is frozen or outside a release set."
+echo "Approved apply: npm run db:push-set -- <set> --dry-run"

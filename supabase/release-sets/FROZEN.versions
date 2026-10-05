@@ -1,0 +1,4 @@
+# Versions that must never be introduced by a linked db push.
+# Presence in supabase/migrations does not mean approved.
+20271005120000
+20271005130000
