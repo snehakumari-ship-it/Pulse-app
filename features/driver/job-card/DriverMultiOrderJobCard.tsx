@@ -42,7 +42,11 @@ import { RouteScanList } from '@/features/driver/job-card/parts/RouteScanList';
 import { StopActionButton } from '@/features/driver/job-card/parts/StopActionButton';
 import { completedStopCount } from '@/features/driver/job-card/attachOrdersToStop';
 import { allStopsFinished } from '@/features/driver/job-card/tripCompletionSummary';
-import * as tripsService from '@/features/trips/services/trips.service';
+import {
+  applyDriverCommandResult,
+  executeDriverCommand,
+  type DriverCommandResult,
+} from '@/features/driver/services/driverExecution.service';
 import { ChevronUp } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -98,6 +102,7 @@ export function DriverMultiOrderJobCard({
   const routeFinished = sesReady && allStopsFinished(stops);
   const tripCompleted =
     markedComplete || String(trip.status ?? '').toLowerCase() === 'completed';
+  const completionHandledRef = useRef(String(trip.status ?? '').toLowerCase() === 'completed');
   const orders = ordersOnStop(mission, currentId);
   const canArrive = sesReady && currentStop ? canShowArriveAction(currentStop, currentId) : false;
   const canComplete = sesReady && currentStop ? canShowCompleteAction(currentStop, currentId) : false;
@@ -154,6 +159,15 @@ export function DriverMultiOrderJobCard({
     setSummaryOpen(true);
   }, [routeFinished]);
 
+  // The server completes the trip when the final stop finishes; whichever path
+  // reports it first (stop result, Mark completed, refreshed trip) ends the mission once.
+  useEffect(() => {
+    if (!tripCompleted || completionHandledRef.current) return;
+    completionHandledRef.current = true;
+    void AsyncStorage.removeItem('driver_accepted_trip_id');
+    onTripCompleted?.();
+  }, [tripCompleted, onTripCompleted]);
+
   const frameless = variant === 'page' || edgeToEdge;
   const inSheet = variant === 'page' || edgeToEdge;
   const remainingKmLabel = formatStopKm(distanceToTargetKm ?? undefined);
@@ -186,26 +200,30 @@ export function DriverMultiOrderJobCard({
     setVerifySession(null);
   };
 
+  const applyTripOutcome = (command: DriverCommandResult | undefined) => {
+    if (!command?.ok || !command.trip_status) return;
+    if (command.trip_status === String(trip.status ?? '').toLowerCase()) return;
+    onTripUpdated?.(applyDriverCommandResult(trip, command));
+    if (command.trip_status === 'completed') setMarkedComplete(true);
+  };
+
   const markDeliveryCompleted = () => {
     void (async () => {
       setCompletingTrip(true);
       setCompleteError(null);
-      const now = new Date().toISOString();
-      const { error, trip: updated } = await tripsService.updateTripStatus(trip.id, {
-        status: 'completed',
-        completed_at: now,
-      });
+      const { error, result } = await executeDriverCommand(
+        { tripId: trip.id, command: 'COMPLETE_TRIP' },
+        trip,
+      );
       setCompletingTrip(false);
-      if (error) {
-        setCompleteError(error.message);
-        setActionError(error.message);
+      if (error || !result) {
+        const message = error?.message ?? 'Could not complete this delivery';
+        setCompleteError(message);
+        setActionError(message);
         return;
       }
+      onTripUpdated?.(applyDriverCommandResult(trip, result));
       setMarkedComplete(true);
-      const next = updated ?? { ...trip, status: 'completed', completed_at: now, updated_at: now };
-      onTripUpdated?.(next);
-      await AsyncStorage.removeItem('driver_accepted_trip_id');
-      onTripCompleted?.();
     })();
   };
 
@@ -217,6 +235,7 @@ export function DriverMultiOrderJobCard({
     void arrive().then((result) => {
       if (result.ignored) return;
       setActionError(result.ok ? null : result.error?.message ?? 'Could not arrive at this stop');
+      if (result.ok) applyTripOutcome(result.command);
     });
   };
   const runComplete = (proof: DeliveryProofDraft) => {
@@ -254,6 +273,7 @@ export function DriverMultiOrderJobCard({
         }
         setActionError(null);
         setVerified(true);
+        applyTripOutcome(result.command);
       } finally {
         setProofBusy(false);
       }

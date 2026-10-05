@@ -3,6 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import * as tripsService from "@/features/trips/services/trips.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import {
+  applyDriverCommandResult,
+  executeDriverCommand,
+} from "@/features/driver/services/driverExecution.service";
+import {
   clearLrPhase,
   hasEnteredLrPhase,
   markLrPhaseEntered,
@@ -161,20 +165,18 @@ export function useTripControl(tripId: string | undefined) {
           }
         : prev,
     );
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: "in_progress",
-      started_at: trip?.started_at ?? now,
-    });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: "START_TRIP", expectedStatus: trip?.status ?? null },
+      trip,
+    );
     setStepLoading(false);
-    if (error) {
-      setStepError(error.message);
+    if (error || !result) {
+      setStepError(error?.message ?? "Could not start the trip.");
       setStep("accepted");
       setTrip((prev) => (prev ? { ...prev, status: "assigned" } : prev));
       return;
     }
-    // Sync with server state or fallback to full reload if update didn't return a row
-    if (updated) setTrip(updated);
-    else await load();
+    setTrip((prev) => (prev ? applyDriverCommandResult(prev, result) : prev));
   };
 
   /**
@@ -202,12 +204,13 @@ export function useTripControl(tripId: string | undefined) {
         ? { ...prev, status: "in_transit", updated_at: now }
         : prev,
     );
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: "in_transit",
-    });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: "DEPART_PICKUP", expectedStatus: trip?.status ?? null },
+      trip,
+    );
     setStepLoading(false);
-    if (error) {
-      setStepError(error.message);
+    if (error || !result) {
+      setStepError(error?.message ?? "Could not update the trip.");
       setStep("pickup");
       // Transit write failed — keep the LR-phase marker so a reload restores
       // the driver's place instead of the "Package collected" screen.
@@ -217,9 +220,7 @@ export function useTripControl(tripId: string | undefined) {
     }
     // Left the LR phase for good — drop the persisted marker (success only).
     void clearLrPhase(id);
-    // Sync with server state or fallback to full reload if update didn't return a row
-    if (updated) setTrip(updated);
-    else await load();
+    setTrip((prev) => (prev ? applyDriverCommandResult(prev, result) : prev));
   };
 
   const confirmReached = async () => {
@@ -227,27 +228,17 @@ export function useTripControl(tripId: string | undefined) {
     if (!id || stepLoading) return;
     setStepError(null);
     setStepLoading(true);
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: "at_drop",
-    });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: "ARRIVE_DROP", expectedStatus: trip?.status ?? null },
+      trip,
+    );
     setStepLoading(false);
-    if (error) {
-      const isStatusCheckError =
-        /trips_status_check|check constraint/i.test(error.message);
-      if (isStatusCheckError) {
-        setStep("reached");
-        setTrip((prev) =>
-          prev ? { ...prev, updated_at: new Date().toISOString() } : prev,
-        );
-        setStepError(null);
-        return;
-      }
-      setStepError(error.message);
+    if (error || !result) {
+      setStepError(error?.message ?? "Could not update the trip.");
       return;
     }
     setStep("reached");
-    if (updated) setTrip(updated);
-    else await load();
+    setTrip((prev) => (prev ? applyDriverCommandResult(prev, result) : prev));
   };
 
   const completeTrip = async () => {
@@ -260,17 +251,17 @@ export function useTripControl(tripId: string | undefined) {
         ? { ...prev, status: "completed", completed_at: now, updated_at: now }
         : prev,
     );
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: "completed",
-      completed_at: now,
-    });
-    if (error) {
-      setStepError(error.message);
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: "COMPLETE_TRIP", expectedStatus: trip?.status ?? null },
+      trip,
+    );
+    if (error || !result) {
+      setStepError(error?.message ?? "Could not complete the trip.");
       setStep("reached");
+      setTrip((prev) => (prev ? { ...prev, status: "at_drop", completed_at: null } : prev));
       return;
     }
-    if (updated) setTrip(updated);
-    else await load();
+    setTrip((prev) => (prev ? applyDriverCommandResult(prev, result) : prev));
 
     // Neither cache was invalidated on completion before -- the Dashboard's
     // availability gate and DriverTripOpsContext's own "current active job"

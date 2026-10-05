@@ -118,6 +118,7 @@ import {
     shouldShowDriverToDropRoute,
 } from "@/lib/driverMapRoute.util";
 import * as tripsService from "@/features/trips/services/trips.service";
+import { executeDriverCommand } from "@/features/driver/services/driverExecution.service";
 import {
   deriveTripStage,
   getTripStageGuidance,
@@ -1133,16 +1134,16 @@ export default function DriverRadarScreen() {
 
     setAcceptError(null);
     setAcceptLoading(true);
-    const { error: acceptSyncError } = await tripsService.updateTripStatus(trip.id, {
-      // Persist driver acceptance without changing lifecycle stage.
-      status: "assigned",
-    });
+    const { error: acceptSyncError } = await executeDriverCommand(
+      { tripId: trip.id, command: "ACCEPT_TRIP" },
+      trip,
+    );
     if (acceptSyncError) {
       setAcceptError(acceptSyncError.message);
       setAcceptLoading(false);
       return;
     }
-    // Durable, server-side record of the driver's tap. The status write above keeps
+    // Durable, server-side record of the driver's tap. ACCEPT_TRIP above leaves
     // the trip on 'assigned', so without this row nothing outside this device can
     // tell acceptance apart from the dispatcher's assignment — which is why the web
     // manifest used to guess. Awaited (not fire-and-forget) so this row's changed_at

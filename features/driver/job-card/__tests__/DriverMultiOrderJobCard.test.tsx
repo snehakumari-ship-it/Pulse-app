@@ -46,6 +46,16 @@ jest.mock('@/features/trips/services/trips.service', () => ({
   updateTripStatus: jest.fn().mockResolvedValue({ error: null, trip: { id: 'trip-1', status: 'completed' } }),
 }));
 
+const mockExecuteDriverCommand = jest.fn();
+jest.mock('@/features/driver/services/driverExecution.service', () => ({
+  executeDriverCommand: (...args: unknown[]) => mockExecuteDriverCommand(...args),
+  applyDriverCommandResult: (row: Record<string, unknown>, result: Record<string, unknown>) => ({
+    ...row,
+    status: result.trip_status ?? row.status,
+    completed_at: result.completed_at ?? row.completed_at,
+  }),
+}));
+
 jest.mock('@/features/driver/job-card/persistStopDeliveryProof', () => ({
   persistStopDeliveryProof: jest.fn().mockResolvedValue({ ok: true }),
 }));
@@ -113,6 +123,11 @@ describe('DriverMultiOrderJobCard', () => {
     (persistStopDeliveryProof as jest.Mock).mockClear();
     (updateTripStatus as jest.Mock).mockClear();
     (updateTripStatus as jest.Mock).mockResolvedValue({ error: null, trip: { id: 'trip-1', status: 'completed' } });
+    mockExecuteDriverCommand.mockReset();
+    mockExecuteDriverCommand.mockResolvedValue({
+      error: null,
+      result: { ok: true, applied: false, command: 'COMPLETE_TRIP', trip_status: 'completed', completed_at: 'c' },
+    });
     mockUseDriverCommerceMission.mockReset();
     mockUseDriverCommerceMission.mockReturnValue(missionWithOrders([
       {
@@ -340,12 +355,99 @@ describe('DriverMultiOrderJobCard', () => {
     expect(getByTestId('driver-trip-completion')).toBeTruthy();
     expect(getByText(/deliveries/)).toBeTruthy();
     fireEvent.press(getByLabelText('Mark delivery completed'));
-    await waitFor(() => expect(updateTripStatus).toHaveBeenCalledWith(
-      'trip-1',
-      expect.objectContaining({ status: 'completed' }),
+    await waitFor(() => expect(mockExecuteDriverCommand).toHaveBeenCalledWith(
+      { tripId: 'trip-1', command: 'COMPLETE_TRIP' },
+      expect.objectContaining({ id: 'trip-1' }),
     ));
     await waitFor(() => expect(onTripCompleted).toHaveBeenCalledTimes(1));
     expect(getByText('Delivery completed')).toBeTruthy();
+    expect(updateTripStatus).not.toHaveBeenCalled();
+  });
+
+  it('shows the server rejection when Mark delivery completed is refused', async () => {
+    mockExecuteDriverCommand.mockResolvedValue({
+      error: Object.assign(new Error('Finish every stop before completing this trip.'), { code: 'stops_incomplete' }),
+      result: { ok: false, command: 'COMPLETE_TRIP', error_code: 'stops_incomplete' },
+    });
+    const onTripCompleted = jest.fn();
+    const onTripUpdated = jest.fn();
+    const done = [pickup, dropA, dropB].map((s) => ({ ...s, status: 'completed' as const }));
+    const { getByLabelText, getAllByText } = render(
+      <DriverMultiOrderJobCard
+        trip={trip()}
+        onTripCompleted={onTripCompleted}
+        onTripUpdated={onTripUpdated}
+        stopExecution={execution({ stops: done, currentStop: null, nextStop: null })}
+      />,
+    );
+    fireEvent.press(getByLabelText('Mark delivery completed'));
+    await waitFor(() => expect(getAllByText('Finish every stop before completing this trip.').length).toBeGreaterThan(0));
+    expect(onTripCompleted).not.toHaveBeenCalled();
+    expect(onTripUpdated).not.toHaveBeenCalled();
+    expect(updateTripStatus).not.toHaveBeenCalled();
+  });
+
+  it('final stop completed by the server completes the trip once without another write', async () => {
+    const onTripCompleted = jest.fn();
+    const onTripUpdated = jest.fn();
+    const arrivedDrop = { ...dropB, status: 'arrived' as const };
+    const complete = jest.fn().mockResolvedValue({
+      ok: true,
+      command: {
+        ok: true, applied: true, command: 'COMPLETE_STOP', trip_status: 'completed',
+        previous_status: 'in_progress', trip_completed: true, completed_at: 'c',
+      },
+    });
+    const { getByLabelText } = render(
+      <DriverMultiOrderJobCard
+        trip={{ id: 'trip-1', status: 'in_progress' } as TripRow}
+        onTripCompleted={onTripCompleted}
+        onTripUpdated={onTripUpdated}
+        stopExecution={execution({
+          stops: [{ ...pickup, status: 'completed' }, { ...dropA, status: 'completed' }, arrivedDrop],
+          currentStop: arrivedDrop,
+          nextStop: null,
+          complete,
+        })}
+      />,
+    );
+    fireEvent.press(getByLabelText('Verify delivery'));
+    fireEvent.press(getByLabelText('Handed to recipient'));
+    fireEvent.press(getByLabelText('Confirm delivery'));
+    await waitFor(() => expect(onTripCompleted).toHaveBeenCalledTimes(1));
+    expect(onTripUpdated).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed' }));
+    expect(mockExecuteDriverCommand).not.toHaveBeenCalled();
+    expect(updateTripStatus).not.toHaveBeenCalled();
+  });
+
+  it('first arrival that starts the trip reports the server status', async () => {
+    const onTripUpdated = jest.fn();
+    const arrive = jest.fn().mockResolvedValue({
+      ok: true,
+      command: { ok: true, applied: true, command: 'ARRIVE_STOP', trip_status: 'in_progress', previous_status: 'assigned', trip_started: true },
+    });
+    const { getByLabelText } = render(
+      <DriverMultiOrderJobCard
+        trip={{ id: 'trip-1', status: 'assigned' } as TripRow}
+        onTripUpdated={onTripUpdated}
+        stopExecution={execution({ stops: [pickup, dropA], currentStop: pickup, nextStop: dropA, arrive })}
+      />,
+    );
+    fireEvent.press(getByLabelText('Ready to pick up'));
+    await waitFor(() => expect(onTripUpdated).toHaveBeenCalledWith(expect.objectContaining({ status: 'in_progress' })));
+  });
+
+  it('a trip already completed on mount does not re-run mission completion', () => {
+    const onTripCompleted = jest.fn();
+    const done = [pickup, dropA, dropB].map((s) => ({ ...s, status: 'completed' as const }));
+    render(
+      <DriverMultiOrderJobCard
+        trip={{ id: 'trip-1', status: 'completed' } as TripRow}
+        onTripCompleted={onTripCompleted}
+        stopExecution={execution({ stops: done, currentStop: null, nextStop: null })}
+      />,
+    );
+    expect(onTripCompleted).not.toHaveBeenCalled();
   });
 
   it('does not offer Arrive/Complete when SES is empty even if Primitive A has stops', () => {

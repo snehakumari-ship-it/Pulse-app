@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { appendTripOperationalTimelineEventSafe } from "@/features/trips/operations/timeline/timelineEvents.service";
+import { executeDriverCommand } from "@/features/driver/services/driverExecution.service";
 import type {
   DistanceSource,
   OdometerVerificationState,
@@ -16,6 +17,8 @@ export interface SaveTripVerificationInput {
   notes?: string | null;
   updatedBy: string | null;
   markBusinessVerified?: boolean;
+  /** Idempotency key for the driver command path; keep it stable across offline retries. */
+  commandId?: string;
 }
 
 export interface SaveTripVerificationBothInput {
@@ -26,6 +29,62 @@ export interface SaveTripVerificationBothInput {
   notes?: string | null;
   updatedBy: string | null;
   markBusinessVerified?: boolean;
+  commandId?: string;
+}
+
+/**
+ * Assigned driver → RECORD_ODOMETER (server derives distance, discrepancy, source,
+ * state). Returns null when the server says the caller is not the trip's driver,
+ * so office/staff keep the direct write below. Business verification is office-only
+ * and never goes through the driver command.
+ */
+async function recordOdometerViaDriverCommand(
+  tripId: string,
+  payload: Record<string, unknown>,
+  side: VerificationSide | "both",
+  commandId: string | undefined,
+  actorUserId: string | null,
+): Promise<{ error: Error | null; trip: TripRow | null } | null> {
+  const { error, result } = await executeDriverCommand({
+    tripId,
+    command: "RECORD_ODOMETER",
+    commandId,
+    payload: { side, ...payload },
+  });
+  if (error?.code === "not_assigned_driver") return null;
+  if (error) return { error, trip: null };
+  const odometer = result?.odometer;
+  if (result?.applied && !result.replayed && odometer && result.organization_id) {
+    const discrepancyKm = odometer.distance_discrepancy_km;
+    await appendTripOperationalTimelineEventSafe({
+      organizationId: result.organization_id,
+      tripId,
+      eventType: "odometer_added",
+      sourceType: "odometer",
+      sourceId: tripId,
+      actorUserId,
+      payload: {
+        side,
+        ...(side === "both"
+          ? { startOdometerKm: odometer.start_odometer_km, endOdometerKm: odometer.end_odometer_km }
+          : { odometerKm: payload.odometer_km ?? null }),
+        discrepancyKm,
+        verificationState: odometer.odometer_verification_state,
+      },
+    });
+    if (discrepancyKm != null && discrepancyKm > 0) {
+      await appendTripOperationalTimelineEventSafe({
+        organizationId: result.organization_id,
+        tripId,
+        eventType: "discrepancy_detected",
+        sourceType: "odometer",
+        sourceId: tripId,
+        actorUserId,
+        payload: { discrepancyKm, distanceSource: odometer.distance_source },
+      });
+    }
+  }
+  return { error: null, trip: null };
 }
 
 function roundKm(value: number | null | undefined): number | null {
@@ -113,6 +172,21 @@ export function toVerificationSnapshot(trip: TripRow): TripVerificationSnapshot 
 export async function saveTripVerification(
   input: SaveTripVerificationInput,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
+  if (!input.markBusinessVerified) {
+    const viaCommand = await recordOdometerViaDriverCommand(
+      input.tripId,
+      {
+        odometer_km: roundKm(input.odometerKm),
+        ...(input.gpsDistanceKm !== undefined ? { gps_distance_km: roundKm(input.gpsDistanceKm) } : {}),
+        notes: input.notes ?? null,
+      },
+      input.side,
+      input.commandId,
+      input.updatedBy,
+    );
+    if (viaCommand) return viaCommand;
+  }
+
   const { data: current, error: readError } = await supabase()
     .from("trips")
     .select(
@@ -210,6 +284,22 @@ export async function saveTripVerification(
 export async function saveTripVerificationBoth(
   input: SaveTripVerificationBothInput,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
+  if (!input.markBusinessVerified) {
+    const viaCommand = await recordOdometerViaDriverCommand(
+      input.tripId,
+      {
+        start_odometer_km: roundKm(input.startOdometerKm),
+        end_odometer_km: roundKm(input.endOdometerKm),
+        ...(input.gpsDistanceKm !== undefined ? { gps_distance_km: roundKm(input.gpsDistanceKm) } : {}),
+        notes: input.notes ?? null,
+      },
+      "both",
+      input.commandId,
+      input.updatedBy,
+    );
+    if (viaCommand) return viaCommand;
+  }
+
   const { data: current, error: readError } = await supabase()
     .from("trips")
     .select(

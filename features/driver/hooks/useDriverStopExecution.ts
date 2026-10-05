@@ -13,9 +13,18 @@ import {
   type DriverStopTransition,
 } from '@/features/driver/execution/resolveDriverStopTransition';
 import { transitionDriverStopExecution } from '@/features/driver/execution/transitionDriverStopExecution';
+import type { DriverCommandResult } from '@/features/driver/services/driverExecution.service';
 import { logger } from '@/lib/logger';
 
 export type DriverStopMutationKind = DriverStopTransition | null;
+
+/** `command` carries the trip outcome (started / completed) decided by the server. */
+export type DriverStopActionResult = {
+  ok: boolean;
+  ignored?: boolean;
+  error?: Error;
+  command?: DriverCommandResult;
+};
 
 export type DriverStopExecutionController = {
   tripId: string;
@@ -24,8 +33,8 @@ export type DriverStopExecutionController = {
   nextStop: ReturnType<typeof deriveNextStop>;
   mutating: DriverStopMutationKind;
   hydrated: boolean;
-  arrive: () => Promise<{ ok: boolean; ignored?: boolean; error?: Error }>;
-  complete: () => Promise<{ ok: boolean; ignored?: boolean; error?: Error }>;
+  arrive: () => Promise<DriverStopActionResult>;
+  complete: () => Promise<DriverStopActionResult>;
 };
 
 /**
@@ -80,7 +89,7 @@ export function useDriverStopExecution(tripId: string | null | undefined): Drive
     };
   }, [tripId]);
 
-  const runTransition = useCallback(async (transition: DriverStopTransition) => {
+  const runTransition = useCallback(async (transition: DriverStopTransition): Promise<DriverStopActionResult> => {
     if (busyRef.current) {
       return { ok: false, ignored: true as const };
     }
@@ -124,7 +133,7 @@ export function useDriverStopExecution(tripId: string | null | undefined): Drive
         transition,
         error: result.error,
       });
-      return { ok: false, error: result.error };
+      return { ok: false, error: result.error, command: result.command ?? undefined };
     }
 
     setBundle((prev) => {
@@ -135,7 +144,7 @@ export function useDriverStopExecution(tripId: string | null | undefined): Drive
     });
     busyRef.current = false;
     setMutating(null);
-    return { ok: true };
+    return { ok: true, command: result.command };
   }, []);
 
   const arrive = useCallback(() => runTransition('arrive'), [runTransition]);

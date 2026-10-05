@@ -12,6 +12,7 @@ import {
 import { linkTripDocumentOcrJob } from "@/features/ocr/services/ocrJob.service";
 import { uploadVerificationPhoto } from "../uploads/odometerUploads";
 import { saveTripVerification, saveTripVerificationBoth } from "../verification.service";
+import { uuidv7 } from "@/lib/uuidv7";
 import type {
   SaveTripVerificationBothInput,
   SaveTripVerificationInput,
@@ -72,6 +73,7 @@ export function useSaveTripVerification() {
         tripId,
         ...verificationInput
       } = input;
+      const commandId = verificationInput.commandId ?? uuidv7();
       const metadataPayload = {
         tripId,
         side: verificationInput.side,
@@ -80,6 +82,7 @@ export function useSaveTripVerification() {
         notes: verificationInput.notes ?? null,
         updatedBy: verificationInput.updatedBy,
         markBusinessVerified: verificationInput.markBusinessVerified,
+        commandId,
       };
 
       if (!isOnline) {
@@ -95,7 +98,7 @@ export function useSaveTripVerification() {
         return { queued: true as const };
       }
 
-      const verificationRes = await saveTripVerification({ tripId, ...verificationInput });
+      const verificationRes = await saveTripVerification({ tripId, ...verificationInput, commandId });
       if (verificationRes.error) {
         await enqueueVerificationMetadata(metadataPayload);
         if (photoLocalUri) {

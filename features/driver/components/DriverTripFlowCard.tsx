@@ -63,6 +63,10 @@ import * as tripDocumentsService from '@/features/trips/services/tripDocuments.s
 import { findOrgDuplicateLrNumberForTrip } from '@/features/trips/services/orgLrDuplicate.service';
 import { ORG_LR_DUPLICATE_MESSAGE } from '@/features/trips/services/orgLrNumber.util';
 import * as tripsService from '@/features/trips/services/trips.service';
+import {
+  applyDriverCommandResult,
+  executeDriverCommand,
+} from '@/features/driver/services/driverExecution.service';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import {
@@ -989,23 +993,22 @@ export function DriverTripFlowCard({
     };
     setLocalTrip(optimistic);
     onTripUpdated?.(optimistic);
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: 'in_progress',
-      started_at: localTrip?.started_at ?? now,
-    });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: 'START_TRIP', expectedStatus: localTrip?.status ?? null },
+      localTrip,
+    );
     setStepLoading(false);
-    if (error) {
-      setStepError(error.message);
+    if (error || !result) {
+      setStepError(error?.message ?? 'Could not start the trip.');
       setStep('accepted');
       const reverted = { ...localTrip, status: 'assigned' };
       setLocalTrip(reverted);
       onTripUpdated?.(reverted);
       return;
     }
-    if (updated) {
-      setLocalTrip(updated);
-      onTripUpdated?.(updated);
-    }
+    const updated = applyDriverCommandResult(localTrip, result);
+    setLocalTrip(updated);
+    onTripUpdated?.(updated);
     syncAfterStatusWrite();
   };
 
@@ -1029,12 +1032,13 @@ export function DriverTripFlowCard({
     const optimistic = { ...localTrip, status: 'in_transit', updated_at: now };
     setLocalTrip(optimistic);
     onTripUpdated?.(optimistic);
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: 'in_transit',
-    });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: 'DEPART_PICKUP', expectedStatus: localTrip?.status ?? null },
+      localTrip,
+    );
     setStepLoading(false);
-    if (error) {
-      setStepError(error.message);
+    if (error || !result) {
+      setStepError(error?.message ?? 'Could not update the trip.');
       setStep('lr');
       const reverted = { ...localTrip, status: 'in_progress', updated_at: localTrip.updated_at };
       setLocalTrip(reverted);
@@ -1044,10 +1048,9 @@ export function DriverTripFlowCard({
     // Left the LR phase for good — drop the persisted marker so it can't
     // restore a stale sub-step after a future reload.
     void clearLrPhase(id);
-    if (updated) {
-      setLocalTrip(updated);
-      onTripUpdated?.(updated);
-    }
+    const updated = applyDriverCommandResult(localTrip, result);
+    setLocalTrip(updated);
+    onTripUpdated?.(updated);
     syncAfterStatusWrite();
   };
 
@@ -1061,26 +1064,22 @@ export function DriverTripFlowCard({
     setStep('reached');
     setLocalTrip(optimistic);
     onTripUpdated?.(optimistic);
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, { status: 'at_drop' });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: 'ARRIVE_DROP', expectedStatus: localTrip?.status ?? null },
+      localTrip,
+    );
     setStepLoading(false);
-    if (error) {
-      const isStatusCheckError = /trips_status_check|check constraint/i.test(error.message);
-      if (isStatusCheckError) {
-        // Constraint blocked write — keep reached UI so driver can still upload POD / retry.
-        setStepError(null);
-        return;
-      }
+    if (error || !result) {
       setStep('transit');
       const reverted = { ...localTrip, status: 'in_transit', updated_at: localTrip.updated_at };
       setLocalTrip(reverted);
       onTripUpdated?.(reverted);
-      setStepError(error.message);
+      setStepError(error?.message ?? 'Could not update the trip.');
       return;
     }
-    if (updated) {
-      setLocalTrip(updated);
-      onTripUpdated?.(updated);
-    }
+    const updated = applyDriverCommandResult(localTrip, result);
+    setLocalTrip(updated);
+    onTripUpdated?.(updated);
     syncAfterStatusWrite();
   };
 
@@ -1353,30 +1352,27 @@ export function DriverTripFlowCard({
     const now = new Date().toISOString();
     setHoldProgress(0);
     setIsHolding(false);
-    // Deliberately NOT optimistic. updateTripStatus() runs server-side guards that
-    // routinely reject completion (e.g. a direct_quote trip with no supplier_id), and
-    // flipping to step 'completed' first unmounted the stepError banner — which lives
-    // inside the `step !== 'completed'` branch — so the driver saw the panel snap back
-    // to POD with no reason given, indistinguishable from a reload. Stay on this step
-    // until the write is confirmed.
+    // Deliberately NOT optimistic. The server routinely rejects completion (POD
+    // required, missing supplier link), and flipping to step 'completed' first
+    // unmounted the stepError banner — which lives inside the `step !== 'completed'`
+    // branch — so the driver saw the panel snap back to POD with no reason given,
+    // indistinguishable from a reload. Stay on this step until the write is confirmed.
     setCompleting(true);
     setStepError(null);
-    const { error, trip: updated } = await tripsService.updateTripStatus(id, {
-      status: 'completed',
-      completed_at: now,
-    });
+    const { error, result } = await executeDriverCommand(
+      { tripId: id, command: 'COMPLETE_TRIP', expectedStatus: localTrip?.status ?? null },
+      localTrip,
+    );
     setCompleting(false);
-    if (error) {
-      setStepError(error.message);
+    if (error || !result) {
+      setStepError(error?.message ?? 'Could not complete the trip.');
       return;
     }
     setStep('completed');
-    const next = updated ?? {
-      ...localTrip,
-      status: 'completed',
-      completed_at: now,
-      updated_at: now,
-    };
+    const next = applyDriverCommandResult(
+      { ...localTrip, completed_at: localTrip?.completed_at ?? now },
+      result,
+    );
     setLocalTrip(next);
     onTripUpdated?.(next);
     await AsyncStorage.removeItem(DRIVER_ACCEPTED_TRIP_ID_KEY);

@@ -23,6 +23,7 @@ export interface VerificationMetadataQueueItem extends QueueBase {
     notes: string | null;
     updatedBy: string | null;
     markBusinessVerified?: boolean;
+    commandId?: string;
   };
 }
 

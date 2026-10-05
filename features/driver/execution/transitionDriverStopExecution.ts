@@ -1,13 +1,11 @@
-import { supabase } from '@/lib/supabase';
 import type { DriverSesJoinRow } from '@/features/driver/execution/driverStopExecution.types';
 import type { DriverStopExecutionBundle } from '@/features/driver/execution/driverStopExecution.types';
-import { fetchDriverStopExecution, SES_STOPS_SELECT } from '@/features/driver/execution/fetchDriverStopExecution';
+import { fetchDriverStopExecution } from '@/features/driver/execution/fetchDriverStopExecution';
+import type { DriverStopTransition } from '@/features/driver/execution/resolveDriverStopTransition';
 import {
-  buildDriverStopTransitionPatch,
-  expectedStatusForTransition,
-  resolveConditionalStopTransition,
-  type DriverStopTransition,
-} from '@/features/driver/execution/resolveDriverStopTransition';
+  executeDriverCommand,
+  type DriverCommandResult,
+} from '@/features/driver/services/driverExecution.service';
 
 export type TransitionDriverStopResult =
   | {
@@ -15,99 +13,64 @@ export type TransitionDriverStopResult =
       kind: 'applied' | 'idempotent';
       row: DriverSesJoinRow;
       refetchedBundle: DriverStopExecutionBundle | null;
+      command: DriverCommandResult;
     }
   | {
       ok: false;
       error: Error;
       refetchedBundle: DriverStopExecutionBundle | null;
+      command: DriverCommandResult | null;
     };
 
 /**
- * Conditional SES update. Authorization is RLS
- * (trips.driver_id → drivers.user_id = auth.uid()).
- * Never writes driver_id, sequence, or planning columns.
- * Never touches trips.status.
+ * ARRIVE_STOP / COMPLETE_STOP through driver_execute_command. The server owns
+ * stop order, POD, timestamps, and the trip transitions they imply (start on the
+ * first arrival, completion on the final stop).
  */
 export async function transitionDriverStopExecution(input: {
   tripId: string;
   stopId: string;
   transition: DriverStopTransition;
-  nowIso?: string;
+  commandId?: string;
 }): Promise<TransitionDriverStopResult> {
   const { tripId, stopId, transition } = input;
   if (!tripId || !stopId) {
-    return { ok: false, error: new Error('Missing trip or stop'), refetchedBundle: null };
+    return { ok: false, error: new Error('Missing trip or stop'), refetchedBundle: null, command: null };
   }
 
-  const expected = expectedStatusForTransition(transition);
-  const patch = buildDriverStopTransitionPatch(
-    transition,
-    input.nowIso ?? new Date().toISOString(),
-  );
-
-  const { data, error } = await supabase()
-    .from('stop_execution_state')
-    .update(patch)
-    .eq('trip_id', tripId)
-    .eq('stop_id', stopId)
-    .eq('status', expected)
-    .select(SES_STOPS_SELECT)
-    .maybeSingle();
-
-  if (error) {
-    return { ok: false, error: new Error(error.message), refetchedBundle: null };
-  }
-
-  const affected = (data ?? null) as DriverSesJoinRow | null;
-  if (affected?.status) {
-    const resolved = resolveConditionalStopTransition({
-      transition,
-      affected,
-      authoritative: affected,
-    });
-    if (resolved.kind === 'applied' || resolved.kind === 'idempotent') {
-      return { ok: true, kind: resolved.kind, row: resolved.row, refetchedBundle: null };
-    }
-  }
-
-  const refetch = await fetchDriverStopExecution(tripId);
-  if (!refetch.ok) {
-    return { ok: false, error: refetch.error, refetchedBundle: null };
-  }
-
-  const authoritative: DriverSesJoinRow | null =
-    refetch.bundle.stops
-      .map((stop) => ({
-        trip_id: tripId,
-        stop_id: stop.stopId,
-        sequence: stop.sequence,
-        status: stop.status,
-        driver_id: stop.driverId,
-        arrived_at: stop.arrivedAt,
-        completed_at: stop.completedAt,
-        skip_reason: stop.skipReason,
-        failure_reason: stop.failureReason,
-      }))
-      .find((row) => row.stop_id === stopId) ?? null;
-
-  const resolved = resolveConditionalStopTransition({
-    transition,
-    affected: null,
-    authoritative,
+  const { error, result } = await executeDriverCommand({
+    tripId,
+    command: transition === 'arrive' ? 'ARRIVE_STOP' : 'COMPLETE_STOP',
+    commandId: input.commandId,
+    payload: { stop_id: stopId },
   });
 
-  if (resolved.kind === 'applied' || resolved.kind === 'idempotent') {
+  const stop = result?.ok ? result.stop : undefined;
+  if (!error && result && stop?.trip_id) {
     return {
       ok: true,
-      kind: resolved.kind,
-      row: resolved.row,
-      refetchedBundle: refetch.bundle,
+      kind: result.applied === false ? 'idempotent' : 'applied',
+      row: {
+        trip_id: stop.trip_id,
+        stop_id: stop.stop_id,
+        sequence: stop.sequence ?? 0,
+        status: stop.status,
+        driver_id: stop.driver_id ?? null,
+        arrived_at: stop.arrived_at ?? null,
+        completed_at: stop.completed_at ?? null,
+        skip_reason: stop.skip_reason ?? null,
+        failure_reason: stop.failure_reason ?? null,
+      },
+      refetchedBundle: null,
+      command: result,
     };
   }
 
+  const refetch = await fetchDriverStopExecution(tripId);
   return {
     ok: false,
-    error: resolved.error,
-    refetchedBundle: refetch.bundle,
+    error: error ?? new Error('Could not update this stop'),
+    refetchedBundle: refetch.ok ? refetch.bundle : null,
+    command: result,
   };
 }
