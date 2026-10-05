@@ -132,6 +132,11 @@ function writePreviewCache(cache: Map<string, PreviewCacheEntry>, path: string, 
 }
 
 type DocTab = "trip" | "vehicle" | "driver";
+
+/** Optimistic decisions survive tab switches. Key includes the tab so trip/vehicle/driver rows cannot collide. */
+function optimisticKey(scope: DocTab, rowKey: string): string {
+  return `${scope}:${rowKey}`;
+}
 type ChecklistPreviewMode = "document" | "trip" | "advance" | "finance";
 type ComplianceReviewGroup = "required" | "optional";
 
@@ -892,8 +897,11 @@ export function ComplianceDocumentWorkspace({
   const listRows = isFinanceMode ? financeRows : checklistRows;
   const reviewScope: DocTab = isFinanceMode ? "trip" : tab;
   const displayListRows = useMemo(
-    () => listRows.map((row) => applyOptimisticDecision(row, localDecisionByKey[row.key])),
-    [listRows, localDecisionByKey],
+    () =>
+      listRows.map((row) =>
+        applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]),
+      ),
+    [listRows, localDecisionByKey, reviewScope],
   );
   /** Each tab (Finance, Trip, Vehicle, Driver) uses the same group Approve. */
   const showGroupedReview = !showEntityUnassigned;
@@ -960,12 +968,15 @@ export function ComplianceDocumentWorkspace({
   }, [focusTab, focusToken]);
 
   useEffect(() => {
+    setLocalDecisionByKey({});
+  }, [summary?.trip.id]);
+
+  useEffect(() => {
     setDocIndex(0);
     setZoom(1);
     setChecklistPreviewMode("document");
     setDeclineOpen(false);
     setRejectOpen(false);
-    setLocalDecisionByKey({});
     setExpiryPrompt((prev) => {
       prev?.resolve(null);
       return null;
@@ -1152,7 +1163,7 @@ export function ComplianceDocumentWorkspace({
   }, []);
 
   /** One Approve write (trip doc, vehicle vault or entity doc). Alerts on failure; caller owns `busy`. */
-  const writeApproval = async (row: ComplianceDocRow): Promise<boolean> => {
+  const writeApproval = async (row: ComplianceDocRow, sync = true): Promise<boolean> => {
     if (!summary || !actorId) return false;
     const tripId = summary.trip.id;
 
@@ -1171,7 +1182,9 @@ export function ComplianceDocumentWorkspace({
         alertMessage("Couldn't approve document", error.message);
         return false;
       }
-      onChanged({ type: "tripDocumentDecision", tripId, documentId: row.doc.id, status: "verified", actorId });
+      if (sync) {
+        onChanged({ type: "tripDocumentDecision", tripId, documentId: row.doc.id, status: "verified", actorId });
+      }
       return true;
     }
     if (row.entityDoc?.source === "vehicle-vault" && summary.trip.vehicle_id) {
@@ -1181,7 +1194,7 @@ export function ComplianceDocumentWorkspace({
         alertMessage("Couldn't approve document", marked.error.message);
         return false;
       }
-      onChanged({ type: "vehicleDocuments", vehicleId });
+      if (sync) onChanged({ type: "vehicleDocuments", vehicleId });
       return true;
     }
     if (row.entityDoc?.id && row.entityDoc.source !== "driver-kyc") {
@@ -1190,7 +1203,7 @@ export function ComplianceDocumentWorkspace({
         alertMessage("Couldn't approve document", error.message);
         return false;
       }
-      onChanged(entityDocumentChange(row.entityDoc));
+      if (sync) onChanged(entityDocumentChange(row.entityDoc));
       return true;
     }
     alertMessage("Couldn't approve document", "This document can't be approved from this preview.");
@@ -1261,7 +1274,7 @@ export function ComplianceDocumentWorkspace({
     const allApproved = requiredRows.every(
       (row) =>
         approved.has(row.key) ||
-        applyOptimisticDecision(row, localDecisionByKey[row.key]).status === "verified",
+        applyOptimisticDecision(row, localDecisionByKey[optimisticKey("trip", row.key)]).status === "verified",
     );
     if (!allApproved) return;
     const tripLabel = getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null);
@@ -1302,31 +1315,51 @@ export function ComplianceDocumentWorkspace({
   const approveGroup = async (group: ComplianceReviewGroup) => {
     if (!summary || busy) return;
     if (!ensureCanModerate("Can't approve", "Approve")) return;
+    const scope = reviewScope;
+    const tripId = summary.trip.id;
+    const vehicleId = summary.trip.vehicle_id;
+    const driverId = summary.trip.driver_id;
     const targets = groupActionableRows(group).filter(
       (row) =>
-        complianceReviewDecisionActions(applyOptimisticDecision(row, localDecisionByKey[row.key])).canApprove,
+        complianceReviewDecisionActions(
+          applyOptimisticDecision(row, localDecisionByKey[optimisticKey(scope, row.key)]),
+        ).canApprove,
     );
     if (targets.length === 0) return;
+    // Paint Approved before the network round-trip so the tab badge does not wait on the queue.
+    setLocalDecisionByKey((prev) => {
+      const next = { ...prev };
+      for (const row of targets) next[optimisticKey(scope, row.key)] = recordOptimisticDecision(row, "verified");
+      return next;
+    });
     setBusy(true);
     setGroupBusy({ group, decision: "verified" });
     const approved: ComplianceDocRow[] = [];
     try {
-      for (const row of targets) {
-        if (!(await writeApproval(row))) break;
-        approved.push(row);
+      const results = await Promise.all(
+        targets.map(async (row) => ({ row, ok: await writeApproval(row, false) })),
+      );
+      const failedKeys: string[] = [];
+      for (const { row, ok } of results) {
+        if (ok) approved.push(row);
+        else failedKeys.push(optimisticKey(scope, row.key));
       }
-    } finally {
-      if (approved.length > 0) {
+      if (failedKeys.length > 0) {
         setLocalDecisionByKey((prev) => {
           const next = { ...prev };
-          for (const row of approved) next[row.key] = recordOptimisticDecision(row, "verified");
+          for (const key of failedKeys) delete next[key];
           return next;
         });
       }
+    } finally {
       setGroupBusy(null);
       setBusy(false);
     }
-    if (approved.length > 0) void autoVerifyIfRequiredApproved(approved.map((row) => row.key));
+    if (approved.length === 0) return;
+    if (scope === "trip") onChanged({ type: "tripDocuments", tripId });
+    else if (scope === "vehicle" && vehicleId) onChanged({ type: "vehicleDocuments", vehicleId });
+    else if (scope === "driver" && driverId) onChanged({ type: "driverDocuments", driverId });
+    void autoVerifyIfRequiredApproved(approved.map((row) => row.key));
   };
 
   const openDecline = (target: ComplianceReviewGroup) => {
@@ -1346,7 +1379,9 @@ export function ComplianceDocumentWorkspace({
 
     const targets = groupActionableRows(target).filter(
       (row) =>
-        complianceReviewDecisionActions(applyOptimisticDecision(row, localDecisionByKey[row.key])).canDecline,
+        complianceReviewDecisionActions(
+          applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]),
+        ).canDecline,
     );
     if (targets.length === 0) {
       setDeclineOpen(false);
@@ -1365,7 +1400,9 @@ export function ComplianceDocumentWorkspace({
       if (declined.length > 0) {
         setLocalDecisionByKey((prev) => {
           const next = { ...prev };
-          for (const row of declined) next[row.key] = recordOptimisticDecision(row, "rejected");
+          for (const row of declined) {
+            next[optimisticKey(reviewScope, row.key)] = recordOptimisticDecision(row, "rejected");
+          }
           return next;
         });
       }
@@ -1421,20 +1458,20 @@ export function ComplianceDocumentWorkspace({
   const tabMarkedApproved = useMemo(() => {
     const none = { finance: false, trip: false, vehicle: false, driver: false };
     if (!summary || !isCompliancePendingStage || summary.complianceVerifiedAt) return none;
-    const overlay = (rows: ComplianceDocRow[]) =>
-      rows.map((row) => applyOptimisticDecision(row, localDecisionByKey[row.key]));
+    const overlay = (rows: ComplianceDocRow[], scope: DocTab) =>
+      rows.map((row) => applyOptimisticDecision(row, localDecisionByKey[optimisticKey(scope, row.key)]));
     return {
       finance: false,
-      trip: complianceTabMarkedApproved(overlay(deriveTripVaultReviewRows(summary.documents)), "trip"),
+      trip: complianceTabMarkedApproved(overlay(deriveTripVaultReviewRows(summary.documents), "trip"), "trip"),
       vehicle: summary.trip.vehicle_id
         ? complianceTabMarkedApproved(
-            overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments)),
+            overlay(deriveEntityComplianceRows(COMPLIANCE_VEHICLE_DOCUMENT_TYPES, summary.vehicleDocuments), "vehicle"),
             "vehicle",
           )
         : false,
       driver: summary.trip.driver_id
         ? complianceTabMarkedApproved(
-            overlay(deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments)),
+            overlay(deriveEntityComplianceRows(COMPLIANCE_DRIVER_DOCUMENT_TYPES, summary.driverDocuments), "driver"),
             "driver",
           )
         : false,
@@ -1586,7 +1623,7 @@ export function ComplianceDocumentWorkspace({
   }, [summary]);
 
   const renderChecklistRow = (row: ComplianceDocRow, index: number) => {
-    const displayRow = applyOptimisticDecision(row, localDecisionByKey[row.key]);
+    const displayRow = applyOptimisticDecision(row, localDecisionByKey[optimisticKey(reviewScope, row.key)]);
     const rowHasFile = hasFile(displayRow);
     const statusMeta = COMPLIANCE_STATUS_META[displayRow.status];
     const selected =

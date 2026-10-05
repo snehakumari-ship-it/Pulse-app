@@ -1,3 +1,11 @@
+## nihas/V1.0.12 — 2026-10-05
+
+- **What:** Approving trip, driver, or vehicle documents updates the screen immediately and keeps the Approved mark when you switch tabs. Verify and document approve skip the request queue. A compliance-verified trip stays on the Verified list until advance is posted or hard-copy POD is received, including when the trip is already completed.
+- **Why:** Switching tabs cleared the approval before the save came back, and Verify timed out behind document previews. Completed trips were only listed under Payment Pending.
+- **Files/areas:** Compliance document review, Verified queue, Supabase request gate
+- **Migrations:** none
+- **Tested:** Jest on the request gate and compliance review actions. Verified list checked locally (5 trips).
+
 ## nihas/V1.0.11 — 2026-10-05
 
 - **What:** The Compliance screen waits for a signed-in session before looking up truck types and supplier names, and stops mid-way if the session drops. The document view reuses the page's lookups instead of running them a second time.

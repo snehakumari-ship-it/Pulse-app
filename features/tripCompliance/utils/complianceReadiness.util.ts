@@ -244,3 +244,16 @@ export function isCompliancePaymentPending(summary: ComplianceTripSummary): bool
   if (summary.complianceVerifiedAt) return true;
   return deriveComplianceQueueReadiness(summary).readyCategory === "compliance_advance";
 }
+
+/**
+ * Verified chip. A completed trip skips the exclusive Verified stage and
+ * lands in Payment Pending. It still belongs on Verified until advance is
+ * posted or hard-copy POD is received.
+ */
+export function isComplianceVerifiedQueue(summary: ComplianceTripSummary): boolean {
+  if (summary.stage === "compliance_verified") return true;
+  if (!summary.complianceVerifiedAt) return false;
+  if (summary.advance || summary.balance) return false;
+  if (summary.hardCopyPod?.received) return false;
+  return true;
+}
