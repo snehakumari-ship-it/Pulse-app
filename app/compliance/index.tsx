@@ -706,6 +706,7 @@ export default function ComplianceScreen() {
               if (summary) openPay(summary);
             }}
             canManageFinance={canManageFinance}
+            compliancePendingLayout={stage === "compliance_pending"}
           />
         </ScrollView>
       ) : (

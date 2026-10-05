@@ -25,6 +25,7 @@ import {
   formatComplianceTimestamp,
   paymentStatusVisual,
   shouldShowPaymentStatusPill,
+  tripOpsStatusBadge,
   verificationStatusVisual,
 } from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import {
@@ -60,6 +61,8 @@ export type ComplianceTripsTableProps = {
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   onPay?: (tripId: string) => void;
   canManageFinance?: boolean;
+  /** Compliance Pending table: trip status column, no Advance/Balance. */
+  compliancePendingLayout?: boolean;
 };
 
 type RequiredDateSort = "asc" | "desc";
@@ -199,6 +202,7 @@ function TripRowContent({
   onDeclineCompliance,
   onPay,
   canManageFinance = false,
+  compliancePendingLayout = false,
 }: {
   summary: ComplianceTripSummary;
   onOpenTrip: (tripId: string) => void;
@@ -209,6 +213,7 @@ function TripRowContent({
   onDeclineCompliance?: (tripId: string, reason: string) => Promise<void>;
   onPay?: (tripId: string) => void;
   canManageFinance?: boolean;
+  compliancePendingLayout?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [markingTrip, setMarkingTrip] = useState(false);
@@ -229,6 +234,7 @@ function TripRowContent({
   const readiness = useMemo(() => deriveComplianceQueueReadiness(summary), [summary]);
   const payLabel = paymentReadinessLabel(readiness);
   const verification = verificationStatusVisual(summary);
+  const tripStatus = compliancePendingLayout ? tripOpsStatusBadge(summary.trip.status) : null;
   const payment = paymentStatusVisual(summary);
   const showPaymentPill = shouldShowPaymentStatusPill(summary);
   const tripIdLabel = getTripDisplayNumber(summary.trip);
@@ -334,6 +340,22 @@ function TripRowContent({
             onPress={() => onReview(tripId, null, "driver")}
           />
         </View>
+        {compliancePendingLayout ? (
+          <View style={styles.colTripStatus}>
+            {tripStatus ? (
+              <View
+                style={[styles.stagePill, { backgroundColor: tripStatus.tone.bg }]}
+                accessibilityLabel={`Trip status ${tripStatus.label}`}
+              >
+                <Text style={[styles.stagePillText, { color: tripStatus.tone.fg }]} numberOfLines={1}>
+                  {tripStatus.label}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.cell}>—</Text>
+            )}
+          </View>
+        ) : null}
         <View style={styles.colStage}>
           <View style={[styles.stagePill, { backgroundColor: verification.tone.bg }]}>
             <Text style={[styles.stagePillText, { color: verification.tone.fg }]} numberOfLines={1}>
@@ -374,12 +396,16 @@ function TripRowContent({
             {readiness.nextAction}
           </Text>
         </View>
-        <Text style={[styles.cell, styles.colMoney]}>
-          {summary.advance ? `₹${summary.advance.amount.toLocaleString("en-IN")}` : "—"}
-        </Text>
-        <Text style={[styles.cell, styles.colMoney]}>
-          {summary.balance ? `₹${summary.balance.amount.toLocaleString("en-IN")}` : "—"}
-        </Text>
+        {compliancePendingLayout ? null : (
+          <>
+            <Text style={[styles.cell, styles.colMoney]}>
+              {summary.advance ? `₹${summary.advance.amount.toLocaleString("en-IN")}` : "—"}
+            </Text>
+            <Text style={[styles.cell, styles.colMoney]}>
+              {summary.balance ? `₹${summary.balance.amount.toLocaleString("en-IN")}` : "—"}
+            </Text>
+          </>
+        )}
         <View style={styles.colAction}>
           {isVerified ? (
             <Text style={[styles.actionLink, styles.successText]} numberOfLines={1}>
@@ -483,6 +509,7 @@ export function ComplianceTripsTable({
   onDeclineCompliance,
   onPay,
   canManageFinance,
+  compliancePendingLayout = false,
 }: ComplianceTripsTableProps) {
   const [requiredDateSort, setRequiredDateSort] = useState<RequiredDateSort>("desc");
 
@@ -516,10 +543,17 @@ export function ComplianceTripsTable({
           <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Trip</Text>
           <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Vehicle</Text>
           <Text style={[styles.cell, styles.colDocs, styles.headerText]}>Driver</Text>
+          {compliancePendingLayout ? (
+            <Text style={[styles.cell, styles.colTripStatus, styles.headerText]}>Trip Status</Text>
+          ) : null}
           <Text style={[styles.cell, styles.colStage, styles.headerText]}>Stage</Text>
           <Text style={[styles.cell, styles.colBlockers, styles.headerText]}>Payment</Text>
-          <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Advance</Text>
-          <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Balance</Text>
+          {compliancePendingLayout ? null : (
+            <>
+              <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Advance</Text>
+              <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Balance</Text>
+            </>
+          )}
           <Text style={[styles.cell, styles.colAction, styles.headerText]}>Action</Text>
         </View>
 
@@ -535,6 +569,7 @@ export function ComplianceTripsTable({
             onDeclineCompliance={onDeclineCompliance}
             onPay={onPay}
             canManageFinance={canManageFinance}
+            compliancePendingLayout={compliancePendingLayout}
           />
         ))}
       </View>
@@ -609,6 +644,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
   },
+  colTripStatus: { flex: 0.7, minWidth: 0, justifyContent: "center" },
   colStage: { flex: 0.9, minWidth: 0, justifyContent: "center", gap: 2 },
   stagePill: {
     alignSelf: "flex-start",

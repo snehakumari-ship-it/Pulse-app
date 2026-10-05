@@ -196,6 +196,37 @@ export function verificationStatusVisual(
   };
 }
 
+/** Trip Operations status on a Compliance Pending card — not the compliance stage. */
+export function tripOpsStatusBadge(
+  status: string | null | undefined,
+): { label: string; tone: ComplianceTone } | null {
+  const raw = (status ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "in_progress" || raw === "loading") {
+    return { label: "Loading", tone: COMPLIANCE_STAGE_TONE.compliance_pending };
+  }
+  if (raw === "in_transit" || raw === "in transit") {
+    return {
+      label: "In Transit",
+      tone: { fg: Theme.complianceStageInfoFg, bg: Theme.complianceStageInfoBg },
+    };
+  }
+  if (raw === "at_destination" || raw === "at_drop") {
+    return { label: "At Destination", tone: COMPLIANCE_STAGE_TONE.balance_pending };
+  }
+  if (raw === "completed" || raw === "delivered" || raw === "done") {
+    return { label: "Completed", tone: COMPLIANCE_STAGE_TONE.compliance_verified };
+  }
+  if (raw === "cancelled" || raw === "canceled") {
+    return { label: "Cancelled", tone: COMPLIANCE_STAGE_TONE.pending_for_docs };
+  }
+  const label = raw
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+  return { label, tone: COMPLIANCE_STAGE_TONE.compliance_pending };
+}
+
 /** True when payment/pipeline progressed past verification — show both pills. */
 export function shouldShowPaymentStatusPill(summary: ComplianceTripSummary): boolean {
   if (summary.advance || summary.balance) return true;

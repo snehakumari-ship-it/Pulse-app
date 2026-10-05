@@ -1,3 +1,11 @@
+## nihas/V1.0.13 — 2026-10-05
+
+- **What:** Compliance Pending cards show the trip status (Loading, In Transit, Completed) next to the compliance pill. The table puts that status in its own Trip Status column and hides Advance and Balance on that tab only.
+- **Why:** The pending queue only showed the compliance stage, so a completed trip looked the same as one still moving. Advance and Balance are not used on this tab.
+- **Files/areas:** Compliance cards, Compliance table
+- **Migrations:** none
+- **Tested:** Jest on the status label and the Compliance Pending table columns. Not clicked through on preprod.
+
 ## nihas/V1.0.12 — 2026-10-05
 
 - **What:** Approving trip, driver, or vehicle documents updates the screen immediately and keeps the Approved mark when you switch tabs. Verify and document approve skip the request queue. A compliance-verified trip stays on the Verified list until advance is posted or hard-copy POD is received, including when the trip is already completed.

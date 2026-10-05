@@ -108,6 +108,15 @@ function allText(): string[] {
 }
 
 describe("ComplianceTripsTable — columns (AC-1, AC-2)", () => {
+  it("Compliance Pending hides Advance and Balance and shows a Trip Status column", () => {
+    renderTable(makeSummary(), { compliancePendingLayout: true });
+    const texts = allText();
+    expect(texts).toContain("Trip Status");
+    expect(texts).toContain("Completed");
+    expect(texts).not.toContain("Advance");
+    expect(texts).not.toContain("Balance");
+  });
+
   it("header order: From → To → E-way Bill → Trip → Vehicle → Driver", () => {
     renderTable(makeSummary());
     const texts = allText();
