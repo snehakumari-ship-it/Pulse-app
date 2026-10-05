@@ -1,3 +1,11 @@
+## nihas/V1.0.11 — 2026-10-05
+
+- **What:** The Compliance screen waits for a signed-in session before looking up truck types and supplier names, and stops mid-way if the session drops. The document view reuses the page's lookups instead of running them a second time.
+- **Why:** Preprod logs showed 41 "permission denied" errors in one second: per-trip lookups fired with no user token. These RPCs are signed-in only. The doc view also doubled the calls.
+- **Files/areas:** Compliance list trip facts, Compliance document workspace
+- **Migrations:** none
+- **Tested:** tsc at the 141 baseline, compliance Jest suites, full Jest run. Not clicked through on preprod.
+
 ## nihas/V1.0.10 — 2026-10-05
 
 - **What:** Destination search on New Lane Contract accepts typing.

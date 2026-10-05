@@ -3,6 +3,7 @@
  * Trip Detail / payment confirm do: owned vehicle first, then
  * `get_vehicle_for_trip_viewer` for partner trucks; supplier via id lookup.
  */
+import { useAuth } from "@/contexts/AuthContext";
 import { getSupplierById, getSupplierDetails } from "@/features/suppliers/services/suppliers.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
@@ -27,6 +28,7 @@ export function useComplianceListTripFacts(
   summaries: ComplianceTripSummary[],
   viewerOrgId: string,
 ): ComplianceListTripFacts {
+  const { sessionAttached } = useAuth();
   const [truckTypeByVehicleId, setTruckTypeByVehicleId] = useState<Record<string, string>>({});
   const [supplierNameByTripId, setSupplierNameByTripId] = useState<Record<string, string>>({});
 
@@ -46,7 +48,9 @@ export function useComplianceListTripFacts(
 
   useEffect(() => {
     let cancelled = false;
-    if (!viewerOrgId || summaries.length === 0) {
+    // These RPCs are authenticated-only; without a user JWT every per-trip call
+    // fails 42501 as anon (41 in one burst on preprod 2026-10-05).
+    if (!sessionAttached || !viewerOrgId || summaries.length === 0) {
       setTruckTypeByVehicleId({});
       setSupplierNameByTripId({});
       return;
@@ -90,15 +94,16 @@ export function useComplianceListTripFacts(
         Array.from(vehicleJobs.values()).map(async ({ vehicleId, tripId, tripOrgId }) => {
           const owned = await getVehicleById(tripOrgId, vehicleId);
           let type = owned.vehicle?.vehicle_type?.trim() || "";
-          if (!type && tripOrgId !== viewerOrgId) {
+          if (!type && tripOrgId !== viewerOrgId && !cancelled) {
             const ownedViewer = await getVehicleById(viewerOrgId, vehicleId);
             type = ownedViewer.vehicle?.vehicle_type?.trim() || "";
           }
+          if (cancelled) return;
           if (!type) {
             const shared = await getVehicleForTripViewer(vehicleId, tripId, viewerOrgId);
             type = shared.vehicle?.vehicle_type?.trim() || "";
           }
-          if (!type && tripOrgId !== viewerOrgId) {
+          if (!type && tripOrgId !== viewerOrgId && !cancelled) {
             const sharedOwner = await getVehicleForTripViewer(vehicleId, tripId, tripOrgId);
             type = sharedOwner.vehicle?.vehicle_type?.trim() || "";
           }
@@ -106,6 +111,7 @@ export function useComplianceListTripFacts(
         }),
       );
 
+      if (cancelled) return;
       await Promise.all(
         Array.from(supplierJobs.values()).map(async ({ tripId, supplierId, tripOrgId, isAsset }) => {
           if (isAsset && !supplierId) {
@@ -116,6 +122,7 @@ export function useComplianceListTripFacts(
             nextSuppliers[tripId] = "—";
             return;
           }
+          if (cancelled) return;
           let label = "";
           const details = await getSupplierDetails(supplierId);
           label = supplierLabelFromRow(details.supplier);
@@ -142,7 +149,7 @@ export function useComplianceListTripFacts(
     };
     // signature captures the trip fields we care about
     // eslint-disable-next-line react-hooks/exhaustive-deps -- summaries keyed via signature
-  }, [signature, viewerOrgId]);
+  }, [signature, viewerOrgId, sessionAttached]);
 
   return { truckTypeByVehicleId, supplierNameByTripId };
 }

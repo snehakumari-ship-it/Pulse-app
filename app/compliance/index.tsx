@@ -206,10 +206,11 @@ export default function ComplianceScreen() {
     return map;
   }, [suppliersQuery.data]);
   // Resolve labels for the full queue so supplier search works across stage chips.
-  const { supplierNameByTripId } = useComplianceListTripFacts(
+  const tripFacts = useComplianceListTripFacts(
     summaries,
     currentOrganization?.id ?? "",
   );
+  const { supplierNameByTripId } = tripFacts;
   const syncChange = useComplianceChangeSync();
   const markTripVerified = useCallback(
     async (tripId: string) => {
@@ -711,6 +712,7 @@ export default function ComplianceScreen() {
         <ComplianceDocumentWorkspace
           style={styles.workspaceFill}
           summaries={visible}
+          tripFacts={tripFacts}
           organizationId={currentOrganization?.id ?? ""}
           actorId={user?.uid ?? null}
           canVerify={canVerifyDocuments}

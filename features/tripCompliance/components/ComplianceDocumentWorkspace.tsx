@@ -10,7 +10,7 @@ import {
 import { ComplianceDeclineModal } from "@/features/tripCompliance/components/ComplianceDeclineModal";
 import { ComplianceRejectRemarkModal } from "@/features/tripCompliance/components/ComplianceRejectRemarkModal";
 import { COMPLIANCE_STATUS_META } from "@/features/tripCompliance/components/ComplianceStatusIcon";
-import { useComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
+import type { ComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
 import {
     guessCompliancePreviewMime,
     signCompliancePreviewUrl,
@@ -685,6 +685,7 @@ function PreviewScroller({
 
 export function ComplianceDocumentWorkspace({
   summaries,
+  tripFacts,
   organizationId,
   actorId,
   canVerify,
@@ -710,6 +711,8 @@ export function ComplianceDocumentWorkspace({
   listHeader = null,
 }: {
   summaries: ComplianceTripSummary[];
+  /** Resolved by the page for the full queue — one lookup pass, not one per view. */
+  tripFacts: ComplianceListTripFacts;
   /** Pinned above the trip cards (e.g. Verified-stage outcome filter). */
   listHeader?: React.ReactNode;
   organizationId: string;
@@ -762,10 +765,7 @@ export function ComplianceDocumentWorkspace({
   const listRef = useRef<ScrollView>(null);
   const scrolledTripId = useRef<string | null>(null);
   const appliedFocusToken = useRef(0);
-  const { truckTypeByVehicleId, supplierNameByTripId } = useComplianceListTripFacts(
-    summaries,
-    organizationId,
-  );
+  const { truckTypeByVehicleId, supplierNameByTripId } = tripFacts;
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
   const [tab, setTab] = useState<DocTab>("trip");
   const [docIndex, setDocIndex] = useState(0);
