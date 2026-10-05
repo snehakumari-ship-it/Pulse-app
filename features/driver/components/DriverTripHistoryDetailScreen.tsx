@@ -151,6 +151,7 @@ export function DriverTripHistoryDetailScreen({
   useRegisterDriverContextTrip(trip);
 
   useEffect(() => {
+    if (detailTab !== "journey") return;
     if (!trip?.id) {
       setAppLocationPoints([]);
       return;
@@ -204,7 +205,7 @@ export function DriverTripHistoryDetailScreen({
     return () => {
       mounted = false;
     };
-  }, [trip?.id, trip?.driver_id, trip?.created_at, trip?.completed_at, trip?.updated_at]);
+  }, [detailTab, trip?.id, trip?.driver_id, trip?.created_at, trip?.completed_at, trip?.updated_at]);
 
   // Fleet attribution state
   const [linkedDriversFull, setLinkedDriversFull] = useState<driversService.DriverRow[]>([]);
@@ -281,10 +282,16 @@ export function DriverTripHistoryDetailScreen({
     };
   }, [tripId]);
 
+  const seenTripIdRef = useRef<string | null>(null);
   useEffect(() => {
+    if (seenTripIdRef.current === tripId) return;
+    const isTripSwitch = seenTripIdRef.current != null;
+    seenTripIdRef.current = tripId;
     setExpandedLogIndex(null);
-    setDetailTab("journey");
-  }, [tripId]);
+    if (isTripSwitch) {
+      setDetailTab(initialTab ?? (initialSelectedExpenseId ? "settlement" : "journey"));
+    }
+  }, [tripId, initialTab, initialSelectedExpenseId]);
 
   useEffect(() => {
     if (!trip?.id) {

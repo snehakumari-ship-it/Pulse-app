@@ -174,25 +174,23 @@ export function useDriverTripSettlement(
   }, []);
 
   const reload = useCallback(async () => {
-    if (!profile?.uid) {
+    const tripId = trip?.id?.trim() ?? "";
+    if (!profile?.uid || !tripId) {
       if (mountedRef.current) setLoading(false);
       return;
     }
     if (mountedRef.current) setLoading(true);
-    const linkedRes = await driversService.getLinkedDriversForCurrentUser(profile.uid);
-    if (!mountedRef.current) return;
-    const drivers = linkedRes.drivers ?? [];
-    setLinkedDrivers(drivers);
-    const driverIds = drivers.map((d) => d.id).filter(Boolean);
-    const [ledgerRes, invitesRes] = await Promise.all([
-      driverIds.length ? driversService.getDriverLedgerByDriverIds(driverIds) : Promise.resolve({ entries: [] }),
+    const [linkedRes, ledgerRes, invitesRes] = await Promise.all([
+      driversService.getLinkedDriversForCurrentUser(profile.uid),
+      driversService.getDriverLedgerByTripId(tripId),
       driversService.getDriverInvitesReceived(),
     ]);
     if (!mountedRef.current) return;
+    setLinkedDrivers(linkedRes.drivers ?? []);
     setLedgerEntries(ledgerRes.entries ?? []);
     if (!invitesRes.error) setInvites(invitesRes.invites);
     setLoading(false);
-  }, [profile?.uid]);
+  }, [profile?.uid, trip?.id]);
 
   useEffect(() => {
     void reload();

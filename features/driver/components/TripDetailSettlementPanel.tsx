@@ -12,10 +12,7 @@ import {
   formatKm,
   toVerificationSnapshot,
 } from "@/features/trips/verification/selectors/verificationSelectors";
-import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES, tripExpenseEntryEditRoute } from "@/lib/routes";
-import { useFocusEffect } from "@react-navigation/native";
-import { useQueryClient } from "@tanstack/react-query";
 import { type Href, useRouter } from "expo-router";
 import {
   Activity,
@@ -86,7 +83,6 @@ export function TripDetailSettlementPanel({
   const { theme } = useDriverTheme();
   const isDark = theme === "dark";
   const router = useRouter();
-  const queryClient = useQueryClient();
   const {
     settlementView,
     loading,
@@ -94,16 +90,7 @@ export function TripDetailSettlementPanel({
     requestPayment,
   } = useDriverTripSettlement(trip, { isFleetLinked });
 
-  const summaryQuery = useTripOperationsSummary(trip.id);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!trip.id) return;
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.trips.operationsSummary(trip.id),
-      });
-    }, [queryClient, trip.id]),
-  );
+  const summaryQuery = useTripOperationsSummary(trip.id, { includeMaintenance: false });
 
   const openAddExpense = useCallback(() => {
     router.push(ROUTES.tripOtherExpenseEntry(trip.id) as Href);

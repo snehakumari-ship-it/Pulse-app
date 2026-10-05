@@ -140,6 +140,24 @@ function invalidateTripOperationsQueries(qc: ReturnType<typeof useQueryClient>, 
   invalidateTripOperationalState({ queryClient: qc, tripId });
 }
 
+type CachedOperationsSummary = {
+  trip?: { organization_id?: string | null; vehicle_id?: string | null } | null;
+};
+
+/** Settlement and the full operations tab share a prefix but not the same cache entry. */
+function readCachedOperationsSummary(
+  qc: ReturnType<typeof useQueryClient>,
+  tripId: string,
+): CachedOperationsSummary | undefined {
+  const matches = qc.getQueriesData<CachedOperationsSummary>({
+    queryKey: queryKeys.trips.operationsSummary(tripId),
+  });
+  for (const [, data] of matches) {
+    if (data?.trip) return data;
+  }
+  return undefined;
+}
+
 export function useTripFuelEntries(tripId: string | null, opts?: { enabled?: boolean }) {
   const enabled = (opts?.enabled ?? true) && !!tripId;
   return useQuery({
@@ -185,18 +203,23 @@ export function useTripOtherExpenses(tripId: string | null, opts?: { enabled?: b
   });
 }
 
-export function useTripOperationsSummary(tripId: string | null, opts?: { enabled?: boolean }) {
+export function useTripOperationsSummary(
+  tripId: string | null,
+  opts?: { enabled?: boolean; includeMaintenance?: boolean },
+) {
   const enabled = (opts?.enabled ?? true) && !!tripId;
+  const includeMaintenance = opts?.includeMaintenance !== false;
   return useQuery({
     queryKey: tripId
-      ? queryKeys.trips.operationsSummary(tripId)
+      ? [...queryKeys.trips.operationsSummary(tripId), includeMaintenance ? "full" : "settlement"]
       : ["q", "trips", "operations", "summary", "noop"],
     queryFn: async ({ signal }) => {
-      const [tripRes, fuelRes, tollRes, otherRes] = await Promise.all([
+      const [tripRes, fuelRes, tollRes, otherRes, ledgerBySource] = await Promise.all([
         getTripRowByIdLight(tripId!, signal),
         getTripFuelEntries(tripId!, signal),
         getTripTollEntries(tripId!, signal),
         getTripOtherExpenses(tripId!, signal),
+        fetchTripLedgerBySource(tripId!, signal),
       ]);
       // A genuine DB/transport error should surface (retry + report). A 0-row result is not an
       // error here: the trip is known to exist at the call site (callers pass an existing trip),
@@ -210,7 +233,7 @@ export function useTripOperationsSummary(tripId: string | null, opts?: { enabled
       const tollEntries = tollRes.error ? [] : tollRes.entries;
       const otherEntries = otherRes.error ? [] : otherRes.entries;
       const maintenanceRes =
-        tripRes.trip.vehicle_id != null
+        includeMaintenance && tripRes.trip?.vehicle_id != null
           ? await getVehicleMaintenanceEntries({
               organizationId: tripRes.trip.organization_id,
               vehicleId: tripRes.trip.vehicle_id,
@@ -220,7 +243,6 @@ export function useTripOperationsSummary(tripId: string | null, opts?: { enabled
           : { error: null, entries: [] };
       throwIfCancelled(signal, maintenanceRes.error);
       const maintenanceEntries = maintenanceRes.error ? [] : maintenanceRes.entries;
-      const ledgerBySource = await fetchTripLedgerBySource(tripId!, signal);
       const mileage = computeTripMileageMetrics({
         trip: tripRes.trip,
         fuelEntries,
@@ -592,13 +614,9 @@ export function useReviewTripFuelEntry() {
       }
     },
     onSuccess: (_result, vars) => {
-      const summary = qc.getQueryData<{
-        trip?: { organization_id?: string | null; vehicle_id?: string | null };
-      }>(queryKeys.trips.operationsSummary(vars.tripId));
+      const summary = readCachedOperationsSummary(qc, vars.tripId);
       const orgId = String(summary?.trip?.organization_id ?? "");
-      const vehicleId = qc.getQueryData<{
-        trip?: { vehicle_id?: string | null };
-      }>(queryKeys.trips.operationsSummary(vars.tripId))?.trip?.vehicle_id;
+      const vehicleId = summary?.trip?.vehicle_id;
       invalidateTripOperationsQueries(qc, vars.tripId);
       if (orgId) {
         syncOperationalFinanceProjection({
@@ -656,15 +674,9 @@ export function useReviewTripTollEntry() {
       }
     },
     onSuccess: (_result, vars) => {
-      const orgId = String(
-        qc.getQueryData<{ trip?: { organization_id?: string | null } }>(
-          queryKeys.trips.operationsSummary(vars.tripId),
-        )?.trip?.organization_id ?? "",
-      );
-      const vehicleId =
-        qc.getQueryData<{ trip?: { vehicle_id?: string | null } }>(
-          queryKeys.trips.operationsSummary(vars.tripId),
-        )?.trip?.vehicle_id ?? null;
+      const summary = readCachedOperationsSummary(qc, vars.tripId);
+      const orgId = String(summary?.trip?.organization_id ?? "");
+      const vehicleId = summary?.trip?.vehicle_id ?? null;
       invalidateTripOperationsQueries(qc, vars.tripId);
       if (orgId) {
         syncOperationalFinanceProjection({
@@ -704,9 +716,7 @@ export function useSetTripFuelReimbursementState() {
     },
     onSuccess: (_result, vars) => {
       invalidateTripOperationsQueries(qc, vars.tripId);
-      const summary = qc.getQueryData<{ trip?: { organization_id?: string | null } }>(
-        queryKeys.trips.operationsSummary(vars.tripId),
-      );
+      const summary = readCachedOperationsSummary(qc, vars.tripId);
       const orgId = String(summary?.trip?.organization_id ?? "");
       if (orgId) {
         invalidateLedgerState({
@@ -745,9 +755,7 @@ export function useSetTripTollReimbursementState() {
     },
     onSuccess: (_result, vars) => {
       invalidateTripOperationsQueries(qc, vars.tripId);
-      const summary = qc.getQueryData<{ trip?: { organization_id?: string | null } }>(
-        queryKeys.trips.operationsSummary(vars.tripId),
-      );
+      const summary = readCachedOperationsSummary(qc, vars.tripId);
       const orgId = String(summary?.trip?.organization_id ?? "");
       if (orgId) {
         invalidateLedgerState({
@@ -887,15 +895,9 @@ export function useReviewTripOtherExpenseEntry() {
       }
     },
     onSuccess: (_result, vars) => {
-      const orgId = String(
-        qc.getQueryData<{ trip?: { organization_id?: string | null } }>(
-          queryKeys.trips.operationsSummary(vars.tripId),
-        )?.trip?.organization_id ?? "",
-      );
-      const vehicleId =
-        qc.getQueryData<{ trip?: { vehicle_id?: string | null } }>(
-          queryKeys.trips.operationsSummary(vars.tripId),
-        )?.trip?.vehicle_id ?? null;
+      const summary = readCachedOperationsSummary(qc, vars.tripId);
+      const orgId = String(summary?.trip?.organization_id ?? "");
+      const vehicleId = summary?.trip?.vehicle_id ?? null;
       invalidateTripOperationsQueries(qc, vars.tripId);
       if (orgId) {
         syncOperationalFinanceProjection({
@@ -935,9 +937,7 @@ export function useSetTripOtherReimbursementState() {
     },
     onSuccess: (_result, vars) => {
       invalidateTripOperationsQueries(qc, vars.tripId);
-      const summary = qc.getQueryData<{ trip?: { organization_id?: string | null } }>(
-        queryKeys.trips.operationsSummary(vars.tripId),
-      );
+      const summary = readCachedOperationsSummary(qc, vars.tripId);
       const orgId = String(summary?.trip?.organization_id ?? "");
       if (orgId) {
         invalidateLedgerState({

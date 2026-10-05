@@ -2215,6 +2215,26 @@ export async function getDriverLedgerByDriver(
 }
 
 /**
+ * Ledger rows for one trip. The `trip_id` filter is applied in Postgres.
+ * The cap matches the old driver-wide window so a busy trip is not truncated
+ * below what settlement used to see, without loading other trips.
+ */
+export async function getDriverLedgerByTripId(
+  tripId: string,
+): Promise<{ error: Error | null; entries: DriverLedgerRow[] }> {
+  const id = tripId.trim();
+  if (!id) return { error: null, entries: [] };
+  const { data, error } = await supabase()
+    .from("driver_ledger")
+    .select(DRIVER_LEDGER_COLUMNS)
+    .eq("trip_id", id)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return { error: new Error(error.message), entries: [] };
+  return { error: null, entries: (data ?? []) as unknown as DriverLedgerRow[] };
+}
+
+/**
  * Get driver_ledger entries for multiple driver ids (e.g. current user has multiple org links). Single query.
  */
 export async function getDriverLedgerByDriverIds(
