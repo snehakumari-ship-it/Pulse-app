@@ -1,9 +1,14 @@
 /**
  * Transaction date (`transactions.transaction_date`) for Compliance advance /
  * balance payments. Stored as YYYY-MM-DD; Paid at / Txn Date edit this field.
+ *
+ * Finance always stamps a posting day on the row. Compliance Paid at / Txn Date
+ * stay blank in the UI until Ops explicitly saves a date — tracked via QMETA
+ * `compliance_txn_date_set` on the ledger description.
  */
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const LEDGER_META_PREFIX = "[[QMETA:";
 
 /** Calendar YYYY-MM-DD from a stored ISO / date string (local day). */
 export function toComplianceTransactionDateInput(iso: string | null | undefined): string {
@@ -43,7 +48,49 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 /** Display form used in the Advance Processed Txn Date column. */
 export function formatComplianceTxnDate(iso: string | null | undefined): string {
   const ymd = toComplianceTransactionDateInput(iso);
-  if (!ymd) return "—";
+  if (!ymd) return "";
   const [y, m, d] = ymd.split("-").map(Number);
   return `${String(d).padStart(2, "0")} ${MONTHS[m - 1]} ${y}`;
+}
+
+/** True when Ops has confirmed Paid at / Txn Date via the compliance editors. */
+export function isComplianceTxnDateConfirmed(description: string | null | undefined): boolean {
+  const raw = String(description ?? "");
+  const metaIdx = raw.indexOf(LEDGER_META_PREFIX);
+  if (metaIdx < 0) return false;
+  const json = raw.slice(metaIdx + LEDGER_META_PREFIX.length).replace(/\]\]\s*$/, "");
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    return parsed.compliance_txn_date_set === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Marks the ledger description so Paid at / Txn Date render as set. Body text
+ * is unchanged; only the trailing QMETA tag is updated (or created).
+ */
+export function withLedgerDescriptionTxnDateConfirmed(
+  description: string | null | undefined,
+): string {
+  const raw = String(description ?? "").trim();
+  const metaIdx = raw.indexOf(LEDGER_META_PREFIX);
+  const body = (metaIdx < 0 ? raw : raw.slice(0, metaIdx)).trim();
+  const metaRaw = metaIdx < 0 ? "" : raw.slice(metaIdx).trim();
+
+  let nextMeta: string;
+  if (metaRaw) {
+    const json = metaRaw.slice(LEDGER_META_PREFIX.length).replace(/\]\]\s*$/, "");
+    try {
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+      nextMeta = `${LEDGER_META_PREFIX}${JSON.stringify({ ...parsed, compliance_txn_date_set: true })}]]`;
+    } catch {
+      nextMeta = `${LEDGER_META_PREFIX}${JSON.stringify({ compliance_txn_date_set: true })}]]`;
+    }
+  } else {
+    nextMeta = `${LEDGER_META_PREFIX}${JSON.stringify({ compliance_txn_date_set: true })}]]`;
+  }
+
+  return body ? `${body} ${nextMeta}` : nextMeta;
 }

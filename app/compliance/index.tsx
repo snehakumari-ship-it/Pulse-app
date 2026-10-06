@@ -8,18 +8,16 @@ import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
+import {
+  useRealtimeTransactionsInvalidation,
+  useRealtimeTripsInvalidation,
+} from "@/lib/queries/useRealtimeInvalidation";
 import { ComplianceExportConfirmModal } from "@/features/tripCompliance/components/ComplianceExportConfirmModal";
 import { CompliancePaymentConfirmModal } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
 import { ComplianceDocumentWorkspace } from "@/features/tripCompliance/components/ComplianceDocumentWorkspace";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
 import { ComplianceAdvanceProcessedTable } from "@/features/tripCompliance/components/ComplianceAdvanceProcessedTable";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
-import { ComplianceVerifiedOutcomeFilter } from "@/features/tripCompliance/components/ComplianceVerifiedOutcomeFilter";
-import {
-  isComplianceVerifiedRejected,
-  matchesComplianceVerifiedOutcome,
-  type ComplianceVerifiedOutcomeFilter as VerifiedOutcome,
-} from "@/features/tripCompliance/utils/complianceCardVisual.util";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import { useComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
 import {
@@ -69,6 +67,10 @@ import {
   sortComplianceTableRows,
 } from "@/features/tripCompliance/utils/complianceTableExport.util";
 import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  isPendingDocsDeliveredTrip,
+  isPendingDocsInTransitTrip,
+} from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import {
   isComplianceDeclineActive,
   isFinanceDeclinedForCompliancePending,
@@ -169,6 +171,9 @@ export default function ComplianceScreen() {
   const { user } = useAuth();
   const orgCtx = useOptionalOrganization();
   const currentOrganization = orgCtx?.currentOrganization ?? null;
+  // Keep Settlement stages/counts and Finance Ledger in lockstep while this screen is open.
+  useRealtimeTripsInvalidation(currentOrganization?.id ?? null);
+  useRealtimeTransactionsInvalidation(currentOrganization?.id ?? null);
 
   const {
     summaries,
@@ -181,6 +186,8 @@ export default function ComplianceScreen() {
   const { stage, setStage, filtered, counts, podReceivedCount, paymentPendingCount, declinedCount } =
     useComplianceStageFilter(summaries);
   const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected">("all");
+  /** Pending Docs only: In-transit vs Delivered (ops trip.status). Above All / Hold / Declined. */
+  const [pendingTransitSlice, setPendingTransitSlice] = useState<"in_transit" | "delivered">("in_transit");
   /** Subtabs under the Declined chip: All / Compliance / Pending Docs. */
   const [declinedSlice, setDeclinedSlice] = useState<"all" | "compliance" | "pending_docs">("all");
   /** When stage changes via Reject, keep the Declined by finance subtab (effect would otherwise reset to All). */
@@ -190,6 +197,7 @@ export default function ComplianceScreen() {
     pendingSliceAfterStageRef.current = null;
     setPendingSlice(intent ?? "all");
     if (stage !== "declined") setDeclinedSlice("all");
+    if (stage !== "pending_for_docs") setPendingTransitSlice("in_transit");
   }, [stage]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [cardTripId, setCardTripId] = useState<string | null>(null);
@@ -420,6 +428,44 @@ export default function ComplianceScreen() {
     () => (summaries ?? []).filter(isFinanceDeclinedForPendingDocs).length,
     [summaries],
   );
+  const matchPendingDocsTransit = useCallback(
+    (summary: ComplianceTripSummary) =>
+      pendingTransitSlice === "delivered"
+        ? isPendingDocsDeliveredTrip(summary)
+        : isPendingDocsInTransitTrip(summary),
+    [pendingTransitSlice],
+  );
+  /** Pending Docs "All" list for the selected In-transit / Delivered subtab. */
+  const pendingDocsTransitPool = useMemo(() => {
+    if (stage !== "pending_for_docs") return [];
+    return filtered.filter(matchPendingDocsTransit);
+  }, [filtered, matchPendingDocsTransit, stage]);
+  const pendingDocsTransitCounts = useMemo(() => {
+    if (stage !== "pending_for_docs") {
+      return { in_transit: 0, delivered: 0 };
+    }
+    let inTransit = 0;
+    let delivered = 0;
+    for (const row of filtered) {
+      if (isPendingDocsDeliveredTrip(row)) delivered += 1;
+      else inTransit += 1;
+    }
+    return { in_transit: inTransit, delivered };
+  }, [filtered, stage]);
+  const pendingDocsHoldCountScoped = useMemo(
+    () =>
+      (summaries ?? [])
+        .filter(isPendingDocsComplianceHold)
+        .filter(matchPendingDocsTransit).length,
+    [matchPendingDocsTransit, summaries],
+  );
+  const pendingDocsRejectedCountScoped = useMemo(
+    () =>
+      (summaries ?? [])
+        .filter(isFinanceDeclinedForPendingDocs)
+        .filter(matchPendingDocsTransit).length,
+    [matchPendingDocsTransit, summaries],
+  );
   const stagePool = useMemo(() => {
     if (stage === "declined") {
       if (declinedSlice === "compliance") {
@@ -439,36 +485,49 @@ export default function ComplianceScreen() {
       return filtered;
     }
     if (stage === "pending_for_docs") {
-      if (pendingSlice === "all") return filtered;
-      if (pendingSlice === "hold") return (summaries ?? []).filter(isPendingDocsComplianceHold);
-      if (pendingSlice === "rejected") return (summaries ?? []).filter(isFinanceDeclinedForPendingDocs);
-      return filtered;
+      if (pendingSlice === "all") return pendingDocsTransitPool;
+      if (pendingSlice === "hold") {
+        return (summaries ?? []).filter(isPendingDocsComplianceHold).filter(matchPendingDocsTransit);
+      }
+      if (pendingSlice === "rejected") {
+        return (summaries ?? []).filter(isFinanceDeclinedForPendingDocs).filter(matchPendingDocsTransit);
+      }
+      return pendingDocsTransitPool;
     }
     return filtered;
-  }, [declinedSlice, filtered, pendingSlice, stage, summaries]);
+  }, [
+    declinedSlice,
+    filtered,
+    matchPendingDocsTransit,
+    pendingDocsTransitPool,
+    pendingSlice,
+    stage,
+    summaries,
+  ]);
   /** Export Report covers the Verified stage only, so it is offered only on that chip. */
   const isVerifiedStage = stage === "compliance_verified";
   useEffect(() => {
     if (!isVerifiedStage && !exporting) setExportOpen(false);
   }, [isVerifiedStage, exporting]);
-  /** Verified-stage card view only: All / Verified / Rejected above the trip cards. */
-  const [outcomeFilter, setOutcomeFilter] = useState<VerifiedOutcome>("all");
-  const showOutcomeFilter = isVerifiedStage && viewMode === "card";
-  useEffect(() => {
-    if (!showOutcomeFilter) setOutcomeFilter("all");
-  }, [showOutcomeFilter]);
-  const outcomeCounts = useMemo(() => {
-    if (!showOutcomeFilter) return { all: 0, verified: 0, rejected: 0 };
-    const rejected = filtered.filter(isComplianceVerifiedRejected).length;
-    return { all: filtered.length, verified: filtered.length - rejected, rejected };
-  }, [showOutcomeFilter, filtered]);
+  /** Hardcopy POD PREVIEW control — late POD/settlement chips only (not Verified→Payment Pending). */
+  const showHardcopyPodButton =
+    stage === "hard_copy_pod_received" ||
+    stage === "pod_received" ||
+    stage === "balance_pending" ||
+    stage === "payment_settled";
 
-  /** Pending Docs / Compliance Pending / Declined — same segmented control as Verified All/Verified/Rejected. */
+  /**
+   * Pending Docs / Compliance Pending / Declined — segmented control.
+   * `embedded` = table toolbar (unchanged sizing). Card list uses `cardDense`.
+   */
   const renderQueueSubFilter = (embedded: boolean) => {
+    const cardDense = !embedded;
     if (stage === "pending_for_docs") {
-      return (
+      const outcomeFilter = (
         <ComplianceSegmentedFilter
-          embedded={embedded}
+          embedded
+          compact
+          cardDense={cardDense}
           value={
             pendingSlice === "finance_declined"
               ? "all"
@@ -477,21 +536,21 @@ export default function ComplianceScreen() {
                 : pendingSlice
           }
           counts={{
-            all: counts.pending_for_docs,
-            hold: pendingDocsHoldCount,
-            rejected: pendingDocsRejectedCount,
+            all: pendingDocsTransitPool.length,
+            hold: pendingDocsHoldCountScoped,
+            rejected: pendingDocsRejectedCountScoped,
           }}
           options={[
             { id: "all", label: "All", dot: null },
             {
               id: "hold",
-              label: "Hold",
+              label: "Compliance Hold",
               a11yLabel: "Compliance Hold",
               dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
             },
             {
               id: "rejected",
-              label: "Declined",
+              label: "Declined by finance",
               a11yLabel: "Declined by finance",
               dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
             },
@@ -499,11 +558,51 @@ export default function ComplianceScreen() {
           onChange={(next) => setPendingSlice(next)}
         />
       );
+      const transitFilter = (
+        <ComplianceSegmentedFilter
+          embedded
+          compact
+          cardDense={cardDense}
+          value={pendingTransitSlice}
+          counts={pendingDocsTransitCounts}
+          options={[
+            {
+              id: "in_transit",
+              label: "In-transit",
+              a11yLabel: "In transit",
+              dot: Theme.complianceStageInfoFg,
+            },
+            {
+              id: "delivered",
+              label: "Delivered",
+              a11yLabel: "Delivered",
+              dot: COMPLIANCE_STAGE_TONE.compliance_verified.fg,
+            },
+          ]}
+          onChange={setPendingTransitSlice}
+        />
+      );
+      if (embedded) {
+        return (
+          <View style={styles.pendingDocsFilterStackEmbedded}>
+            {transitFilter}
+            {outcomeFilter}
+          </View>
+        );
+      }
+      return (
+        <View style={styles.pendingDocsFilterStackCard}>
+          {transitFilter}
+          {outcomeFilter}
+        </View>
+      );
     }
     if (stage === "compliance_pending") {
       return (
         <ComplianceSegmentedFilter
           embedded={embedded}
+          compact
+          cardDense={cardDense}
           value={pendingSlice === "rejected" ? "all" : pendingSlice}
           counts={{
             all: counts.compliance_pending,
@@ -514,13 +613,13 @@ export default function ComplianceScreen() {
             { id: "all", label: "All", dot: null },
             {
               id: "hold",
-              label: "Hold",
+              label: "Compliance Hold",
               a11yLabel: "Compliance Hold",
               dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
             },
             {
               id: "finance_declined",
-              label: "Declined",
+              label: "Declined by finance",
               a11yLabel: "Declined by finance",
               dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
             },
@@ -533,6 +632,8 @@ export default function ComplianceScreen() {
       return (
         <ComplianceSegmentedFilter
           embedded={embedded}
+          compact
+          cardDense={cardDense}
           value={declinedSlice}
           counts={{
             all: declinedCount,
@@ -544,6 +645,7 @@ export default function ComplianceScreen() {
             {
               id: "compliance",
               label: "Compliance",
+              a11yLabel: "Compliance",
               dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
             },
             {
@@ -562,18 +664,9 @@ export default function ComplianceScreen() {
   const hasQueueSubFilter =
     stage === "pending_for_docs" || stage === "compliance_pending" || stage === "declined";
 
-  /** Cards: filter sits above the trip list (Verified reference). Table: under stage chips. */
+  /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
   const cardsListHeader = useMemo(() => {
     if (search.trim()) return null;
-    if (showOutcomeFilter) {
-      return (
-        <ComplianceVerifiedOutcomeFilter
-          value={outcomeFilter}
-          counts={outcomeCounts}
-          onChange={setOutcomeFilter}
-        />
-      );
-    }
     return renderQueueSubFilter(false);
   }, [
     complianceHoldCount,
@@ -582,23 +675,18 @@ export default function ComplianceScreen() {
     declinedCount,
     declinedSlice,
     financeDeclinedCount,
-    outcomeCounts,
-    outcomeFilter,
     pendingDocsHoldCount,
+    pendingDocsHoldCountScoped,
     pendingDocsRejectedCount,
+    pendingDocsRejectedCountScoped,
+    pendingDocsTransitCounts,
+    pendingDocsTransitPool.length,
     pendingSlice,
+    pendingTransitSlice,
     search,
-    showOutcomeFilter,
     stage,
   ]);
   const showToolbarSubFilter = viewMode === "table" && hasQueueSubFilter;
-  const outcomePool = useMemo(
-    () =>
-      showOutcomeFilter && outcomeFilter !== "all"
-        ? stagePool.filter((s) => matchesComplianceVerifiedOutcome(s, outcomeFilter))
-        : stagePool,
-    [showOutcomeFilter, outcomeFilter, stagePool],
-  );
 
   const [tableDateSort, setTableDateSort] = useState<"asc" | "desc">("desc");
   const [exportToast, setExportToast] = useState<string | null>(null);
@@ -611,7 +699,7 @@ export default function ComplianceScreen() {
         ? stageQueue
         : stage === "pod_received"
           ? podReceivedQueue
-          : outcomePool;
+          : stagePool;
     return pool.filter((summary) => {
       const supplierId = (summary.trip.supplier_id ?? "").trim();
       const resolved = supplierNameByTripId[summary.trip.id];
@@ -620,7 +708,7 @@ export default function ComplianceScreen() {
         resolved && resolved !== "—" ? resolved : null,
       ]);
     });
-  }, [outcomePool, stageQueue, podReceivedQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
+  }, [stagePool, stageQueue, podReceivedQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
   const ordered = useMemo(
     () => (viewMode === "table" ? sortComplianceTableRows(searched, tableDateSort) : searched),
     [searched, tableDateSort, viewMode],
@@ -922,11 +1010,11 @@ export default function ComplianceScreen() {
               ];
             })}
           </ScrollView>
-          {showToolbarSubFilter ? (
-            <View style={styles.subSegmentWrap}>{renderQueueSubFilter(true)}</View>
-          ) : null}
         </View>
       </View>
+      {showToolbarSubFilter ? (
+        <View style={styles.tableSubFilterBar}>{renderQueueSubFilter(true)}</View>
+      ) : null}
       {awaitingPodCounts ? (
         <View style={styles.subchipRow}>
           <ScrollView
@@ -1049,7 +1137,14 @@ export default function ComplianceScreen() {
             summaries={visible}
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
+            canManageFinance={canManageFinance}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
+            onRevertedToVerified={(tripId) => {
+              void syncChange({ type: "payment", tripId }).then(() => {
+                setStage("compliance_verified");
+                setCardTripId(tripId);
+              });
+            }}
           />
         </ScrollView>
       ) : viewMode === "table" ? (
@@ -1084,6 +1179,7 @@ export default function ComplianceScreen() {
           canVerify={canVerifyDocuments}
           canViewDocuments={canViewDocuments}
           canManageFinance={canManageFinance}
+          showFinanceTab={stage !== "compliance_pending"}
           onPay={openPay}
           paymentSubmitting={paying}
           onConfirmPayment={
@@ -1124,6 +1220,7 @@ export default function ComplianceScreen() {
           }}
           chargeFocusTripId={chargeFocus?.tripId ?? null}
           chargeFocusToken={chargeFocus?.token ?? 0}
+          showHardcopyPodButton={showHardcopyPodButton}
           logHardCopyPodRequest={logHardCopyPodRequest}
           courierLrOptions={courierLrOptions}
           selectedTripId={cardTripId}
@@ -1436,7 +1533,40 @@ const styles = StyleSheet.create({
   subSegmentWrap: {
     width: "100%",
     marginTop: 8,
-    maxWidth: 520,
+  },
+  /** Table view: full-width under toolbar so filters share the table’s left edge. */
+  tableSubFilterBar: {
+    width: "100%",
+    alignSelf: "stretch",
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  pendingDocsFilterStack: {
+    width: "100%",
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  /** Card list header — tighter stack so both filter rows fit without scroll. */
+  pendingDocsFilterStackCard: {
+    width: "100%",
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
+    gap: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  pendingDocsFilterStackEmbedded: {
+    width: "100%",
+    gap: 6,
+    alignSelf: "stretch",
+    alignItems: "stretch",
   },
   subchipRow: {
     width: "100%",

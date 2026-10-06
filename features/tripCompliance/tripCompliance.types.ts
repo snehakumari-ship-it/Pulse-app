@@ -129,6 +129,11 @@ export type CompliancePaymentSummary = {
   transactionId: string;
   /** `transactions.created_at` — when the row was posted (paidAt is the user-entered day). */
   postedAt?: string | null;
+  /**
+   * Ops confirmed Paid at / Txn Date in Compliance (QMETA `compliance_txn_date_set`).
+   * Until true, Paid at / Txn Date UI stays blank even if Finance stamped a day.
+   */
+  txnDateConfirmed?: boolean;
 };
 
 export type ComplianceTripSummary = {
@@ -150,9 +155,9 @@ export type ComplianceTripSummary = {
   complianceDeclineReason: string | null;
   advance: CompliancePaymentSummary | null;
   /**
-   * A `compliance_advance` row posted while the trip was not yet verified. Not
-   * counted as the advance (the trip stays in Compliance Pending / Verified);
-   * it blocks a second advance until Finance reverses it.
+   * A `compliance_advance` row while the trip is not yet verified. Shown on file
+   * but not counted as `advance` until verify (Finance posts advances; Compliance
+   * does not). Once verified, the same row becomes `advance`.
    */
   advanceBeforeVerification?: CompliancePaymentSummary | null;
   balance: CompliancePaymentSummary | null;

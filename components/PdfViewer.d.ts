@@ -10,6 +10,8 @@ declare module "@/components/PdfViewer" {
     zoom?: number;
     sizing?: "original" | "fit";
     page?: number;
+    /** False lets a parent own drag-pan (e.g. after CSS rotate). Default true. */
+    interactive?: boolean;
   }
 
   export const PdfViewer: FunctionComponent<PdfViewerProps>;

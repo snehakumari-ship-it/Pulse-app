@@ -47,7 +47,8 @@ function isMissingTripDocumentsColumn(err: { message?: string; code?: string } |
   const message = String(err.message ?? "").toLowerCase();
   return message.includes("source_entity_document_id") && (message.includes("does not exist") || message.includes("schema cache"));
 }
-export const MAX_TRIP_DOC_BYTES = 10 * 1024 * 1024;
+/** Practical ceiling for large phone scans / multi-page PDFs (storage-friendly). */
+export const MAX_TRIP_DOC_BYTES = 100 * 1024 * 1024;
 const MAX_TRIP_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Max simultaneous Storage `list()` calls across a trip's document-type subfolders. */
 const SUBFOLDER_LIST_CONCURRENCY = 3;

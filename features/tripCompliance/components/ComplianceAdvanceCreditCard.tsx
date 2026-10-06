@@ -2,7 +2,6 @@ import Theme from "@/constants/Theme";
 import { TinyEmptyLottie } from "@/components/TinyEmptyLottie";
 import { CHAT_PAYMENT_LOTTIE, resolveChatPaymentLottieSource } from "@/lib/chatPaymentLottieAssets";
 import type { CompliancePaymentSummary } from "@/features/tripCompliance/tripCompliance.types";
-import { formatComplianceTxnDate } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
@@ -10,25 +9,9 @@ function formatInr(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 
-function formatPaidWhen(payment: CompliancePaymentSummary): string {
-  const day = formatComplianceTxnDate(payment.paidAt);
-  const posted = payment.postedAt?.trim();
-  if (!posted) return day || "—";
-  try {
-    const time = new Date(posted).toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-    return day ? `${day} · ${time}` : time;
-  } catch {
-    return day || "—";
-  }
-}
-
 /**
- * Hero + payment log for a posted advance (or a pre-verify advance that blocks
- * a second post). Large amount, party credit line, paid-at / mode with Lottie.
+ * Hero + payment log for a posted advance (or a Finance advance on file before
+ * verify). Large amount, party credit line, mode / UTR with Lottie.
  */
 export function ComplianceAdvanceCreditCard({
   payment,
@@ -49,6 +32,8 @@ export function ComplianceAdvanceCreditCard({
     [payment.paymentMode],
   );
   const blocked = tone === "blocked";
+  const utr = payment.utr?.trim() || "";
+  const showLog = Boolean(mode !== "—" || utr);
 
   return (
     <View style={[styles.card, blocked && styles.cardBlocked]}>
@@ -75,38 +60,33 @@ export function ComplianceAdvanceCreditCard({
         />
       </View>
 
-      <View style={styles.log}>
-        <Text style={styles.logTitle}>Payment log</Text>
-        <View style={styles.logRow}>
-          <TinyEmptyLottie source={CHAT_PAYMENT_LOTTIE.synced} size={28} renderScale={1.4} speed={0.8} />
-          <View style={styles.logCopy}>
-            <Text style={styles.logLabel}>Paid at</Text>
-            <Text style={styles.logValue} numberOfLines={2}>
-              {formatPaidWhen(payment)}
-            </Text>
-          </View>
-        </View>
-        <View style={[styles.logRow, styles.logRowBorder]}>
-          <TinyEmptyLottie source={modeLottie} size={28} renderScale={1.4} speed={0.85} />
-          <View style={styles.logCopy}>
-            <Text style={styles.logLabel}>Mode of payment</Text>
-            <Text style={[styles.logValue, mode === "—" && styles.logValueMuted]} numberOfLines={2}>
-              {mode}
-            </Text>
-          </View>
-        </View>
-        {payment.utr?.trim() ? (
-          <View style={[styles.logRow, styles.logRowBorder]}>
-            <TinyEmptyLottie source={CHAT_PAYMENT_LOTTIE.bank} size={28} renderScale={1.4} speed={0.85} />
-            <View style={styles.logCopy}>
-              <Text style={styles.logLabel}>UTR / reference</Text>
-              <Text style={styles.logValue} numberOfLines={2} selectable>
-                {payment.utr.trim()}
-              </Text>
+      {showLog ? (
+        <View style={styles.log}>
+          <Text style={styles.logTitle}>Payment log</Text>
+          {mode !== "—" ? (
+            <View style={styles.logRow}>
+              <TinyEmptyLottie source={modeLottie} size={28} renderScale={1.4} speed={0.85} />
+              <View style={styles.logCopy}>
+                <Text style={styles.logLabel}>Mode of payment</Text>
+                <Text style={styles.logValue} numberOfLines={2}>
+                  {mode}
+                </Text>
+              </View>
             </View>
-          </View>
-        ) : null}
-      </View>
+          ) : null}
+          {utr ? (
+            <View style={[styles.logRow, mode !== "—" && styles.logRowBorder]}>
+              <TinyEmptyLottie source={CHAT_PAYMENT_LOTTIE.bank} size={28} renderScale={1.4} speed={0.85} />
+              <View style={styles.logCopy}>
+                <Text style={styles.logLabel}>UTR / reference</Text>
+                <Text style={styles.logValue} numberOfLines={2} selectable>
+                  {utr}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {footer ? <View style={styles.footer}>{footer}</View> : null}
     </View>

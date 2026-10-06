@@ -16,6 +16,7 @@ import {
     type ComplianceTripSummary,
 } from "@/features/tripCompliance/tripCompliance.types";
 import { buildComplianceChecklist, listExpiredRequiredVehicleDocTypes } from "@/features/tripCompliance/utils/complianceChecklist.util";
+import { isComplianceTxnDateConfirmed } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import { classifyTripDocument } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import { deriveEntityComplianceRows } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import {
@@ -383,13 +384,13 @@ export function toPaymentSummary(rows: RawTxnRow[]): CompliancePaymentSummary | 
     actorId: latest.created_by,
     transactionId: latest.id,
     postedAt: latest.created_at ?? null,
+    txnDateConfirmed: isComplianceTxnDateConfirmed(latest.description),
   };
 }
 
 /**
- * Advance is paid from the Verified stage, so only a `compliance_advance` row
- * posted at or after `compliance_verified_at` counts. A row with no posting
- * time (older cached data) is trusted.
+ * @deprecated Finance posts `compliance_advance`; posting time vs verify no longer
+ * gates whether the advance counts. Kept for older call sites/tests only.
  */
 export function isAdvancePostedAfterVerification(
   advance: Pick<CompliancePaymentSummary, "postedAt">,
@@ -477,7 +478,7 @@ export function deriveComplianceStage(input: {
   // trips — Ops must renew before Advance Processed.
   if (input.hasExpiredRequiredVehicleDocs) return "pending_for_docs";
   // Hard-copy on an undelivered trip only opens balance once a real advance is on file.
-  // POD alone must not pull a verified trip off Verified (no advance / pre-verify advance).
+  // POD alone must not pull a verified trip off Verified (no advance).
   if (input.advance && input.hardCopyReceived) return "balance_pending";
   if (input.advance) return "advance_payment_processed";
   return "compliance_verified";
@@ -776,16 +777,13 @@ export async function fetchComplianceTripInputs(
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
   const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
-  // The advance is paid from Verified (compliance_verified_at — set by plain and
-  // exception approval). Only a compliance_advance posted after verification
-  // moves the trip on; Finance client receipts (trips.amount_paid) never do, and
-  // a row posted before verification keeps the trip in Compliance Pending /
-  // Verified with no Advance Processed pill.
+  // Finance posts compliance_advance (not Compliance). Once the trip is verified,
+  // any tagged advance counts — posting before/after verified_at does not matter.
+  // Finance client receipts (trips.amount_paid) never count as the advance.
+  // Before verify, a tagged row is kept as advanceBeforeVerification only (stage
+  // stays Pending Docs / Compliance Pending; no Advance Processed chip yet).
   const verifiedAt = flags?.compliance_verified_at ?? null;
-  const advance =
-    verifiedAt && taggedAdvance && isAdvancePostedAfterVerification(taggedAdvance, verifiedAt)
-      ? taggedAdvance
-      : null;
+  const advance = verifiedAt && taggedAdvance ? taggedAdvance : null;
   const advanceBeforeVerification = taggedAdvance && !advance ? taggedAdvance : null;
   // Phase 4: the gate is pod_received_at (the pre-existing, pervasively-used
   // signal), not the courier/AWB/received-by columns — those are display

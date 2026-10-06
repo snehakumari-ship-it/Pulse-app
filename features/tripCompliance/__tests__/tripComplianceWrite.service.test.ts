@@ -8,6 +8,7 @@ import { createLedgerEntry } from "@/features/finance/services/finance.service";
 import {
   checkCompliancePaymentAllowed,
   postCompliancePayment,
+  revertComplianceAdvanceToVerified,
   validateCompliancePaymentAmount,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import { processComplianceBulkPayments } from "@/features/tripCompliance/services/tripComplianceBulkPayment.service";
@@ -44,11 +45,48 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
 let mockTxnsResult: { data: unknown[]; error: null };
 /** Live `trips` flags read by postCompliancePayment; null = row not readable (falls back to the passed trip). */
 let mockLiveTripFlags: Pick<TripRow, "compliance_verified_at" | "pod_received_at"> | null = null;
+let mockDeleteResult: { data: { id: string } | null; error: { message: string } | null } = {
+  data: { id: "tx-adv-1" },
+  error: null,
+};
+let mockReadRowForRevert: {
+  id: string;
+  trip_id: string;
+  description: string | null;
+  ledger_category: string | null;
+  amount_in: number;
+} | null = {
+  id: "tx-adv-1",
+  trip_id: "trip-1",
+  description: "Compliance Advance | Mode: UPI",
+  ledger_category: "compliance_advance",
+  amount_in: 1000,
+};
+let mockTxnMode: "list" | "revert" = "list";
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (table: string) => {
-      if (table === "transactions") return mockMakeThenable(mockTxnsResult);
+      if (table === "transactions") {
+        if (mockTxnMode === "revert") {
+          const builder: Record<string, unknown> = {};
+          builder.select = () => builder;
+          builder.eq = () => builder;
+          builder.delete = () => builder;
+          builder.maybeSingle = async () => {
+            if (builder.__op === "delete") return mockDeleteResult;
+            return { data: mockReadRowForRevert, error: null };
+          };
+          // First chain is the read (select/eq/maybeSingle); calling delete marks the delete path.
+          const origDelete = () => {
+            builder.__op = "delete";
+            return builder;
+          };
+          builder.delete = origDelete;
+          return builder;
+        }
+        return mockMakeThenable(mockTxnsResult);
+      }
       if (table === "trips") {
         const builder: Record<string, unknown> = {};
         builder.select = () => builder;
@@ -63,6 +101,15 @@ jest.mock("@/lib/supabase", () => ({
 
 beforeEach(() => {
   mockLiveTripFlags = null;
+  mockTxnMode = "list";
+  mockDeleteResult = { data: { id: "tx-adv-1" }, error: null };
+  mockReadRowForRevert = {
+    id: "tx-adv-1",
+    trip_id: "trip-1",
+    description: "Compliance Advance | Mode: UPI",
+    ledger_category: "compliance_advance",
+    amount_in: 1000,
+  };
 });
 
 describe("checkCompliancePaymentAllowed — duplicate payment / already-settled protection", () => {
@@ -361,5 +408,28 @@ describe("processComplianceBulkPayments — same advance gate per row", () => {
     });
     expect(results[0].error).toBeNull();
     expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("revertComplianceAdvanceToVerified", () => {
+  beforeEach(() => {
+    mockTxnMode = "revert";
+  });
+
+  it("removes the compliance_advance row so the trip can return to Verified", async () => {
+    const result = await revertComplianceAdvanceToVerified({
+      tripId: "trip-1",
+      transactionId: "tx-adv-1",
+    });
+    expect(result.error).toBeNull();
+  });
+
+  it("rejects when the advance row is not found", async () => {
+    mockReadRowForRevert = null;
+    const result = await revertComplianceAdvanceToVerified({
+      tripId: "trip-1",
+      transactionId: "tx-missing",
+    });
+    expect(result.error?.message).toMatch(/not found/i);
   });
 });

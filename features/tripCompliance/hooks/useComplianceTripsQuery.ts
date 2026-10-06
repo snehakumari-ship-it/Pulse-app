@@ -452,6 +452,23 @@ export function useComplianceChangeSync() {
             ),
           );
         }
+        // Payment / verify / decline also move Finance Hub + Ledger — bust their caches.
+        if (
+          change.type === "payment" ||
+          change.type === "complianceVerified" ||
+          change.type === "complianceDeclined"
+        ) {
+          const { syncFinanceComplianceCaches } = await import(
+            "@/lib/queries/syncFinanceComplianceCaches"
+          );
+          syncFinanceComplianceCaches({
+            queryClient: qc,
+            organizationId: orgId,
+            tripId,
+            includeCompliance: false, // pipeline already patched above
+          });
+          void qc.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
+        }
       } catch {
         void qc.invalidateQueries({ queryKey: key });
       }

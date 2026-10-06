@@ -70,8 +70,8 @@ export interface TripDocItem {
   uploadedAt?: string | null;
 }
 
-/** Matches trip-documents + vehicle-documents bucket limits (10 MB). */
-export const VAULT_DOC_MAX_BYTES = 10 * 1024 * 1024;
+/** Matches trip-documents + vehicle-documents bucket limits (100 MB). */
+export const VAULT_DOC_MAX_BYTES = 100 * 1024 * 1024;
 export const VAULT_DOC_MAX_MB = VAULT_DOC_MAX_BYTES / (1024 * 1024);
 export const VAULT_DOC_TYPES_LABEL = "PDF, JPEG, PNG, WebP";
 export const VAULT_DOC_LIMIT_HINT = `${VAULT_DOC_TYPES_LABEL} · ${VAULT_DOC_MAX_MB} MB max per file`;

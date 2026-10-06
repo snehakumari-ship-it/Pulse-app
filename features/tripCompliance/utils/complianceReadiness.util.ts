@@ -116,11 +116,12 @@ export function deriveComplianceQueueReadiness(summary: ComplianceTripSummary): 
   let advance: CompliancePaymentLane;
   if (summary.advance) {
     advance = lane("compliance_advance", "posted", `Advance posted ₹${summary.advance.amount.toLocaleString("en-IN")}`);
-  } else if (summary.advanceBeforeVerification && !complianceVerificationIncomplete) {
+  } else if (summary.advanceBeforeVerification) {
+    // Finance already posted; Compliance cannot pay. Wait for verify to count it.
     advance = lane(
       "compliance_advance",
       "blocked",
-      `An advance of ₹${summary.advanceBeforeVerification.amount.toLocaleString("en-IN")} was posted before compliance was verified. Ask Finance to reverse it, then post the advance from Verified.`,
+      `Finance has posted ₹${summary.advanceBeforeVerification.amount.toLocaleString("en-IN")}. Mark compliance verified to continue.`,
     );
   } else if (!advanceGuard.ok) {
     advance = lane("compliance_advance", "blocked", advanceGuard.reason ?? "Advance is blocked.");

@@ -7,6 +7,7 @@ import Theme from "@/constants/Theme";
 import { useAdvanceProcessedTable } from "@/features/tripCompliance/hooks/useAdvanceProcessedTable";
 import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import {
+  revertComplianceAdvanceToVerified,
   updateCompliancePaymentReference,
   updateCompliancePaymentRequestId,
   updateCompliancePaymentTransactionDate,
@@ -27,15 +28,19 @@ import {
   validateComplianceRequestId,
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
+import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Pencil } from "lucide-react-native";
-import React, { useCallback, useMemo, useState } from "react";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Calendar, Check, Pencil, X } from "lucide-react-native";
+import React, { createElement, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -96,7 +101,7 @@ const COL = {
   account: { flex: 0.95, minWidth: 0 },
   branch: { flex: 0.8, minWidth: 0 },
   mode: { flex: 0.55, minWidth: 0 },
-  date: { flex: 0.95, minWidth: 108 },
+  date: { flex: 1.05, minWidth: 132 },
   amount: { flex: 0.75, minWidth: 0 },
   requestId: { flex: 1.0, minWidth: 104 },
   utr: { flex: 1.15, minWidth: 120 },
@@ -178,8 +183,229 @@ function Checkbox({ checked, onPress, label }: { checked: boolean; onPress: () =
   );
 }
 
+/** Moves a trip from Advance Processed back to Verified (undo advance posting). */
+function RevertToVerifiedButton({
+  disabled,
+  busy,
+  onPress,
+  label,
+}: {
+  disabled?: boolean;
+  busy?: boolean;
+  onPress: () => void;
+  label: string;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={disabled || busy}
+      style={[styles.revertCell, (disabled || busy) && styles.revertCellDisabled]}
+      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled || busy) }}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={Theme.destructive} />
+      ) : (
+        <View style={styles.revertBtn}>
+          <X size={12} color={Theme.destructive} strokeWidth={2.8} />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 type EditState = { draft: string; saving: boolean; error: string | null; editing: boolean };
 const EMPTY_EDIT: EditState = { draft: "", saving: false, error: null, editing: false };
+
+function parseTxnDate(value: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T12:00:00`);
+  return new Date();
+}
+
+function toTxnIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Compact calendar date control for the Txn Date column (native picker on web). */
+function TxnDateCell({
+  style,
+  saved,
+  state,
+  disabledLabel,
+  onCommit,
+  onEdit,
+}: {
+  style: ViewStyle;
+  saved: string;
+  state: EditState | undefined;
+  disabledLabel: string | null;
+  onCommit: (iso: string) => void;
+  onEdit: () => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [iosDraft, setIosDraft] = useState<string>("");
+  const displaySaved = formatComplianceTxnDate(saved);
+  const draft = state?.editing ? state.draft : saved;
+  const isoValue = /^\d{4}-\d{2}-\d{2}$/.test(draft) ? draft : "";
+  const saving = Boolean(state?.saving);
+  const showPicker = Boolean(state?.editing) || !saved;
+
+  if (disabledLabel) {
+    return (
+      <View style={[styles.cell, style]}>
+        <Text style={styles.editDisabled} numberOfLines={2}>
+          {disabledLabel}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!showPicker && saved) {
+    return (
+      <View style={[styles.cell, style]}>
+        <TouchableOpacity
+          style={styles.txnDateSaved}
+          onPress={onEdit}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel={`Txn Date ${displaySaved}. Edit`}
+        >
+          <Text style={styles.txnDateValue} numberOfLines={1} selectable>
+            {displaySaved}
+          </Text>
+          <Pencil size={11} color={Theme.textMuted} strokeWidth={2.2} />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const commit = (next: string) => {
+    const normalized = normalizeComplianceTransactionDate(next);
+    if (!normalized || validateComplianceTransactionDate(normalized)) return;
+    onCommit(normalized);
+  };
+
+  return (
+    <View style={[styles.cell, style]}>
+      {Platform.OS === "web" ? (
+        <View style={[styles.txnDateShell, state?.error ? styles.txnDateShellError : null, saving && styles.txnDateShellBusy]}>
+          {createElement("input", {
+            type: "date",
+            value: isoValue,
+            disabled: saving,
+            lang: "en-IN",
+            "aria-label": "Txn Date",
+            onChange: (e: { target?: { value?: string } }) => {
+              const next = String(e?.target?.value ?? "");
+              if (next) commit(next);
+            },
+            style: {
+              flex: 1,
+              width: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: "16px",
+              color: Theme.textPrimaryDark,
+              fontFamily:
+                'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              padding: 0,
+              margin: 0,
+              minHeight: 18,
+              cursor: saving ? "default" : "pointer",
+            },
+          })}
+          {saving ? (
+            <ActivityIndicator size="small" color={Theme.textMuted} />
+          ) : (
+            <Calendar size={12} color={Theme.textMuted} strokeWidth={2.2} />
+          )}
+        </View>
+      ) : (
+        <>
+          <Pressable
+            onPress={() => {
+              if (saving) return;
+              setIosDraft(isoValue || toTxnIsoDate(new Date()));
+              setPickerOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.txnDateShell,
+              state?.error ? styles.txnDateShellError : null,
+              saving && styles.txnDateShellBusy,
+              pressed && { opacity: 0.9 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Txn Date"
+          >
+            <Text style={[styles.txnDatePlaceholder, isoValue ? styles.txnDateValue : null]} numberOfLines={1}>
+              {isoValue ? formatComplianceTxnDate(isoValue) : "dd/mm/yyyy"}
+            </Text>
+            {saving ? (
+              <ActivityIndicator size="small" color={Theme.textMuted} />
+            ) : (
+              <Calendar size={12} color={Theme.textMuted} strokeWidth={2.2} />
+            )}
+          </Pressable>
+          {pickerOpen && Platform.OS === "android" ? (
+            <DateTimePicker
+              value={parseTxnDate(isoValue)}
+              mode="date"
+              display="default"
+              onChange={(e, date) => {
+                setPickerOpen(false);
+                if (e.type === "set" && date) commit(toTxnIsoDate(date));
+              }}
+            />
+          ) : null}
+          {Platform.OS === "ios" ? (
+            <Modal visible={pickerOpen} transparent animationType="slide">
+              <Pressable style={styles.txnDateBackdrop} onPress={() => setPickerOpen(false)}>
+                <View style={styles.txnDateSheet} onStartShouldSetResponder={() => true}>
+                  <View style={styles.txnDateSheetHeader}>
+                    <Pressable onPress={() => setPickerOpen(false)} hitSlop={10}>
+                      <Text style={styles.txnDateSheetMuted}>Cancel</Text>
+                    </Pressable>
+                    <Text style={styles.txnDateSheetTitle}>Txn Date</Text>
+                    <Pressable
+                      onPress={() => {
+                        commit(iosDraft || toTxnIsoDate(new Date()));
+                        setPickerOpen(false);
+                      }}
+                      hitSlop={10}
+                    >
+                      <Text style={styles.txnDateSheetDone}>Done</Text>
+                    </Pressable>
+                  </View>
+                  <DateTimePicker
+                    value={parseTxnDate(iosDraft || isoValue)}
+                    mode="date"
+                    display="spinner"
+                    onChange={(_, date) => date && setIosDraft(toTxnIsoDate(date))}
+                  />
+                </View>
+              </Pressable>
+            </Modal>
+          ) : null}
+        </>
+      )}
+      {state?.error ? (
+        <Text style={styles.editError} numberOfLines={2}>
+          {state.error}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 function EditableCell({
   field,
@@ -190,6 +416,7 @@ function EditableCell({
   onChange,
   onSave,
   onEdit,
+  onCommitDate,
 }: {
   field: EditField;
   style: ViewStyle;
@@ -199,9 +426,22 @@ function EditableCell({
   onChange: (value: string) => void;
   onSave: () => void;
   onEdit: () => void;
+  onCommitDate: (iso: string) => void;
 }) {
   const config = FIELD_CONFIG[field];
-  const displaySaved = field === "txnDate" ? formatComplianceTxnDate(saved) : saved;
+  const displaySaved = saved;
+  if (field === "txnDate") {
+    return (
+      <TxnDateCell
+        style={style}
+        saved={saved}
+        state={state}
+        disabledLabel={disabledLabel}
+        onCommit={onCommitDate}
+        onEdit={onEdit}
+      />
+    );
+  }
   if (disabledLabel) {
     return (
       <View style={[styles.cell, style]}>
@@ -253,7 +493,6 @@ function EditableCell({
           maxLength={config.maxLength}
           editable={!state?.saving}
           returnKeyType="done"
-          {...(Platform.OS === "web" && field === "txnDate" ? ({ type: "date" } as object) : null)}
           style={[styles.input, state?.error ? styles.inputError : null] as TextStyle[]}
           accessibilityLabel={config.label}
         />
@@ -286,12 +525,17 @@ export function ComplianceAdvanceProcessedTable({
   organizationId,
   onOpenTrip,
   onUtrSaved,
+  onRevertedToVerified,
+  canManageFinance = false,
 }: {
   summaries: ComplianceTripSummary[];
   organizationId: string;
   onOpenTrip: (tripId: string) => void;
   /** After a UTR / Request ID is saved — refresh that trip's payment inputs. */
   onUtrSaved?: (tripId: string) => void;
+  /** After advance is undone — trip leaves Advance Processed for Verified. */
+  onRevertedToVerified?: (tripId: string) => void;
+  canManageFinance?: boolean;
 }) {
   const queryClient = useQueryClient();
   const rows = useMemo(() => summaries.filter((s) => s.advance), [summaries]);
@@ -301,6 +545,7 @@ export function ComplianceAdvanceProcessedTable({
   /** Saved values shown until refetched data catches up. */
   const [savedLocal, setSavedLocal] = useState<Record<string, string>>({});
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
 
   const editKey = (tripId: string, field: EditField) => `${tripId}:${field}`;
 
@@ -310,7 +555,10 @@ export function ComplianceAdvanceProcessedTable({
       if (local != null) return local;
       if (field === "utr") return (info?.payment?.utr ?? summary.advance?.utr ?? "").trim();
       if (field === "txnDate") {
-        return toComplianceTransactionDateInput(info?.payment?.paidAt ?? summary.advance?.paidAt);
+        // Blank until Ops confirms a date in Compliance (Finance posting day is ignored).
+        const payment = info?.payment ?? summary.advance;
+        if (!payment?.txnDateConfirmed) return "";
+        return toComplianceTransactionDateInput(payment.paidAt);
       }
       return (info?.requestId ?? "").trim();
     },
@@ -321,22 +569,22 @@ export function ComplianceAdvanceProcessedTable({
     setEdits((cur) => ({ ...cur, [key]: { ...(cur[key] ?? EMPTY_EDIT), ...patch } }));
 
   const saveField = useCallback(
-    async (summary: ComplianceTripSummary, field: EditField) => {
+    async (summary: ComplianceTripSummary, field: EditField, draftOverride?: string) => {
       const tripId = summary.trip.id;
       const key = editKey(tripId, field);
       const info = enrichment?.[tripId];
       const config = FIELD_CONFIG[field];
-      const value = config.normalize(edits[key]?.draft ?? "");
+      const value = config.normalize(draftOverride ?? edits[key]?.draft ?? "");
       const invalid = config.validate(value);
       if (invalid) {
-        patchEdit(key, { error: invalid });
+        patchEdit(key, { draft: value, editing: true, error: invalid });
         return false;
       }
       if (!info?.transactionId) {
-        patchEdit(key, { error: "Payment not found. Refresh and try again." });
+        patchEdit(key, { draft: value, editing: true, error: "Payment not found. Refresh and try again." });
         return false;
       }
-      patchEdit(key, { saving: true, error: null });
+      patchEdit(key, { draft: value, editing: true, saving: true, error: null });
       const target = { tripId, transactionId: info.transactionId, category: info.utrCategory };
       const { error } =
         field === "utr"
@@ -351,10 +599,70 @@ export function ComplianceAdvanceProcessedTable({
       setSavedLocal((cur) => ({ ...cur, [key]: value }));
       patchEdit(key, { saving: false, editing: false, draft: value });
       void queryClient.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
+      {
+        const { syncFinanceComplianceCaches } = await import(
+          "@/lib/queries/syncFinanceComplianceCaches"
+        );
+        syncFinanceComplianceCaches({
+          queryClient,
+          organizationId,
+          tripId,
+          includeCompliance: false, // advanceProcessed + onUtrSaved already cover Compliance
+        });
+      }
       onUtrSaved?.(tripId);
       return true;
     },
-    [edits, enrichment, onUtrSaved, queryClient],
+    [edits, enrichment, onUtrSaved, organizationId, queryClient],
+  );
+
+  const revertToVerified = useCallback(
+    async (summary: ComplianceTripSummary) => {
+      const tripId = summary.trip.id;
+      if (!canManageFinance || revertingId) return;
+      const info = enrichment?.[tripId];
+      const transactionId = info?.transactionId ?? summary.advance?.transactionId;
+      if (!transactionId || transactionId.startsWith("amount-paid:")) {
+        alertMessage(
+          "Can't move back",
+          "This advance isn't editable from Compliance. Refresh and try again.",
+        );
+        return;
+      }
+      const tripNumber = getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null);
+      const ok = await confirmAction(
+        "Move back to Verified?",
+        `${tripNumber} will leave Advance Processed. The Compliance advance posting is removed so you can confirm payment again from Verified.`,
+        "Move to Verified",
+      );
+      if (!ok) return;
+      setRevertingId(tripId);
+      const { error } = await revertComplianceAdvanceToVerified({ tripId, transactionId });
+      setRevertingId(null);
+      if (error) {
+        alertMessage("Couldn't move trip", error.message);
+        return;
+      }
+      setSelected((cur) => {
+        if (!cur.has(tripId)) return cur;
+        const next = new Set(cur);
+        next.delete(tripId);
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
+      {
+        const { syncFinanceComplianceCaches } = await import(
+          "@/lib/queries/syncFinanceComplianceCaches"
+        );
+        syncFinanceComplianceCaches({
+          queryClient,
+          organizationId,
+          tripId,
+        });
+      }
+      onRevertedToVerified?.(tripId);
+    },
+    [canManageFinance, enrichment, onRevertedToVerified, organizationId, queryClient, revertingId],
   );
 
   const pendingSelected = rows.flatMap((summary) => {
@@ -439,6 +747,7 @@ export function ComplianceAdvanceProcessedTable({
       </View>
 
       <View style={[styles.row, styles.headerRow]}>
+        {canManageFinance ? <View style={styles.revertHeaderSpacer} /> : null}
         <Checkbox checked={allSelected} onPress={toggleAll} label="Select all trips" />
         <HeaderCell label="Trip ID" style={COL.trip} />
         <HeaderCell label="LR No." style={COL.lr} />
@@ -485,6 +794,7 @@ export function ComplianceAdvanceProcessedTable({
               onChange={(value) => patchEdit(key, { draft: value, error: null, editing: true })}
               onEdit={() => patchEdit(key, { draft: saved, editing: true, error: null })}
               onSave={() => void saveField(summary, field)}
+              onCommitDate={(iso) => void saveField(summary, "txnDate", iso)}
             />
           );
         };
@@ -493,6 +803,14 @@ export function ComplianceAdvanceProcessedTable({
             key={trip.id}
             style={[styles.row, index % 2 === 1 && styles.rowAlt, isSelected && styles.rowSelected]}
           >
+            {canManageFinance ? (
+              <RevertToVerifiedButton
+                busy={revertingId === trip.id}
+                disabled={Boolean(revertingId) || loading || noEntry || info?.utrCategory === "finance_receipt"}
+                onPress={() => void revertToVerified(summary)}
+                label={`Move ${tripNumber} back to Verified`}
+              />
+            ) : null}
             <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
             <View style={[styles.cell, COL.trip]}>
               <TouchableOpacity onPress={() => onOpenTrip(trip.id)} hitSlop={{ top: 8, bottom: 8 }} accessibilityRole="link">
@@ -646,6 +964,24 @@ const styles = StyleSheet.create({
   alignRight: { textAlign: "right" },
   tripLink: { fontWeight: "700", color: Theme.complianceBulk },
   selectCell: { width: 30, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
+  revertHeaderSpacer: { width: 30, alignSelf: "stretch" },
+  revertCell: {
+    width: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
+  },
+  revertCellDisabled: { opacity: 0.35 },
+  revertBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.destructive,
+    backgroundColor: Theme.negativeMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   checkbox: {
     width: 15,
     height: 15,
@@ -688,6 +1024,75 @@ const styles = StyleSheet.create({
   saveBtnIdle: { opacity: 0.3 },
   editError: { fontSize: 9, lineHeight: 11, fontWeight: "600", color: Theme.complianceStageDocsFg },
   editDisabled: { fontSize: 9, lineHeight: 12, fontWeight: "500", color: Theme.textMuted },
+  txnDateShell: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 30,
+    width: "100%",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  txnDateShellError: { borderColor: Theme.complianceStageDocsFg },
+  txnDateShellBusy: { opacity: 0.7 },
+  txnDatePlaceholder: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    letterSpacing: 0.2,
+  },
+  txnDateSaved: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    minHeight: 30,
+    width: "100%",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: Theme.border,
+    backgroundColor: Theme.cardWhite,
+  },
+  txnDateValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+  },
+  txnDateBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15,23,42,0.35)",
+  },
+  txnDateSheet: {
+    backgroundColor: Theme.cardWhite,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+  },
+  txnDateSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.border,
+  },
+  txnDateSheetTitle: { fontSize: 14, fontWeight: "700", color: Theme.textPrimaryDark },
+  txnDateSheetMuted: { fontSize: 14, fontWeight: "600", color: Theme.textMuted },
+  txnDateSheetDone: { fontSize: 14, fontWeight: "700", color: Theme.complianceBulk },
   savedChip: {
     flexDirection: "row",
     alignItems: "center",

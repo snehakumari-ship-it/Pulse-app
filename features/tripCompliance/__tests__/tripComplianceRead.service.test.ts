@@ -433,7 +433,7 @@ describe("isAdvancePostedAfterVerification", () => {
     expect(isAdvancePostedAfterVerification({ postedAt: "2026-10-05T07:55:16Z" }, "2026-10-05T07:55:16Z")).toBe(true);
   });
 
-  it("rejects an advance posted before verification", () => {
+  it("still reports ordering when posted before verification (legacy helper; counting no longer uses this)", () => {
     expect(isAdvancePostedAfterVerification({ postedAt: "2026-10-01T11:14:07Z" }, "2026-10-02T00:00:00Z")).toBe(false);
   });
 
@@ -537,21 +537,29 @@ describe("summarizeComplianceTrip — the advance is paid from Verified", () => 
     expect(readiness.advance.status).toBe("blocked");
   });
 
-  it("keeps a trip in Verified when its advance was posted before verification, even with the POD received", () => {
-    for (const podReceivedAt of [undefined, "2026-10-03T00:00:00Z"]) {
-      const s = summary({ verifiedAt: "2026-10-02T00:00:00Z", podReceivedAt });
-      expect(s.stage).toBe("compliance_verified");
-      expect(s.advance).toBeNull();
-      expect(s.advanceBeforeVerification?.amount).toBe(114500);
-      expect(shouldShowPaymentStatusPill(s)).toBe(false);
-    }
+  it("counts a Finance advance posted before verification once the trip is verified", () => {
+    const s = summary({ verifiedAt: "2026-10-02T00:00:00Z" });
+    expect(s.stage).toBe("advance_payment_processed");
+    expect(s.advance?.amount).toBe(114500);
+    expect(s.advanceBeforeVerification).toBeNull();
+    expect(shouldShowPaymentStatusPill(s)).toBe(true);
   });
 
-  it("blocks Pay with a clear reason instead of offering a second advance", () => {
+  it("opens Balance Pending when a pre-verify Finance advance is on file and hard-copy POD is received", () => {
+    const s = summary({
+      verifiedAt: "2026-10-02T00:00:00Z",
+      podReceivedAt: "2026-10-03T00:00:00Z",
+    });
+    // Undelivered + hard copy + counted advance → balance lane.
+    expect(s.stage).toBe("balance_pending");
+    expect(s.advance?.amount).toBe(114500);
+  });
+
+  it("treats a verified trip with a Finance advance as advance posted (no reverse/re-post block)", () => {
     const readiness = deriveComplianceQueueReadiness(summary({ verifiedAt: "2026-10-02T00:00:00Z" }));
     expect(readiness.paymentReady).toBe(false);
-    expect(readiness.advance.status).toBe("blocked");
-    expect(readiness.advance.reason).toMatch(/posted before compliance was verified/i);
+    expect(readiness.advance.status).toBe("posted");
+    expect(readiness.advance.reason).toMatch(/Advance posted/i);
   });
 
   it("keeps a verified trip with only a Finance receipt in Verified, ready for the advance, even with the POD received", () => {
