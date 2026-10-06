@@ -95,15 +95,16 @@ export function useComplianceListTripFacts(
         Array.from(vehicleJobs.values()).map(async ({ vehicleId, tripId, tripOrgId }) => {
           const owned = await getVehicleById(tripOrgId, vehicleId);
           let type = owned.vehicle?.vehicle_type?.trim() || "";
-          if (!type && tripOrgId !== viewerOrgId) {
+          if (!type && tripOrgId !== viewerOrgId && !cancelled) {
             const ownedViewer = await getVehicleById(viewerOrgId, vehicleId);
             type = ownedViewer.vehicle?.vehicle_type?.trim() || "";
           }
+          if (cancelled) return;
           if (!type) {
             const shared = await getVehicleForTripViewer(vehicleId, tripId, viewerOrgId);
             type = shared.vehicle?.vehicle_type?.trim() || "";
           }
-          if (!type && tripOrgId !== viewerOrgId) {
+          if (!type && tripOrgId !== viewerOrgId && !cancelled) {
             const sharedOwner = await getVehicleForTripViewer(vehicleId, tripId, tripOrgId);
             type = sharedOwner.vehicle?.vehicle_type?.trim() || "";
           }
@@ -111,6 +112,7 @@ export function useComplianceListTripFacts(
         }),
       );
 
+      if (cancelled) return;
       await Promise.all(
         Array.from(supplierJobs.values()).map(async ({ tripId, supplierId, tripOrgId, isAsset }) => {
           if (isAsset && !supplierId) {
@@ -121,6 +123,7 @@ export function useComplianceListTripFacts(
             nextSuppliers[tripId] = "—";
             return;
           }
+          if (cancelled) return;
           let label = "";
           const details = await getSupplierDetails(supplierId);
           label = supplierLabelFromRow(details.supplier);

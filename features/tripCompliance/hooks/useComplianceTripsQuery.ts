@@ -34,7 +34,10 @@ import type {
 } from "@/features/tripCompliance/tripCompliance.types";
 import { ensureComplianceChecklist } from "@/features/tripCompliance/utils/complianceChecklist.util";
 import { selectCompliancePipelineTrips } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
-import { isCompliancePaymentPending } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import {
+  isCompliancePaymentPending,
+  isComplianceVerifiedQueue,
+} from "@/features/tripCompliance/utils/complianceReadiness.util";
 import { getTripById, type TripRow } from "@/features/trips/services/trips.service";
 import { useTripsQuery } from "@/lib/queries/useTripsQuery";
 import { queryKeys } from "@/lib/queryKeys";
@@ -257,6 +260,7 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     if (stage === "all") return summaries;
     if (stage === "pod_received") return summaries.filter((summary) => summary.hardCopyPod?.received);
     if (stage === "payment_pending") return summaries.filter(isCompliancePaymentPending);
+    if (stage === "compliance_verified") return summaries.filter(isComplianceVerifiedQueue);
     return summaries.filter((s) => s.stage === stage);
   }, [summaries, stage]);
 
@@ -273,6 +277,9 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     };
     for (const summary of summaries ?? []) {
       if (summary.stage in next) next[summary.stage] += 1;
+      if (summary.stage !== "compliance_verified" && isComplianceVerifiedQueue(summary)) {
+        next.compliance_verified += 1;
+      }
     }
     return next;
   }, [summaries]);
