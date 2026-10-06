@@ -357,6 +357,9 @@ export function decodeHardCopyPodComment(raw: unknown): {
   dispatchDate: string | null;
   expectedDeliveryDate: string | null;
   ibond: boolean;
+  ibondDeductibleCost: number | null;
+  vendorCostBefore: number | null;
+  vendorCostAfter: number | null;
 } {
   const empty = {
     remarks: null,
