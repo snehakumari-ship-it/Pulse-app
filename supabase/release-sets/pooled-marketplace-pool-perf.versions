@@ -1,0 +1,6 @@
+# Pooled Marketplace pool-row performance: inlinable _pool_key/_pool_key_part and
+# _marketplace_pool_rows with the open and sponsored predicates evaluated on the scanned row.
+# Same results as 20271006181500 (parity suite in supabase/tests/pooled_marketplace); no index.
+# Requires pooled-marketplace-manifests (20271006181500) first.
+# Apply only after explicit production authorization.
+20271006183000

@@ -1,0 +1,6 @@
+# Pooled Marketplace completion: canonical pool key, D1 sponsored classifier,
+# DCO + organization pool manifests and lanes, Network pooling classifier.
+# Additive only (new functions + grants). Local tests: supabase/tests/pooled_marketplace/run.sh.
+# Client use of these RPCs stays blocked until submit-market-bid-indent-checks is applied.
+# Apply only after explicit production authorization.
+20271006181500

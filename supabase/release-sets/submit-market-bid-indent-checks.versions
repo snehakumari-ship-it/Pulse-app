@@ -1,0 +1,6 @@
+# D2 / S1: submit_market_bid refuses non-open, non-Marketplace and own-organization indents
+# (indent_not_open, not_marketplace_circulated, own_indent). Write-behavior change for every
+# submit_market_bid caller; caller inventory reviewed 2026-10-06. Hard prerequisite for
+# enabling pooled Marketplace submission (DCO and organization).
+# Apply only after explicit production authorization.
+20271006182000

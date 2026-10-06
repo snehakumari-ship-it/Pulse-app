@@ -1,0 +1,6 @@
+# D3 / R1 + R2: submit_network_quote — server-authoritative Network quote write with visibility,
+# open, own-indent and quote-state checks; conditional upsert never changes status (quote_locked).
+# direct_quotes RLS policies unchanged; revoking the bidder INSERT/UPDATE policies is a separate
+# compatibility step. Hard prerequisite for enabling pooled Network quoting.
+# Apply only after explicit production authorization.
+20271006182500
