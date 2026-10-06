@@ -4,6 +4,9 @@ import { useDriverTheme, useDriverThemeColors } from "@/contexts/DriverThemeCont
 import { DriverTripExpenseLogSection } from "@/features/driver/components/DriverTripExpenseLogSection";
 import { TripPaymentAmountGrid } from "@/features/driver/components/TripPaymentAmountGrid";
 import { useDriverTripSettlement } from "@/features/driver/hooks/useDriverTripSettlement";
+import { ExchangePaymentsPanel } from "@/features/marketplace/components/ExchangePaymentsPanel";
+import { useExchangeTripSummaryQuery } from "@/features/marketplace/hooks/useExchangeTripPayments";
+import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import type { DriverTripSettlementTone } from "@/features/driver/tripSettlement/driverTripSettlement.util";
 import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import { useTripOperationsSummary } from "@/features/trips/operations/queries/useTripOperations";
@@ -91,6 +94,11 @@ export function TripDetailSettlementPanel({
   } = useDriverTripSettlement(trip, { isFleetLinked });
 
   const summaryQuery = useTripOperationsSummary(trip.id, { includeMaintenance: false });
+  const exchangeQuery = useExchangeTripSummaryQuery(
+    isDcoOperatingTrip(trip) && trip.source === "market_bid" ? trip.id : null,
+  );
+  // The Exchange record is this DCO's receivable; no separate payout figure.
+  const isExchangeReceivable = !!exchangeQuery.data;
 
   const openAddExpense = useCallback(() => {
     router.push(ROUTES.tripOtherExpenseEntry(trip.id) as Href);
@@ -152,8 +160,8 @@ export function TripDetailSettlementPanel({
   }
 
   const pill = tonePillStyle(settlementView.statusTone, isDark);
-  const showCommissionHero = !settlementView.isSalary;
-  const showRequestFromFleet = settlementView.isFleetLinked;
+  const showCommissionHero = !settlementView.isSalary && !isExchangeReceivable;
+  const showRequestFromFleet = settlementView.isFleetLinked && !isExchangeReceivable;
 
   const earningTitle = settlementView.isSalary
     ? "Salary"
@@ -185,7 +193,9 @@ export function TripDetailSettlementPanel({
 
   return (
     <View style={{ marginBottom: 12 }}>
-      {settlementView.status === "incomplete" ? (
+      {isExchangeReceivable ? <ExchangePaymentsPanel tripId={trip.id} /> : null}
+
+      {settlementView.status === "incomplete" && !isExchangeReceivable ? (
         <View
           style={[
             panelStyles.incompleteBanner,
@@ -284,7 +294,7 @@ export function TripDetailSettlementPanel({
           { backgroundColor: colors.surface, borderColor: colors.border },
         ]}
       >
-        {!settlementView.isFleetLinked ? (
+        {!settlementView.isFleetLinked && !isExchangeReceivable ? (
           <View style={styles.tdBreakRow}>
             <View style={styles.tdBreakLeft}>
               <View style={[styles.tdBreakIcon, { backgroundColor: colors.border }]}>
@@ -302,7 +312,7 @@ export function TripDetailSettlementPanel({
           </View>
         ) : null}
 
-        {settlementView.showEstimatedEarning ? (
+        {isExchangeReceivable ? null : settlementView.showEstimatedEarning ? (
           <View style={styles.tdBreakRow}>
             <View style={styles.tdBreakLeft}>
               <View

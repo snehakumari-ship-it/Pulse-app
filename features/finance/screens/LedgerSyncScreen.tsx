@@ -22,6 +22,7 @@ import type { DriverOffer } from "@/features/drivers/services/drivers.service";
 import {
   createLedgerEntry,
   updateLedgerEntry,
+  type CreateLedgerEntryResult,
   type LedgerRow,
 } from "@/features/finance/services/finance.service";
 import { buildLedgerSyncDescriptionLine } from "@/features/finance/ledger/ledgerEntryModel";
@@ -752,12 +753,19 @@ export default function LedgerSyncScreen() {
         ? updateLedgerEntry(orgId, options.entryId, payload)
         : createLedgerEntry(orgId, payload);
 
-      const { error } = await doCreate;
+      const result: CreateLedgerEntryResult = await doCreate;
+      const { error } = result;
       if (error) {
         // In-app alert (non-blocking). RN Alert.alert → window.alert behind the
         // recon Modal freezes Confirm Sync loading on iPad Safari.
         showAppAlert(t("error"), error.message);
         throw new Error(error.message);
+      }
+      if (result.pendingExchangeConfirmation) {
+        showAppAlert(
+          "Sent to Pulse Exchange",
+          "This payment posts to Finance once the other side confirms it in Exchange.",
+        );
       }
 
       void invalidateTransactions(orgId);

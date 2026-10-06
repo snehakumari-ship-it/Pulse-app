@@ -1,6 +1,7 @@
 /**
  * Full-screen indent deploy — asset and aggregate allocation wizards.
  */
+import { manuallySelectableSuppliers } from "@/features/suppliers/utils/pulseExchangeSupplier.util";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -126,6 +127,7 @@ export function IndentAllocationFlowScreen({
   const vehicles = vehiclesQ.data ?? [];
   const rosterPending = driversQ.isPending || vehiclesQ.isPending;
   const { data: suppliers = [] } = useSuppliersQuery(onFleetStep ? null : orgId);
+  const selectableSuppliers = useMemo(() => manuallySelectableSuppliers(suppliers), [suppliers]);
   const { data: myClients = [] } = useClientsQuery(onFleetStep ? null : orgId);
 
   const activeDrivers = useMemo(
@@ -1179,7 +1181,7 @@ export function IndentAllocationFlowScreen({
               step === "vehicleReg") ? (
               <IndentAggregateAllocationStep
                 step={step}
-                suppliers={suppliers}
+                suppliers={selectableSuppliers}
                 state={state}
                 set={set}
                 onAddPartner={onAddPartner}

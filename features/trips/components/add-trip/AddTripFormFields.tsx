@@ -19,6 +19,7 @@ import {
     getSuppliersByOrganization,
     type SupplierRow,
 } from "@/features/suppliers/services/suppliers.service";
+import { manuallySelectableSuppliers } from "@/features/suppliers/utils/pulseExchangeSupplier.util";
 import {
   getDriverAvailabilityByPhoneGlobal,
   getTripsByOrganization,
@@ -568,7 +569,7 @@ export function AddTripFormFields({
           setSuppliers([]);
           return;
         }
-        setSuppliers(r.suppliers);
+        setSuppliers(manuallySelectableSuppliers(r.suppliers));
       })
       .catch((e) => {
         if (__DEV__) {

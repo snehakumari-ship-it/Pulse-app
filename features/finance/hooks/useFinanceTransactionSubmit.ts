@@ -11,6 +11,7 @@ import { createDriverLedgerEntry } from "@/features/drivers/services/drivers.ser
 import {
   createLedgerEntry,
   updateLedgerEntry,
+  type CreateLedgerEntryResult,
   type LedgerRow,
 } from "../services/finance.service";
 import type { TripEntryContext } from "../components/EntityDetailOverlay";
@@ -61,10 +62,16 @@ function doSubmit(
   salaryRequestIdToPayAfterSubmitRef: React.MutableRefObject<string | null>,
   onSuccessNavigate?: (data: AddTransactionData) => void,
 ) {
-  const promise = options?.entryId
+  const promise: Promise<CreateLedgerEntryResult> = options?.entryId
     ? updateLedgerEntry(orgId, options.entryId, payload)
     : createLedgerEntry(orgId, payload);
-  promise.then(async ({ error, row: updatedRow }) => {
+  promise.then(async ({ error, row: updatedRow, pendingExchangeConfirmation }) => {
+    if (!error && pendingExchangeConfirmation) {
+      Alert.alert(
+        "Sent to Pulse Exchange",
+        "This payment posts to Finance once the other side confirms it in Exchange.",
+      );
+    }
     if (!error) {
       if (options?.entryId && updatedRow) {
         setLedgerTransactions((prev) =>

@@ -11,6 +11,7 @@ import {
   getSuppliersByOrganization,
   type SupplierRow,
 } from "@/features/suppliers/services/suppliers.service";
+import { manuallySelectableSuppliers } from "@/features/suppliers/utils/pulseExchangeSupplier.util";
 import {
   getDriverAvailabilityByPhoneGlobal,
   getTripsByOrganization,
@@ -88,7 +89,7 @@ export function useAddTripFleetResources(
     if (!organizationId) return;
     setSuppliersLoading(true);
     void getSuppliersByOrganization(organizationId)
-      .then((r) => setSuppliers(r.error ? [] : r.suppliers))
+      .then((r) => setSuppliers(r.error ? [] : manuallySelectableSuppliers(r.suppliers)))
       .finally(() => setSuppliersLoading(false));
   }, [organizationId]);
 

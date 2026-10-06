@@ -330,6 +330,11 @@ export const queryKeys = {
     forPost: (postId: string) => ["q", "story-views", postId] as const,
   },
 
+  /** Pulse Exchange: two-gate Marketplace payments on one trip (get_exchange_trip_summary). */
+  exchange: {
+    tripSummary: (tripId: string) => ["q", "exchange", "trip", tripId] as const,
+  },
+
   /** A4 — Business Find Loads: open Marketplace/both discovery for an org. */
   findLoadsForOrg: {
     list: (orgId: string) => ["q", "find-loads", orgId] as const,

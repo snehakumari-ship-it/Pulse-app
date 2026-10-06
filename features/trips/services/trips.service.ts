@@ -10,6 +10,7 @@ import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import { shouldFallbackTripsTableScan } from "@/features/trips/utils/tripOrgFetch.util";
 import { shouldMarkAssignedOnFirstAssign } from "@/features/trips/utils/tripReassign.util";
 import { TRIP_REASSIGN_STALE_ERROR } from "@/features/trips/utils/tripReassignConflict.util";
+import { getExchangeTripSummary } from "@/features/marketplace/services/exchangePayments.service";
 import { TimeoutError, withTimeout } from "@/lib/authEngine";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
 import { syncDomainRows } from "@/lib/cache/domainSync";
@@ -84,7 +85,7 @@ export interface TripRow {
    * Independent of execution_type and trip_payout_mode. See isDcoOperatingTrip().
    */
   operating_mode?: "FLEET" | "DCO" | string | null;
-  /** DCO payee when operating_mode is DCO. Mutually exclusive with supplier_id. */
+  /** DCO payee when operating_mode is DCO. supplier_id is null, except the shipper's Pulse Exchange party on a Marketplace DCO award. */
   dco_payee_id?: string | null;
   /** Explicit, dispatcher-captured execution model for a subcontracted trip. NULL = infer via getTripExecutionModel()'s legacy heuristic. Immutable once started_at is set. */
   execution_type?: "ASSET" | "AGGREGATE" | null;
@@ -2815,6 +2816,9 @@ async function ensureAssetCompletionAutoEntries(
   if (!trip?.id || !trip.organization_id) return;
   // DCO settlement is dco_payee / supplier_rate — never employee DRIVER_COMMISSION.
   if (isDcoOperatingTrip(trip)) return;
+  // A Marketplace award's driver and platform fee belong to the winning bidder,
+  // never to the shipper that owns the trip row (Pulse Exchange settles it).
+  if (String(trip.source ?? "").trim().toLowerCase() === "market_bid") return;
   if (resolveTripPayoutModeForCompletion(trip) !== "asset") return;
 
   const existingRes = await supabase()
@@ -2926,48 +2930,6 @@ async function ensureAssetCompletionAutoEntries(
       });
     }
   }
-
-  // A8.3 -- Marketplace platform fee, Marketplace DCO trips only
-  // (source='market_bid', platform_fee already resolved and locked in by
-  // accept_market_bid() at award time -- this reads that stored value, it
-  // never recomputes the fee). Deliberately a separate insert from the
-  // client/driver rows above rather than appended to the same batch: those
-  // two rows failed their own CHECK constraint before A8.4.1's fix above,
-  // and a single multi-row INSERT is all-or-nothing, so bundling this row
-  // with them would have made it inherit that unrelated failure.
-  if (
-    !hasPlatformFeeEntry(existing) &&
-    trip.source === "market_bid" &&
-    Number(trip.platform_fee ?? 0) > 0
-  ) {
-    const { error: feeInsertError } = await supabase()
-      .from("transactions")
-      .insert({
-        organization_id: trip.organization_id,
-        trip_id: trip.id,
-        party_name: "Pulse Marketplace",
-        description: "MARKETPLACE PLATFORM FEE AUTO | Mode: System",
-        amount_out: Number(trip.platform_fee),
-        amount_in: 0,
-        transaction_date: transactionDate,
-        contact_id: null,
-        contact_type: null,
-        ledger_entity_type: "platform",
-        ledger_flow_type: "expense",
-        ledger_category: "MARKETPLACE_PLATFORM_FEE",
-      });
-    if (feeInsertError) {
-      console.error("[trip completion] failed to auto-create platform fee entry", {
-        tripId: trip.id,
-        organizationId: trip.organization_id,
-        error: feeInsertError,
-      });
-    }
-  }
-}
-
-function hasPlatformFeeEntry(rows: Array<{ ledger_category: string | null }>): boolean {
-  return rows.some((r) => r.ledger_category === "MARKETPLACE_PLATFORM_FEE");
 }
 
 async function validateSupplierLinkForCompletion(
@@ -3004,6 +2966,9 @@ async function validateSupplierLinkForCompletion(
     .toLowerCase();
   if (isDcoOperatingTrip(trip)) return { error: null };
   if (source === "mover_asset") return { error: null };
+  // Marketplace awards have no Network supplier by design (ADR-012); the
+  // counterparty is the winning bidder on the Exchange transaction.
+  if (source === "market_bid") return { error: null };
   if (payoutMode === "asset") return { error: null };
   if (!payoutMode && hasOwnDriver && hasOwnVehicle) return { error: null };
 
@@ -3033,6 +2998,10 @@ async function validateSupplierLinkForCompletion(
     .limit(1)
     .maybeSingle();
   if (!supplierTxnError && supplierTxnRow) return { error: null };
+
+  // The winning bidder cannot read the shipper's Pulse Exchange supplier row.
+  const { summary: exchangeSummary } = await getExchangeTripSummary(tripId);
+  if (exchangeSummary) return { error: null };
 
   return {
     error: new Error(

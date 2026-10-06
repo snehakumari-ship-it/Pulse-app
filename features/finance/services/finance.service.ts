@@ -32,6 +32,12 @@ import { notifyTripChatMessagesChanged } from "@/lib/tripChatInvalidate";
 import { VALIDATION, dateISO } from "@/lib/validation";
 import { getTripOperationalDisplay } from "@/features/operations/display";
 import { recordTripWorkflowEvent } from "@/features/trips/services/tripWorkflow.service";
+import {
+  claimExchangePaymentOnce,
+  exchangeErrorMessage,
+  exchangeModeFromLedgerLabel,
+  isPulseExchangeParty,
+} from "@/features/marketplace/services/exchangePayments.service";
 
 /**
  * Join trips via trip_id (not booking_ref).
@@ -1345,15 +1351,54 @@ async function tryNotifyLinkedPartyChatAfterLedgerInsert(
  * "already processed" translation) need it preserved.
  */
 function ledgerWriteError(error: { message: string; code?: string }): Error {
-  const err = new Error(error.message) as Error & { code?: string };
+  const message = error.message.startsWith("exchange_ledger_locked:")
+    ? exchangeErrorMessage(error.message)
+    : error.message;
+  const err = new Error(message) as Error & { code?: string };
   if (error.code) err.code = error.code;
   return err;
+}
+
+export interface CreateLedgerEntryResult {
+  error: Error | null;
+  row: LedgerRow | null;
+  /**
+   * Set when the entry was a payment against the org's Pulse Exchange party: it
+   * was recorded in Exchange and posts to Finance once the other side confirms.
+   */
+  pendingExchangeConfirmation?: boolean;
+}
+
+/** Pulse Exchange party payments go through Exchange's two gates, never straight to the ledger. */
+async function routePulseExchangePartyPayment(
+  orgId: string,
+  entry: CreateLedgerEntryData,
+  contactId: string,
+  amount: number,
+  date: string,
+): Promise<CreateLedgerEntryResult | null> {
+  if (!(await isPulseExchangeParty(orgId, entry.contact_type, contactId))) return null;
+  if (!entry.trip_id) {
+    return {
+      error: new Error("Pick the Marketplace trip this Pulse Exchange payment settles."),
+      row: null,
+    };
+  }
+  const { error } = await claimExchangePaymentOnce(orgId, {
+    tripId: entry.trip_id,
+    amount,
+    paymentMode: exchangeModeFromLedgerLabel(parsePaymentMode(entry.description)),
+    paymentReference: entry.payment_reference ?? parsePaymentReference(entry.description),
+    paidOn: date,
+  });
+  if (error) return { error, row: null };
+  return { error: null, row: null, pendingExchangeConfirmation: true };
 }
 
 export async function createLedgerEntry(
   orgId: string,
   entry: CreateLedgerEntryData,
-): Promise<{ error: Error | null; row: LedgerRow | null }> {
+): Promise<CreateLedgerEntryResult> {
   const passthroughTripContext = entry.ledgerWritePassthroughTripContext === true;
   const enriched = enrichLedgerMetaFromRow(entry);
   const amountIn = Math.max(
@@ -1377,6 +1422,16 @@ export async function createLedgerEntry(
       ),
       row: null,
     };
+  }
+  if (contactIdTrimmed) {
+    const routed = await routePulseExchangePartyPayment(
+      orgId,
+      enriched,
+      contactIdTrimmed,
+      Math.max(amountIn, amountOut),
+      date,
+    );
+    if (routed) return routed;
   }
   const normalizedContactType = (enriched.contact_type ??
     null) as LedgerContactType | null;

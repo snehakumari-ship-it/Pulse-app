@@ -40,6 +40,7 @@ import type {
     UpdateSupplierData,
 } from "@/features/suppliers/services/suppliers.service";
 import { updateSupplier } from "@/features/suppliers/services/suppliers.service";
+import { isExchangeSettledDcoTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
 import {
     buildUniqueLinkedOrgIdMap,
@@ -1244,7 +1245,9 @@ export function FinanceScreen() {
     }
     if (entityType === "SUPPLIER") {
       if (entity.counterpartyKind === "dco") {
-        return tripRows.filter((t) => t.dco_payee_id === entity.id);
+        return tripRows.filter(
+          (t) => t.dco_payee_id === entity.id && !isExchangeSettledDcoTrip(t),
+        );
       }
       const supplierRow = supplierRows.find((s) => s.id === entity.id) ?? null;
       const fromOwned = tripRows.filter((t) => t.supplier_id === entity.id);

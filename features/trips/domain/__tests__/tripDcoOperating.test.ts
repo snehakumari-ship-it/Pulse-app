@@ -1,4 +1,4 @@
-import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
+import { isDcoOperatingTrip, isExchangeSettledDcoTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
 import { getTripOperationalCapabilities } from "@/features/trips/capabilities/capabilityEngine";
 import { decideFuelPostingRule } from "@/features/ledger/vehicle/vehiclePostingRules";
@@ -16,6 +16,14 @@ function trip(overrides: Partial<TripRow> = {}): TripRow {
     ...overrides,
   } as TripRow;
 }
+
+describe("isExchangeSettledDcoTrip", () => {
+  it("is a DCO trip that carries the Pulse Exchange supplier", () => {
+    expect(isExchangeSettledDcoTrip({ operating_mode: "DCO", supplier_id: "px" })).toBe(true);
+    expect(isExchangeSettledDcoTrip({ operating_mode: "DCO", supplier_id: null })).toBe(false);
+    expect(isExchangeSettledDcoTrip({ operating_mode: "FLEET", supplier_id: "s-1" })).toBe(false);
+  });
+});
 
 describe("isDcoOperatingTrip", () => {
   it("recognizes only operating_mode DCO", () => {

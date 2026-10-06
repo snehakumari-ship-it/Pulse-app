@@ -1,0 +1,10 @@
+# Pulse Exchange default party + two-gate Marketplace payments (Exchange Phase 1).
+# 20271006144616 re-creates create_trip_from_assigned_indent on top of the
+# omni-channel body, so it ships with (or after) 20271006142659.
+# Adds: system_party_key on suppliers/clients, exchange_payments, claim/confirm/
+# reject/cancel RPCs, transactions + trips guards, fee-ledger trigger, and fixes
+# sync_trip_payment_status counting partner receipts. No backfill of old trips.
+# The app's completion-guard change (trips.service) must deploy before this.
+# Apply only after explicit production authorization.
+20271006142659
+20271006144616

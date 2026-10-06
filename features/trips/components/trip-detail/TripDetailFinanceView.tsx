@@ -10,6 +10,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { getDoubleEntryDisplayLabel } from "@/features/finance/accounting/accountingModel";
 import type { TripLedgerQuickTag } from "@/features/finance/ledger/tripLedgerEntryChooser";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
+import { ExchangePaymentsPanel } from "@/features/marketplace/components/ExchangePaymentsPanel";
 import { computeTripEntryFinancialSnapshot } from "@/features/finance/utils/computeTripEntryFinancials.util";
 import { computePartnerIndentFreightCost } from "@/features/finance/utils/partnerIndentFreightCost.util";
 import type { TripAssignmentAuditRow } from "@/features/trips/services/trip-assignment-audit.service";
@@ -857,6 +858,8 @@ export function TripDetailFinanceView({
                 />
               </View>
             ) : null}
+
+            <ExchangePaymentsPanel tripId={trip.id} />
 
             {/* Customer Billing Section */}
             <View style={styles.financeSection}>
