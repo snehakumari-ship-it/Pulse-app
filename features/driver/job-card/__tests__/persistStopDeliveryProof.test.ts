@@ -73,4 +73,53 @@ describe('persistStopDeliveryProof', () => {
       { stopId: 's1' },
     );
   });
+  describe('retry-safe ledger', () => {
+    it('a retried place-only proof is not uploaded again', async () => {
+      const ledger = new Map<string, string | null>();
+      const input = {
+        tripId: 't1',
+        stopId: 's1',
+        uploadedBy: 'u1',
+        draft: { place: 'left_at_door' as const, placeNote: '', photoUris: [] },
+        ledger,
+      };
+      expect(await persistStopDeliveryProof(input)).toEqual({ ok: true });
+      expect(await persistStopDeliveryProof(input)).toEqual({ ok: true });
+      expect(mockUpload).toHaveBeenCalledTimes(1);
+      expect(ledger.get('place:left_at_door')).toBe('d1');
+    });
+
+    it('after a partial photo failure, the retry uploads only the photo that failed', async () => {
+      const ledger = new Map<string, string | null>();
+      const input = {
+        tripId: 't1',
+        stopId: 's1',
+        uploadedBy: 'u1',
+        draft: { place: 'handed_to_recipient' as const, placeNote: '', photoUris: ['file://a.jpg', 'file://b.jpg'] },
+        ledger,
+      };
+      mockUpload
+        .mockResolvedValueOnce({ doc: { id: 'doc-a' }, error: null })
+        .mockResolvedValueOnce({ doc: null, error: new Error('network') });
+      const first = await persistStopDeliveryProof(input);
+      expect(first.ok).toBe(false);
+      expect([...ledger.keys()]).toEqual(['photo:file://a.jpg']);
+
+      mockUpload.mockResolvedValueOnce({ doc: { id: 'doc-b' }, error: null });
+      expect(await persistStopDeliveryProof(input)).toEqual({ ok: true });
+      expect(mockUpload).toHaveBeenCalledTimes(3);
+      expect(ledger.get('photo:file://b.jpg')).toBe('doc-b');
+
+      expect(await persistStopDeliveryProof(input)).toEqual({ ok: true });
+      expect(mockUpload).toHaveBeenCalledTimes(3);
+    });
+
+    it('a different proof choice for the same stop is still uploaded', async () => {
+      const ledger = new Map<string, string | null>();
+      const base = { tripId: 't1', stopId: 's1', uploadedBy: 'u1', ledger };
+      await persistStopDeliveryProof({ ...base, draft: { place: 'left_at_door', placeNote: '', photoUris: [] } });
+      await persistStopDeliveryProof({ ...base, draft: { place: 'left_with_security', placeNote: '', photoUris: [] } });
+      expect(mockUpload).toHaveBeenCalledTimes(2);
+    });
+  });
 });

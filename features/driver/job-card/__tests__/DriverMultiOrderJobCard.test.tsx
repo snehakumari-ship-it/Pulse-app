@@ -12,7 +12,13 @@ jest.mock('react-native', () => jest.requireActual('react-native'));
 
 jest.mock('@/components/driver/DriverTripSheetLayout', () => ({
   TRIP_SHEET_TOP_RADIUS: 16,
+  TRIP_SHEET_BODY_PAD: { horizontal: 18, top: 12, bottom: 10, gap: 8 },
 }));
+
+jest.mock('@/features/driver/components/MissionCardLayout', () => {
+  const { View } = require('react-native');
+  return { MissionCardLayout: () => <View testID="mission-card-layout" /> };
+});
 
 jest.mock('@/components/LoadingIndicator', () => ({
   LoadingIndicator: () => null,
@@ -44,6 +50,7 @@ jest.mock('@/contexts/AuthContext', () => ({
 
 jest.mock('@/features/trips/services/trips.service', () => ({
   updateTripStatus: jest.fn().mockResolvedValue({ error: null, trip: { id: 'trip-1', status: 'completed' } }),
+  resolveDriverFacingTripLabel: () => 'TRP011',
 }));
 
 const mockExecuteDriverCommand = jest.fn();
@@ -154,10 +161,10 @@ describe('DriverMultiOrderJobCard', () => {
         })}
       />,
     );
-    expect(getByText("Today's route")).toBeTruthy();
+    expect(getByText('Commerce Delivery')).toBeTruthy();
     expect(getAllByText('Guindy Warehouse').length).toBeGreaterThan(0);
-    expect(getByText('ORD-1042')).toBeTruthy();
-    expect(getByText('ORD-1048')).toBeTruthy();
+    expect(getAllByText('ORD-1042').length).toBeGreaterThan(0);
+    expect(getAllByText('ORD-1048').length).toBeGreaterThan(0);
     fireEvent.press(getByLabelText('Ready to pick up'));
     expect(arrive).toHaveBeenCalledTimes(1);
     expect(queryByLabelText('Confirm pickup')).toBeNull();
@@ -262,7 +269,7 @@ describe('DriverMultiOrderJobCard', () => {
     expect(getByLabelText('Call warehouse')).toBeTruthy();
   });
 
-  it('keeps long addresses to two lines and shows Current / Next / Later', () => {
+  it('keeps long addresses to two lines and lists later stops on the timeline', () => {
     const longPickup = stop({
       stopId: 'pu-1',
       sequence: 1,
@@ -284,24 +291,38 @@ describe('DriverMultiOrderJobCard', () => {
         })}
       />,
     );
-    expect(getByTestId('multi-order-route-scan')).toBeTruthy();
-    expect(getByText('Current')).toBeTruthy();
-    expect(getByText('Next')).toBeTruthy();
-    expect(getByText('Later')).toBeTruthy();
+    expect(getByTestId('commerce-route-timeline')).toBeTruthy();
     expect(getByText('Customer B')).toBeTruthy();
     expect(getByText(/very long industrial estate/)).toBeTruthy();
   });
 
-  it('collapses extra orders at a stop', () => {
+  it('renders the collapsed peek with the Commerce header', () => {
+    const onToggleCollapse = jest.fn();
+    const { getByLabelText, getByText } = render(
+      <DriverMultiOrderJobCard
+        trip={trip()}
+        collapsed
+        onToggleCollapse={onToggleCollapse}
+        stopExecution={execution({ stops: [pickup, dropA], currentStop: pickup, nextStop: dropA })}
+      />,
+    );
+    expect(getByText('Commerce Delivery')).toBeTruthy();
+    fireEvent.press(getByLabelText("Open today's route"));
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it('expands product lines from memory without another commerce read', () => {
     mockUseDriverCommerceMission.mockReturnValue(missionWithOrders([{
       stopId: 'pu-1',
-      orders: Array.from({ length: 6 }, (_, i) => ({
-        salesOrderId: `so-${i}`,
-        orderNumber: `ORD-${i}`,
-        customerName: 'Co',
-      })),
+      orders: [{
+        salesOrderId: 'so-1',
+        orderNumber: 'ORD-1042',
+        lines: [
+          { salesOrderLineId: 'l1', quantity: 4, productId: 'p1', productName: 'Product A', productSku: 'SKU-123' },
+        ],
+      }],
     }]));
-    const { getByText, queryByText } = render(
+    const { getByLabelText, getByText, queryByText } = render(
       <DriverMultiOrderJobCard
         trip={trip()}
         stopExecution={execution({
@@ -311,9 +332,13 @@ describe('DriverMultiOrderJobCard', () => {
         })}
       />,
     );
-    expect(getByText('ORD-0')).toBeTruthy();
-    expect(getByText('+2')).toBeTruthy();
-    expect(queryByText('ORD-5')).toBeNull();
+    expect(mockUseDriverCommerceMission).toHaveBeenCalledTimes(1);
+    expect(queryByText('SKU-123')).toBeNull();
+    fireEvent.press(getByLabelText('Order #ORD-1042, 1 product'));
+    expect(getByText('Product A')).toBeTruthy();
+    expect(getByText('SKU-123')).toBeTruthy();
+    expect(getByText('× 4')).toBeTruthy();
+    expect(mockUseDriverCommerceMission).toHaveBeenCalledTimes(1);
   });
 
   it('opens previous stop details without completing', () => {
@@ -477,7 +502,7 @@ describe('DriverMultiOrderJobCard', () => {
         ],
       },
     });
-    const { getByText, queryByLabelText, getByTestId } = render(
+    const { getByText, getAllByText, queryByLabelText, getByTestId } = render(
       <DriverMultiOrderJobCard
         trip={trip()}
         stopExecution={execution({
@@ -490,6 +515,9 @@ describe('DriverMultiOrderJobCard', () => {
       />,
     );
     expect(getByText('Route setup pending')).toBeTruthy();
+    expect(getByTestId('commerce-route-timeline')).toBeTruthy();
+    expect(getAllByText('Warehouse').length).toBeGreaterThan(0);
+    expect(getAllByText('Customer').length).toBeGreaterThan(0);
     expect(getByTestId('multi-order-action-idle')).toBeTruthy();
     expect(queryByLabelText('Ready to pick up')).toBeNull();
     expect(queryByLabelText('Ready to deliver')).toBeNull();
@@ -497,5 +525,47 @@ describe('DriverMultiOrderJobCard', () => {
     expect(queryByLabelText('Verify delivery')).toBeNull();
     expect(arrive).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('opens order details with product lines from the map details control', () => {
+    mockUseDriverCommerceMission.mockReturnValue(missionWithOrders([{
+      stopId: 'dr-2',
+      orders: [{
+        salesOrderId: 'so-9',
+        orderNumber: 'ORD-2002',
+        customerName: 'Customer B',
+        lines: [
+          { salesOrderLineId: 'l9', quantity: 3, productId: 'p9', productName: 'Rice bag', productSku: 'RICE-5' },
+        ],
+      }],
+    }]));
+    const view = render(
+      <DriverMultiOrderJobCard
+        trip={trip()}
+        deliveryDetailsNonce={0}
+        stopExecution={execution({
+          stops: [pickup, dropA, dropB],
+          currentStop: dropB,
+          nextStop: null,
+        })}
+      />,
+    );
+    expect(view.queryByText('Rice bag')).toBeNull();
+    view.rerender(
+      <DriverMultiOrderJobCard
+        trip={trip()}
+        deliveryDetailsNonce={1}
+        stopExecution={execution({
+          stops: [pickup, dropA, dropB],
+          currentStop: dropB,
+          nextStop: null,
+        })}
+      />,
+    );
+    expect(view.getByTestId('delivery-details-preview')).toBeTruthy();
+    expect(view.getByText('Rice bag')).toBeTruthy();
+    expect(view.getByText('RICE-5')).toBeTruthy();
+    expect(view.getByText('× 3')).toBeTruthy();
+    expect(view.getByText(/Drop 2/)).toBeTruthy();
   });
 });

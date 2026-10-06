@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 
 export type DriverCommerceMissionState =
   | { status: 'loading'; mission: DriverTripStopOrderMission }
-  | { status: 'error'; mission: DriverTripStopOrderMission; error: Error }
+  | { status: 'error'; mission: DriverTripStopOrderMission; error: Error; retry?: () => void; retrying?: boolean }
   | { status: 'ready'; mission: DriverTripStopOrderMission };
 
 export function driverCommerceMissionQueryKey(tripId: string) {
@@ -65,6 +65,10 @@ export function useDriverCommerceMission(
       status: 'error',
       mission: emptyDriverTripStopOrderMission(id),
       error,
+      retry: () => {
+        void query.refetch();
+      },
+      retrying: query.isFetching,
     };
   }
 

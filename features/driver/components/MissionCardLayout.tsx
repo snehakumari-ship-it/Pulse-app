@@ -15,6 +15,11 @@ import {
   TRIP_SHEET_HERO_PAD,
 } from '@/components/driver/DriverTripSheetLayout';
 import type { JobCardAssignerPayload } from '@/features/trips/utils/driverAssignerDisplay.util';
+import {
+  missionPlanRows,
+  summarizePlanRows,
+  type MissionPlanStop,
+} from '@/features/driver/components/missionPlanRows';
 import { AlertTriangle, Navigation, Route, Wallet } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
@@ -31,6 +36,8 @@ export interface MissionCardLayoutProps {
   target: 'pickup' | 'drop' | null;
   pickupLabel: string;
   dropLabel: string;
+  /** Ordered stops. When set, each drop is its own row instead of one clipped line. */
+  planStops?: readonly MissionPlanStop[] | null;
   /** Operational trip code — shown as the small second line under the route. */
   tripIdLabel?: string | null;
   /** Scheduled trip date — small, beside the route. */
@@ -48,8 +55,10 @@ export interface MissionCardLayoutProps {
   dwellLabel?: string | null;
   /** Action-oriented translation of Operational Alerts; null when nothing worth surfacing. */
   guidanceMessage?: string | null;
-  /** Compact external-nav action — sits top-right of DELIVER TO / PICKUP AT. */
+  /** Opens turn-by-turn navigation to the current target. */
   onNavigate?: (() => void) | null;
+  /** Opens the order and product details sheet. */
+  onViewDetails?: (() => void) | null;
 }
 
 export function MissionCardLayout({
@@ -61,6 +70,7 @@ export function MissionCardLayout({
   target,
   pickupLabel,
   dropLabel,
+  planStops = null,
   tripIdLabel = null,
   tripDateLabel = null,
   remainingKm = null,
@@ -71,16 +81,23 @@ export function MissionCardLayout({
   dwellLabel = null,
   guidanceMessage = null,
   onNavigate = null,
+  onViewDetails = null,
 }: MissionCardLayoutProps) {
   const showVehicleRow = !!vehicleNumber?.trim();
 
   const destinationHeading =
     target === 'pickup' ? 'PICKUP AT' : target === 'drop' ? 'DELIVER TO' : null;
+  const showPlan = (planStops?.length ?? 0) > 1;
+  const planRows = showPlan
+    ? summarizePlanRows(missionPlanRows(pickupLabel, dropLabel, planStops))
+    : [];
   const routeLabel = [pickupLabel, dropLabel]
     .map((part) => part.trim())
     .filter((part) => part && part !== '—')
     .join(' → ');
-  const destinationLabel = routeLabel || pickupLabel || dropLabel || null;
+  const destinationLabel = showPlan
+    ? planRows.length > 0
+    : routeLabel || pickupLabel || dropLabel || null;
   const tripRef = tripIdLabel?.trim() || null;
   const tripDate = tripDateLabel?.trim() || null;
 
@@ -145,28 +162,111 @@ export function MissionCardLayout({
           <View style={styles.destinationBlock}>
             <View style={styles.destinationTopRow}>
               <View style={styles.destinationTextCol}>
-                <View style={styles.routeTitleRow}>
-                  <Text
-                    style={[styles.destinationLabel, { color: Theme.textPrimaryDark }]}
-                    numberOfLines={2}
-                  >
-                    {destinationLabel}
-                  </Text>
-                  {tripDate ? (
+                {showPlan ? (
+                  <>
+                    <View style={styles.planMetaRow}>
+                      <Text
+                        style={[
+                          styles.destinationHeading,
+                          styles.planMetaLabel,
+                          { color: Theme.textMuted, marginTop: 0 },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {tripRef ?? destinationHeading ?? 'TRIP PLAN'}
+                      </Text>
+                      {tripDate ? (
+                        <Text
+                          style={[styles.routeDate, { color: Theme.textMuted }]}
+                          numberOfLines={1}
+                        >
+                          {tripDate}
+                        </Text>
+                      ) : null}
+                      {onViewDetails ? (
+                        <Pressable
+                          onPress={onViewDetails}
+                          accessibilityRole="button"
+                          accessibilityLabel="View delivery details"
+                          hitSlop={8}
+                          style={styles.detailsChip}
+                        >
+                          <Text style={styles.detailsChipText}>View details</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                    <View style={styles.planList} accessibilityRole="summary">
+                      {planRows.map((row, index) => {
+                        const drop = row.kind === 'drop';
+                        const last = index === planRows.length - 1;
+                        return (
+                          <View key={row.key} style={styles.planRow}>
+                            <View style={styles.planRail}>
+                              <View
+                                style={[
+                                  styles.planDot,
+                                  {
+                                    backgroundColor: drop ? Theme.driverGold : FLOW_EMERALD,
+                                    borderColor: row.isCurrent
+                                      ? drop
+                                        ? Theme.driverGold
+                                        : FLOW_EMERALD
+                                      : 'transparent',
+                                  },
+                                ]}
+                              />
+                              {last ? null : (
+                                <View style={[styles.planLine, { backgroundColor: Theme.border }]} />
+                              )}
+                            </View>
+                            <View style={styles.planCopy}>
+                              <Text
+                                style={[
+                                  styles.planCaption,
+                                  { color: drop ? Theme.driverGold : FLOW_EMERALD },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {row.caption}
+                              </Text>
+                              <Text
+                                style={[styles.planPlace, { color: Theme.textPrimaryDark }]}
+                                numberOfLines={2}
+                              >
+                                {row.place}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.routeTitleRow}>
+                      <Text
+                        style={[styles.destinationLabel, { color: Theme.textPrimaryDark }]}
+                        numberOfLines={2}
+                      >
+                        {destinationLabel}
+                      </Text>
+                      {tripDate ? (
+                        <Text
+                          style={[styles.routeDate, { color: Theme.textMuted }]}
+                          numberOfLines={1}
+                        >
+                          {tripDate}
+                        </Text>
+                      ) : null}
+                    </View>
                     <Text
-                      style={[styles.routeDate, { color: Theme.textMuted }]}
+                      style={[styles.destinationHeading, { color: Theme.textMuted }]}
                       numberOfLines={1}
                     >
-                      {tripDate}
+                      {tripRef ?? destinationHeading}
                     </Text>
-                  ) : null}
-                </View>
-                <Text
-                  style={[styles.destinationHeading, { color: Theme.textMuted }]}
-                  numberOfLines={1}
-                >
-                  {tripRef ?? destinationHeading}
-                </Text>
+                  </>
+                )}
               </View>
               {onNavigate ? (
                 <Pressable
@@ -341,6 +441,78 @@ const styles = StyleSheet.create({
   destinationTextCol: {
     flex: 1,
     minWidth: 0,
+  },
+  planMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    minWidth: 0,
+    marginBottom: 8,
+  },
+  planMetaLabel: {
+    flex: 1,
+    minWidth: 0,
+  },
+  detailsChip: {
+    flexShrink: 0,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: FLOW_EMERALD,
+  },
+  detailsChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Theme.textOnPrimary,
+  },
+  planList: {
+    gap: 0,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    minWidth: 0,
+  },
+  planRail: {
+    width: 14,
+    alignItems: 'center',
+  },
+  planDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 3,
+    borderWidth: 2,
+    flexShrink: 0,
+  },
+  planLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 14,
+    marginTop: 2,
+    borderRadius: 1,
+  },
+  planCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingBottom: 6,
+    justifyContent: 'center',
+  },
+  planCaption: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  planPlace: {
+    marginTop: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.15,
+    lineHeight: 16,
   },
   routeTitleRow: {
     flexDirection: 'row',

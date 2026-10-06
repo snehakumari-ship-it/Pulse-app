@@ -10,9 +10,14 @@ function textBody(value: string): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
 
+/** Proof items already uploaded for one stop, keyed by `place:<code>` / `photo:<uri>` → document id. */
+export type StopProofLedger = Map<string, string | null>;
+
 /**
  * Persist stop-level proof using existing trip_documents (document_type=pod).
  * Pickup and delivery both store a photo and/or a short place note.
+ * With a ledger, items already uploaded are skipped, so retrying a failed
+ * COMPLETE_STOP never uploads the same proof twice.
  */
 export async function persistStopDeliveryProof(input: {
   tripId: string;
@@ -20,15 +25,19 @@ export async function persistStopDeliveryProof(input: {
   uploadedBy: string;
   draft: DeliveryProofDraft;
   kind?: 'pickup' | 'delivery';
+  ledger?: StopProofLedger;
 }): Promise<{ ok: true } | { ok: false; error: Error }> {
   const pickup = input.kind === 'pickup';
   const place = encodeDeliveryPlace(input.draft.place, input.draft.placeNote);
   const photos = input.draft.photoUris.filter((uri) => uri.trim());
+  const ledger = input.ledger;
 
   try {
     if (photos.length === 0) {
       if (!place) return { ok: true };
-      const { error } = await tripDocumentsService.uploadTripDocument(
+      const key = `place:${place}`;
+      if (ledger?.has(key)) return { ok: true };
+      const { doc, error } = await tripDocumentsService.uploadTripDocument(
         input.tripId,
         input.uploadedBy,
         {
@@ -41,12 +50,15 @@ export async function persistStopDeliveryProof(input: {
         { stopId: input.stopId },
       );
       if (error) return { ok: false, error };
+      ledger?.set(key, doc?.id ?? null);
       return { ok: true };
     }
 
     for (const uri of photos) {
+      const key = `photo:${uri}`;
+      if (ledger?.has(key)) continue;
       const compressed = await compressLocalImageForUpload(uri);
-      const { error } = await tripDocumentsService.uploadTripDocument(
+      const { doc, error } = await tripDocumentsService.uploadTripDocument(
         input.tripId,
         input.uploadedBy,
         {
@@ -59,6 +71,7 @@ export async function persistStopDeliveryProof(input: {
         { stopId: input.stopId },
       );
       if (error) return { ok: false, error };
+      ledger?.set(key, doc?.id ?? null);
     }
     return { ok: true };
   } catch (err) {

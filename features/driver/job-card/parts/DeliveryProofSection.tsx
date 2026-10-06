@@ -25,6 +25,7 @@ type Props = {
   kind?: StopProofKind;
   draft: DeliveryProofDraft;
   readOnly?: boolean;
+  required?: boolean;
   error?: string | null;
   onChange: (next: DeliveryProofDraft) => void;
 };
@@ -34,6 +35,7 @@ export function DeliveryProofSection({
   kind = 'delivery',
   draft,
   readOnly,
+  required = true,
   error,
   onChange,
 }: Props) {
@@ -61,7 +63,7 @@ export function DeliveryProofSection({
 
   return (
     <View style={styles.wrap} testID="delivery-proof">
-      <Text style={[styles.section, { color: colors.textMuted }]}>
+      <Text style={[styles.section, { color: colors.text }]}>
         {pickup ? 'Proof of pickup' : 'Proof of delivery'}
       </Text>
       <Text style={[styles.hint, { color: colors.textMuted }]}>
@@ -157,9 +159,11 @@ export function DeliveryProofSection({
         </Text>
       ) : !readOnly && !canSubmitDeliveryProof(draft) ? (
         <Text style={[styles.hint, { color: colors.textMuted }]}>
-          {pickup
-            ? 'Choose how you collected it or add a photo to confirm.'
-            : 'Choose a drop location or add a photo to confirm.'}
+          {!required
+            ? 'Optional for this stop.'
+            : pickup
+              ? 'Choose how you collected it or add a photo to confirm.'
+              : 'Choose a drop location or add a photo to confirm.'}
         </Text>
       ) : null}
     </View>
@@ -167,12 +171,11 @@ export function DeliveryProofSection({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 8 },
+  wrap: { gap: 10 },
   section: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   hint: {
     fontSize: 11,
@@ -186,8 +189,8 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   chip: {
-    height: 32,
-    paddingHorizontal: 10,
+    height: 36,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     justifyContent: 'center',
@@ -215,7 +218,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   iconBtn: {
-    height: 32,
+    height: 40,
     minWidth: 88,
     paddingHorizontal: 10,
     borderRadius: 999,

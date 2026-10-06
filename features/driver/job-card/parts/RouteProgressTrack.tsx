@@ -28,7 +28,7 @@ export function RouteProgressTrack({ colors, stops, currentStopId }: Props) {
           const current = stop.stopId === currentStopId;
           const prevDone = index > 0 && isDone(stops[index - 1]!.status);
           return (
-            <View key={stop.stopId} style={styles.seg}>
+            <View key={stop.stopId} style={index === 0 ? styles.first : styles.seg}>
               {index > 0 ? (
                 <View
                   style={[
@@ -60,11 +60,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  first: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   seg: {
     flexDirection: 'row',
     alignItems: 'center',
     flexGrow: 1,
     flexShrink: 1,
+    minWidth: 0,
   },
   line: {
     flex: 1,

@@ -94,7 +94,7 @@ describe('DriverStopVerificationScreen', () => {
     const onConfirm = jest.fn();
     const { getByText, queryByText, getByLabelText } = render(
       <DriverStopVerificationScreen
-        stop={stop({ stopType: 'pickup' })}
+        stop={stop({ stopType: 'pickup', podRequired: true })}
         orders={[
           order({
             salesOrderId: 'a',
@@ -138,7 +138,7 @@ describe('DriverStopVerificationScreen', () => {
     const onConfirm = jest.fn();
     const { getByText, queryByText, getByTestId, getByLabelText } = render(
       <DriverStopVerificationScreen
-        stop={stop({ stopType: 'drop', displayName: 'Customer A' })}
+        stop={stop({ stopType: 'drop', displayName: 'Customer A', podRequired: true })}
         orders={[
           order({
             salesOrderId: 'a',

@@ -17,11 +17,13 @@ import {
 import { DeliveryCompletionSummary } from '@/features/driver/job-card/parts/DeliveryCompletionSummary';
 import { DeliveryProofSection } from '@/features/driver/job-card/parts/DeliveryProofSection';
 import { StopLocationCard } from '@/features/driver/job-card/parts/StopLocationCard';
+import { StopDeliveryInfo } from '@/features/driver/job-card/parts/StopDeliveryInfo';
+import { cardBackground, JOB_CARD_RADIUS, softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
 import { StopOrderList } from '@/features/driver/job-card/parts/StopOrderList';
 import { StopVerificationActionBar } from '@/features/driver/job-card/parts/StopVerificationActionBar';
 import { StopVerificationHeader } from '@/features/driver/job-card/parts/StopVerificationHeader';
 import { stopVerificationTotals } from '@/features/driver/job-card/stopVerificationSummary';
-import { Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Props = {
@@ -38,6 +40,8 @@ type Props = {
   onBack: () => void;
   onConfirm: (proof: DeliveryProofDraft) => void;
   onViewNextStop: () => void;
+  onRetryOrders?: (() => void) | null;
+  retryingOrders?: boolean;
 };
 
 export function DriverStopVerificationScreen({
@@ -54,6 +58,8 @@ export function DriverStopVerificationScreen({
   onBack,
   onConfirm,
   onViewNextStop,
+  onRetryOrders = null,
+  retryingOrders = false,
 }: Props) {
   const colors = useDriverThemeColors();
   const insets = useSafeAreaInsets();
@@ -66,9 +72,9 @@ export function DriverStopVerificationScreen({
   const footerPad =
     Math.max(insets.bottom, 10) + (Platform.OS === 'web' ? Layout.tabBarDockHeight + 8 : 8);
   const [proof, setProof] = useState(emptyDeliveryProof);
-  const needsProof = !review && !confirmed;
+  const needsProof = !review && !confirmed && stop.podRequired;
   const proofReady = !needsProof || canSubmitDeliveryProof(proof);
-  const ordersReady = !(ordersLoading && orders.length === 0);
+  const ordersReady = !loadError && !(ordersLoading && orders.length === 0);
 
   return (
     <Modal
@@ -79,7 +85,7 @@ export function DriverStopVerificationScreen({
     >
       <View
         testID="driver-stop-verification"
-        style={[styles.page, { backgroundColor: colors.background, paddingTop: insets.top }]}
+        style={[styles.page, { backgroundColor: colors.surface, paddingTop: insets.top }]}
       >
         <StopVerificationHeader
           colors={colors}
@@ -93,29 +99,62 @@ export function DriverStopVerificationScreen({
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <StopLocationCard colors={colors} stop={stop} customerName={customer} />
+          <StopLocationCard colors={colors} stop={stop} customerName={customer} orders={orders} />
+          <StopDeliveryInfo colors={colors} orders={orders} delivery={delivery} />
 
           {loadError ? (
-            <Text style={[styles.error, { color: Theme.negative }]} accessibilityRole="alert">
-              Could not load orders for this stop.
-            </Text>
+            <View style={[styles.card, styles.loadError, softElevation, { backgroundColor: cardBackground(colors) }]}>
+              <Text style={[styles.error, { color: Theme.negative }]} accessibilityRole="alert">
+                Could not load orders for this stop.
+              </Text>
+              <Text style={[styles.muted, { color: colors.textMuted }]}>
+                {delivery ? 'Confirm delivery' : 'Confirm pickup'} is unavailable until the orders load.
+              </Text>
+              {onRetryOrders ? (
+                <Pressable
+                  onPress={onRetryOrders}
+                  disabled={retryingOrders}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading orders"
+                  accessibilityState={{ disabled: retryingOrders, busy: retryingOrders }}
+                  hitSlop={Layout.touchTargetHitSlop}
+                  style={({ pressed }) => [
+                    styles.retry,
+                    {
+                      backgroundColor: colors.emeraldMuted,
+                      opacity: retryingOrders ? 0.55 : pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.retryText, { color: colors.emerald }]}>
+                    {retryingOrders ? 'Retrying…' : 'Retry'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
           ) : null}
           {ordersLoading && orders.length === 0 ? (
             <Text style={[styles.muted, { color: colors.textMuted }]}>Loading orders…</Text>
           ) : null}
 
           <StopOrderList colors={colors} orders={orders} delivery={delivery} />
-          <DeliveryProofSection
-            colors={colors}
-            kind={delivery ? 'delivery' : 'pickup'}
-            draft={proof}
-            readOnly={review || confirmed}
-            onChange={setProof}
-          />
+          <View style={[styles.card, softElevation, { backgroundColor: cardBackground(colors) }]}>
+            <DeliveryProofSection
+              colors={colors}
+              kind={delivery ? 'delivery' : 'pickup'}
+              draft={proof}
+              readOnly={review || confirmed}
+              required={stop.podRequired}
+              onChange={setProof}
+            />
+          </View>
           <DeliveryCompletionSummary colors={colors} delivery={delivery} totals={totals} />
 
           {confirmed ? (
-            <View style={styles.done} testID="stop-verification-done">
+            <View
+              style={[styles.card, styles.done, softElevation, { backgroundColor: cardBackground(colors) }]}
+              testID="stop-verification-done"
+            >
               <Text style={[styles.doneTitle, { color: colors.emerald }]}>Completed</Text>
               <Text style={[styles.muted, { color: colors.textMuted }]}>
                 Stop {stopIndex} of {stopTotal}
@@ -166,9 +205,13 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 14,
-    paddingBottom: 16,
-    gap: 14,
+    paddingTop: 8,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  card: {
+    borderRadius: JOB_CARD_RADIUS,
+    padding: 16,
   },
   muted: {
     fontSize: 12,
@@ -178,9 +221,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  loadError: { gap: 6 },
+  retry: {
+    alignSelf: 'flex-start',
+    minHeight: Layout.minTouchTargetSize,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  retryText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
   done: { gap: 2 },
   doneTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
   },
   nextKicker: {

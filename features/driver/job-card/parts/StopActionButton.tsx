@@ -1,5 +1,5 @@
-import Layout from '@/constants/Layout';
 import { LoadingIndicator } from '@/components/LoadingIndicator';
+import { softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
 import type { MultiOrderActionKind } from '@/features/driver/job-card/multiOrderStopCopy';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -66,6 +66,7 @@ export function StopActionButton({
         accessibilityLabel={model.cta ?? undefined}
         style={({ pressed }) => [
           styles.cta,
+          softElevation,
           { backgroundColor: colors.emerald, opacity: busy ? 0.6 : pressed ? 0.88 : 1 },
         ]}
       >
@@ -80,8 +81,8 @@ export function StopActionButton({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 4, marginTop: 6 },
-  idle: { gap: 3, marginTop: 6 },
+  wrap: { gap: 6 },
+  idle: { gap: 3 },
   stage: {
     fontSize: 10,
     fontWeight: '700',
@@ -89,25 +90,25 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   hint: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
-    lineHeight: 15,
+    lineHeight: 16,
   },
   next: {
     fontSize: 12,
     fontWeight: '600',
   },
   cta: {
-    minHeight: Layout.minTouchTargetSize,
-    borderRadius: 12,
+    minHeight: 52,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     marginTop: 2,
   },
   ctaText: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     letterSpacing: 0.1,
   },
 });

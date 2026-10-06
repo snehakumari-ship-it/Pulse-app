@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
+import { cardBackground, JOB_CARD_RADIUS, softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
 import { ITEM_LEVEL_DELIVERY_PERSISTED } from '@/features/driver/job-card/stopVerificationSummary';
 import type { StopVerificationTotals } from '@/features/driver/job-card/stopVerificationSummary';
 import { expectedQtyLabel } from '@/features/driver/job-card/stopVerificationSummary';
@@ -17,7 +18,7 @@ export function DeliveryCompletionSummary({ colors, delivery, totals }: Props) {
     return (
       <View
         testID="pickup-completion-summary"
-        style={[styles.box, { borderColor: colors.emeraldBorder, backgroundColor: colors.emeraldMuted }]}
+        style={[styles.box, { backgroundColor: colors.emeraldMuted }]}
       >
         <Text style={[styles.title, { color: colors.emerald }]}>Ready to confirm pickup</Text>
         <Text style={[styles.body, { color: colors.text }]}>{expectedQtyLabel(totals)}</Text>
@@ -28,7 +29,7 @@ export function DeliveryCompletionSummary({ colors, delivery, totals }: Props) {
   return (
     <View
       testID="delivery-completion-summary"
-      style={[styles.box, { borderColor: colors.border, backgroundColor: colors.surface }]}
+      style={[styles.box, softElevation, { backgroundColor: cardBackground(colors) }]}
     >
       <Text style={[styles.title, { color: colors.text }]}>Stop-level confirm</Text>
       <Text style={[styles.body, { color: colors.textMuted }]}>
@@ -42,19 +43,18 @@ export function DeliveryCompletionSummary({ colors, delivery, totals }: Props) {
 
 const styles = StyleSheet.create({
   box: {
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 2,
+    borderRadius: JOB_CARD_RADIUS,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 3,
   },
   title: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   body: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
-    lineHeight: 15,
+    lineHeight: 16,
   },
 });

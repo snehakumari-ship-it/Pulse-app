@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
 import type { DriverTripStopOrder } from '@/features/driver/commerce-mission/driverTripStopOrders.types';
+import { commerceOrderStatus } from '@/features/driver/job-card/commerceOrderStatus';
 import { commerceProductImageUrl } from '@/features/driver/job-card/commerceProductImageUrl';
+import { OrderStatusIcon } from '@/features/driver/job-card/parts/OrderStatusIcon';
+import { cardBackground, JOB_CARD_RADIUS, softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
+import { Package } from 'lucide-react-native';
 import {
   expectedQtyLabel,
   itemRowLabel,
@@ -33,9 +37,11 @@ function LineThumb({
   if (!uri || failed) {
     return (
       <View
-        style={[styles.thumb, styles.thumbEmpty, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}
+        style={[styles.thumb, styles.thumbEmpty, { backgroundColor: colors.surfaceElevated }]}
         accessibilityLabel={`${label} image unavailable`}
-      />
+      >
+        <Package size={20} color={colors.textMuted} strokeWidth={1.8} />
+      </View>
     );
   }
   return (
@@ -51,27 +57,43 @@ function LineThumb({
 
 export function StopOrderList({ colors, orders, delivery }: Props) {
   return (
-    <View style={styles.wrap} testID="stop-verification-orders">
+    <View
+      style={[styles.wrap, softElevation, { backgroundColor: cardBackground(colors) }]}
+      testID="stop-verification-orders"
+    >
       <View style={styles.sectionRow}>
-        <Text style={[styles.section, { color: colors.textMuted }]}>
+        <Text style={[styles.section, { color: colors.text }]}>
           {delivery ? 'Order detail' : 'Pickup detail'}
         </Text>
-        <Text style={[styles.totals, { color: colors.text }]}>
+        <Text style={[styles.totals, { color: colors.textMuted }]}>
           {expectedQtyLabel(stopVerificationTotals(orders))}
         </Text>
       </View>
 
-      {orders.map((order) => {
+      {orders.map((order, orderIndex) => {
         const qty = orderExpectedQty(order);
         return (
           <View
             key={order.salesOrderId}
-            style={[styles.orderCard, { borderColor: colors.border, backgroundColor: colors.surface }]}
+            style={[
+              styles.orderCard,
+              orderIndex > 0 ? [styles.orderDivided, { borderTopColor: colors.border }] : null,
+            ]}
           >
             <View style={styles.orderHead}>
-              <Text style={[styles.orderNo, { color: colors.text }]} numberOfLines={1}>
-                {order.orderNumber ?? order.salesOrderId}
-              </Text>
+              <OrderStatusIcon
+                colors={colors}
+                order={order}
+                orderLabel={order.orderNumber ?? order.salesOrderId}
+              />
+              <View style={styles.orderTitle}>
+                <Text style={[styles.orderNo, { color: colors.text }]} numberOfLines={1}>
+                  {order.orderNumber ?? order.salesOrderId}
+                </Text>
+                <Text style={[styles.status, { color: colors.textMuted }]} numberOfLines={1}>
+                  {commerceOrderStatus(order).label}
+                </Text>
+              </View>
               <Text style={[styles.orderMeta, { color: colors.textMuted }]}>
                 {qty != null
                   ? `${qty} ${qty === 1 ? 'item' : 'items'}`
@@ -87,10 +109,7 @@ export function StopOrderList({ colors, orders, delivery }: Props) {
               order.lines.map((line, index) => {
                 const name = itemRowLabel(index, line.productName);
                 return (
-                  <View
-                    key={line.salesOrderLineId}
-                    style={[styles.itemRow, { borderTopColor: colors.border }]}
-                  >
+                  <View key={line.salesOrderLineId} style={styles.itemRow}>
                     <LineThumb colors={colors} imagePath={line.productImagePath} label={name} />
                     <View style={styles.itemCopy}>
                       <Text style={[styles.itemName, { color: colors.text }]} numberOfLines={2}>
@@ -101,10 +120,10 @@ export function StopOrderList({ colors, orders, delivery }: Props) {
                           {line.productSku}
                         </Text>
                       ) : null}
-                      <Text style={[styles.itemQty, { color: colors.textMuted }]}>
-                        Expected {qtyLabel(line.quantity)}
-                      </Text>
                     </View>
+                    <Text style={[styles.itemQty, { color: colors.text }]}>
+                      Expected {qtyLabel(line.quantity)}
+                    </Text>
                   </View>
                 );
               })
@@ -127,7 +146,11 @@ export function StopOrderList({ colors, orders, delivery }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 8 },
+  wrap: {
+    borderRadius: JOB_CARD_RADIUS,
+    padding: 16,
+    gap: 10,
+  },
   sectionRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -135,83 +158,91 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   section: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   totals: {
     flexShrink: 0,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
   gapNote: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
-    lineHeight: 14,
+    lineHeight: 15,
   },
   orderCard: {
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 6,
+    gap: 8,
+  },
+  orderDivided: {
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   orderHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
   },
-  orderNo: {
+  orderTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
-    fontWeight: '700',
+    gap: 1,
   },
-  customer: {
-    fontSize: 11,
-    fontWeight: '500',
+  orderNo: {
+    fontSize: 14,
+    fontWeight: '800',
   },
-  orderMeta: {
+  status: {
     fontSize: 11,
     fontWeight: '600',
   },
+  customer: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  orderMeta: {
+    flexShrink: 0,
+    maxWidth: '42%',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
   missing: {
-    fontSize: 11,
+    fontSize: 12,
     marginTop: 2,
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingTop: 8,
-    marginTop: 2,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+    paddingVertical: 4,
   },
   thumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
+    width: 52,
+    height: 52,
+    borderRadius: 12,
   },
   thumbEmpty: {
-    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   itemCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   itemName: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
   },
   itemSku: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   itemQty: {
-    fontSize: 10,
-    fontWeight: '500',
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

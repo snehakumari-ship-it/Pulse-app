@@ -1,7 +1,7 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import Layout from '@/constants/Layout';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { Pressable } from 'react-native';
 
 type Colors = ReturnType<typeof getDriverThemeColors>;
 
@@ -16,18 +16,21 @@ type Props = {
 
 export function StopVerificationHeader({ colors, role, stopIndex, stopTotal, review, onBack }: Props) {
   return (
-    <View style={[styles.wrap, { borderBottomColor: colors.border, backgroundColor: colors.surface }]}>
+    <View style={styles.wrap}>
       <Pressable
         onPress={onBack}
         accessibilityRole="button"
         accessibilityLabel="Back"
         hitSlop={Layout.touchTargetHitSlop}
-        style={styles.side}
+        style={({ pressed }) => [
+          styles.back,
+          { backgroundColor: colors.surfaceElevated, opacity: pressed ? 0.7 : 1 },
+        ]}
       >
-        <Text style={[styles.backText, { color: colors.emerald }]}>Back</Text>
+        <ArrowLeft size={20} color={colors.text} strokeWidth={2.4} />
       </Pressable>
       <View style={styles.center}>
-        <Text style={[styles.role, { color: colors.emerald }]}>{role}</Text>
+        <Text style={[styles.role, { color: colors.text }]}>{role}</Text>
         <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>
           {review ? 'Details' : 'Verify'} · Stop {stopIndex} of {stopTotal}
         </Text>
@@ -42,34 +45,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    minHeight: 52,
+    paddingVertical: 8,
+    minHeight: 60,
+    gap: 12,
   },
-  side: {
-    width: 64,
-    minHeight: Layout.minTouchTargetSize,
+  back: {
+    width: Layout.minTouchTargetSize,
+    height: Layout.minTouchTargetSize,
+    borderRadius: Layout.minTouchTargetSize / 2,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  backText: {
-    fontSize: 13,
-    fontWeight: '600',
+  side: {
+    width: Layout.minTouchTargetSize,
   },
   center: {
     flex: 1,
     minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
+    gap: 2,
   },
   role: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.9,
-    textTransform: 'uppercase',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   meta: {
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

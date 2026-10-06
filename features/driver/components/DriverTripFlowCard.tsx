@@ -301,6 +301,8 @@ export interface DriverTripFlowCardProps {
   onRoutePlanMapChange?: (plan: DriverRoutePlanMap | null) => void;
   /** Peek the sheet and frame pickup/drop plan markers. Optional stopId focuses one pin. */
   onShowRouteOnMap?: (stopId?: string | null) => void;
+  /** Incremented by the map "View details" control to open the order sheet. */
+  deliveryDetailsNonce?: number;
 }
 
 function fmtKm(km: number): string {

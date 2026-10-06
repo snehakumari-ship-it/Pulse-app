@@ -1,6 +1,7 @@
 import Layout from '@/constants/Layout';
 import { LoadingIndicator } from '@/components/LoadingIndicator';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
+import { cardBackground, softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 type Colors = ReturnType<typeof getDriverThemeColors>;
@@ -26,9 +27,9 @@ export function StopVerificationActionBar({
     <View
       style={[
         styles.bar,
+        softElevation,
         {
-          borderTopColor: colors.border,
-          backgroundColor: colors.surface,
+          backgroundColor: cardBackground(colors),
           paddingBottom: bottomInset,
         },
       ]}
@@ -60,17 +61,18 @@ export function StopVerificationActionBar({
 const styles = StyleSheet.create({
   bar: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
   },
   cta: {
-    minHeight: Layout.minTouchTargetSize,
-    borderRadius: 12,
+    minHeight: 54,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaText: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
