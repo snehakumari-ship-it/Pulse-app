@@ -478,6 +478,15 @@ A Marketplace bidder's contact info (currently: phone) is protected until the tw
 - **V1 (now):** award alone unlocks contact, free — no payment or terms-agreement step.
 - **Designed seam for later:** monetization can insert a gate between award and reveal (e.g. commercial terms agreed → payment entitlement → contact revealed) without changing the underlying bid/indent/trip relationship. Not built — the RPC contract above only distinguishes masked vs. revealed, not a payment-gated third state.
 
+### Indent Pool (locked 2026-10-06)
+
+> **Indent Pool is the canonical operational grouping. Network exposes the relationship-aware view of the pool; Marketplace exposes an anonymous Pooled Opportunity derived from the same pool. Marketplace bids are visible to the shipper, but identity remains locked until the agreed acceptance/payment gate.**
+
+- **Pool identity** = canonical pickup + drop + vehicle (`poolKey` / `poolKeyId` in `features/network/utils/pooledOpportunity.util.ts`). Both surfaces derive membership from that one function. A single indent is a pool of one — there is no "not a pool" case.
+- **Network** (Trips → Indent → Indent Pool) shows indent IDs, party, bid status, allocation and per-indent Review. Row selection there is a local operational aid; it never creates or changes a pool.
+- **Marketplace** (Find Loads → pool) shows only the requirement (route, vehicle, count, window, material, shipper count with identity hidden). The bidder submits one rate for every eligible member; there is no member selection. The full pool is read before bidding, and a pool that cannot be read completely is blocked, never partially submitted.
+- **Not yet atomic (backend):** one pooled rate is currently written as one `market_bids` row per member indent, so update/retract, award and the fee gate are per indent. A pool-level bid, pool award/acceptance, terms state and identity release are future backend work; the UI must expose this limitation rather than imply atomicity.
+
 ---
 
 ## Consumers (today → M1 target)

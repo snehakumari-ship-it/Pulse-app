@@ -21,3 +21,25 @@ describe('formatMarketplaceTransactionError DCO boundary', () => {
     );
   });
 });
+
+describe('formatMarketplaceTransactionError submit_market_bid indent checks', () => {
+  it('maps indent_not_open to the closed-load message', () => {
+    expect(
+      formatMarketplaceTransactionError('indent_not_open: this load is no longer open for bids'),
+    ).toBe('This load is no longer open for bidding.');
+  });
+
+  it('maps not_marketplace_circulated to an actionable message', () => {
+    expect(
+      formatMarketplaceTransactionError(
+        'not_marketplace_circulated: this load is not offered on Marketplace',
+      ),
+    ).toBe('This load is not offered on Marketplace.');
+  });
+
+  it('maps own_indent through the existing own-load message', () => {
+    expect(
+      formatMarketplaceTransactionError("own_indent: you cannot bid on your own organization's load"),
+    ).toBe("You can't bid on your own organization's load.");
+  });
+});

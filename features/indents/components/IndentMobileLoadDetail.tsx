@@ -706,7 +706,10 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                     value={targetRateInr > 0 ? formatINR(targetRateInr) : "—"}
                     strong
                   />
-                  <RateBreakupRow label="Your bid" value="Not submitted" />
+                  <RateBreakupRow
+                    label={client.anonymous ? "Pool quote" : "Your bid"}
+                    value="Not submitted"
+                  />
                 </>
               ) : (
                 <>
@@ -779,6 +782,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                       ownerOrgId={client.ownerOrgId}
                       shipperOrgId={client.shipperOrgId}
                       isOwner={client.isOwner}
+                      anonymous={client.anonymous}
                       align="left"
                       nameLines={1}
                       surface="light"

@@ -7,6 +7,10 @@
  */
 import { supabase } from '@/lib/supabase';
 import { formatMarketplaceTransactionError } from '@/features/marketplace/utils/marketplaceErrorFormat.util';
+import {
+  runPoolBidSubmission,
+  type PoolBidSubmissionResult,
+} from '@/features/network/utils/pooledOpportunity.util';
 
 export type MarketBidStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'superseded';
 
@@ -50,6 +54,23 @@ export async function submitMarketBid(input: {
   if (error) return { error: new Error(error.message), bidId: null };
   const bidId = (data as { bid_id?: string } | null)?.bid_id ?? null;
   return { error: null, bidId };
+}
+
+/**
+ * One DCO rate for every eligible member of a pool, written as one
+ * submit_market_bid per indent. Refused before any write when the targets are
+ * not exactly pool members.
+ */
+export async function submitDcoPoolBid(
+  pool: { indentIds: readonly string[]; memberIds: ReadonlySet<string> },
+  amount: number,
+  ownerVehicleId: string | null,
+): Promise<PoolBidSubmissionResult> {
+  return runPoolBidSubmission({
+    indentIds: pool.indentIds,
+    memberIds: pool.memberIds,
+    submitOne: (indentId) => submitMarketBid({ indentId, amount, note: '', ownerVehicleId }),
+  });
 }
 
 /** This bidder's own bid on one indent, if any — RLS permits reading own rows. */

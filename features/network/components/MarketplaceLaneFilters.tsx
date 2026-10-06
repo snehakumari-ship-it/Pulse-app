@@ -1,15 +1,20 @@
 /**
  * Separate Pickup / Drop / Vehicle filters. Each chip opens the same
  * available-option list for that field (drop and vehicle stay cascade-narrowed).
+ * Options and counts come from canonical pool membership, the same identity
+ * Marketplace pools and Network Indent Pools use.
  */
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
-import {
-  filterMarketplaceOptions,
-  normalizeMarketplaceSearch,
-  type MarketplaceLoadSearch,
-  type MarketplaceSearchLane,
+import type {
+  MarketplaceLoadSearch,
+  MarketplaceSearchLane,
 } from "@/features/network/utils/marketplaceSearch.util";
+import {
+  canonicalPoolField,
+  poolFieldOptions,
+  poolKey,
+} from "@/features/network/utils/pooledOpportunity.util";
 import { Check, ChevronDown, Flag, MapPin, Search, Truck, X } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -70,6 +75,8 @@ type Props = {
   autoOpenFirst?: boolean;
   /** Full-width rows so selected cities stay readable on a phone. */
   stacked?: boolean;
+  /** Dense 44pt fields for embedded, data-heavy surfaces (Indent Pool). */
+  density?: "comfortable" | "compact";
 };
 
 export function MarketplaceLaneFilters({
@@ -78,9 +85,11 @@ export function MarketplaceLaneFilters({
   onChange,
   autoOpenFirst = false,
   stacked = false,
+  density = "comfortable",
 }: Props) {
+  const compact = density === "compact";
   const insets = useSafeAreaInsets();
-  const draft = normalizeMarketplaceSearch(value);
+  const draft = poolKey(value);
   const [openField, setOpenField] = useState<Field | null>(null);
   const [menuQuery, setMenuQuery] = useState("");
 
@@ -92,7 +101,7 @@ export function MarketplaceLaneFilters({
   const options = useMemo(
     () =>
       openField
-        ? filterMarketplaceOptions(lanes, draft, openField, menuQuery)
+        ? poolFieldOptions(lanes, draft, openField, menuQuery)
         : [],
     [lanes, draft, openField, menuQuery],
   );
@@ -142,13 +151,20 @@ export function MarketplaceLaneFilters({
   const copy = openField ? FIELD_META[openField] : null;
 
   return (
-    <View style={[styles.bar, stacked && styles.barStacked]}>
+    <View
+      style={[
+        styles.bar,
+        stacked && styles.barStacked,
+        compact && styles.barCompact,
+      ]}
+    >
       <FilterChip
         field="pickup"
         value={draft.pickup}
         locked={pickupLocked}
         open={openField === "pickup"}
         stacked={stacked}
+        compact={compact}
         onOpen={() => open("pickup", pickupLocked)}
         onClear={() => clearField("pickup")}
       />
@@ -158,6 +174,7 @@ export function MarketplaceLaneFilters({
         locked={dropLocked}
         open={openField === "drop"}
         stacked={stacked}
+        compact={compact}
         onOpen={() => open("drop", dropLocked)}
         onClear={() => clearField("drop")}
       />
@@ -167,6 +184,7 @@ export function MarketplaceLaneFilters({
         locked={vehicleLocked}
         open={openField === "vehicle"}
         stacked={stacked}
+        compact={compact}
         onOpen={() => open("vehicle", vehicleLocked)}
         onClear={() => clearField("vehicle")}
       />
@@ -225,12 +243,15 @@ export function MarketplaceLaneFilters({
                 <Text style={styles.emptyOption}>No matching live loads</Text>
               ) : (
                 options.map((option) => {
-                  const selected =
+                  const current =
                     openField === "pickup"
-                      ? option.label === draft.pickup
+                      ? draft.pickup
                       : openField === "drop"
-                        ? option.label === draft.drop
-                        : option.label === draft.vehicleType;
+                        ? draft.drop
+                        : draft.vehicleType;
+                  const selected =
+                    canonicalPoolField(option.label) ===
+                    canonicalPoolField(current);
                   return (
                     <Pressable
                       key={`${openField}-${option.label}`}
@@ -292,6 +313,7 @@ function FilterChip({
   locked,
   open,
   stacked,
+  compact = false,
   onOpen,
   onClear,
 }: {
@@ -300,6 +322,7 @@ function FilterChip({
   locked: boolean;
   open: boolean;
   stacked: boolean;
+  compact?: boolean;
   onOpen: () => void;
   onClear: () => void;
 }) {
@@ -309,6 +332,7 @@ function FilterChip({
       style={[
         styles.chip,
         stacked && styles.chipStacked,
+        compact && styles.chipCompact,
         open && styles.chipOpen,
         locked && styles.chipLocked,
       ]}
@@ -316,19 +340,25 @@ function FilterChip({
       <Pressable
         onPress={onOpen}
         disabled={locked}
-        style={styles.chipMain}
+        style={[styles.chipMain, compact && styles.chipMainCompact]}
         accessibilityRole="button"
         accessibilityLabel={meta.a11y}
         accessibilityState={{ disabled: locked, expanded: open }}
       >
-        <View style={styles.chipIcon}>
+        <View style={[styles.chipIcon, compact && styles.chipIconCompact]}>
           <FieldIcon field={field} />
         </View>
-        <View style={styles.chipCopy}>
-          <Text style={styles.chipLabel}>{meta.label}</Text>
+        <View style={[styles.chipCopy, compact && styles.chipCopyCompact]}>
+          <Text style={[styles.chipLabel, compact && styles.chipLabelCompact]}>
+            {meta.label}
+          </Text>
           <Text
-            style={[styles.chipValue, !value && styles.chipPlaceholder]}
-            numberOfLines={stacked ? 2 : 1}
+            style={[
+              styles.chipValue,
+              compact && styles.chipValueCompact,
+              !value && styles.chipPlaceholder,
+            ]}
+            numberOfLines={compact ? 1 : stacked ? 2 : 1}
           >
             {locked
               ? field === "drop"
@@ -436,6 +466,18 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: Theme.textMuted,
   },
+  barCompact: { gap: 6 },
+  chipCompact: { minHeight: 44, borderRadius: 10 },
+  chipMainCompact: { minHeight: 42, paddingHorizontal: 8, gap: 8 },
+  chipIconCompact: { width: 24, height: 24, borderRadius: 7 },
+  chipCopyCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 8,
+  },
+  chipLabelCompact: { fontSize: 9.5, width: 50 },
+  chipValueCompact: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16 },
   chipClear: {
     width: 28,
     height: 28,

@@ -5,60 +5,48 @@
  * not three separate workflows — see docs/MARKETPLACE_DOMAIN.md
  * "Distribution vs monetization".
  *
- * A4.4 Phase 1 — persist an organization Market bid (market_bids,
- * bidder_type='organization'). The amount UI is the same Network / Get Load
- * keypad (MarketLoadBidSheet) on desktop and mobile. No vehicle at bid time —
+ * Discover lists pooled opportunities: one card per live lane (pickup × drop ×
+ * vehicle, from list_marketplace_search_lanes) with its open load count. The
+ * pool's loads, the one-rate pool bid and the award handoff live on
+ * /find-loads/pool (PooledOpportunityScreen). Bids are still persisted per
+ * indent as organization Market bids (market_bids, bidder_type='organization');
  * fleet/driver is chosen at allocation after award (A4.4 Phase 3).
  */
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
-import { PartyAvatar } from "@/components/PartyAvatar";
-import { MarketLoadBidSheet } from "@/features/driver/components/MarketLoadBidSheet";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useOptionalOrganization } from "@/contexts/OrganizationContext";
-import {
-  MarketplaceRouteGrid,
-  MarketplaceSpecChips,
-  titleCaseWord,
-} from "@/features/network/components/MarketplaceLoadCardChrome";
 import { MarketplaceLaneFilters } from "@/features/network/components/MarketplaceLaneFilters";
 import { MarketplaceSearchSheet } from "@/features/network/components/MarketplaceSearchSheet";
 import { OrgMyBidsList } from "@/features/network/components/OrgMyBidsList";
+import { PooledOpportunityCard } from "@/features/network/components/pooled/PooledOpportunityCard";
 import {
-  composeFindLoadsOpportunity,
-  findLoadsDisplayId,
-  findLoadsRouteLabel,
-  formatFindLoadsRateOffer,
   listMarketplaceSearchLanes,
   listMyOrgMarketBids,
   marketBidsFromQueryData,
-  listOpenMarketplaceLoadsPage,
-  submitOrgMarketBid,
-  type OrgOpenMarketplaceLoad,
 } from "@/features/network/services/findLoadsForOrg.service";
-import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
 import {
   isMarketplaceSearchReady,
-  marketplaceSearchKey,
+  normalizeMarketplaceSearch,
   type MarketplaceLoadSearch,
 } from "@/features/network/utils/marketplaceSearch.util";
-import { formatStoryDate } from "@/features/network/utils/storyDisplay";
+import {
+  filterPoolLanes,
+  poolKeyFromLane,
+} from "@/features/network/utils/pooledOpportunity.util";
 import { STALE } from "@/lib/queryClient";
 import { isVehicleTypeCompatibleWithFleet } from "@/features/marketplace/utils/fleetFit.util";
-import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
 import { getVehiclesByOrganization } from "@/features/vehicles/services/vehicles.service";
-import { showAppAlert } from "@/lib/appAlert";
 import { useLayoutInsets } from "@/lib/layoutInsets";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { Award, ChevronRight, SlidersHorizontal, X } from "lucide-react-native";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
+import { Award, SlidersHorizontal, X } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
 import {
   FlatList,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -66,14 +54,7 @@ import {
   View,
 } from "react-native";
 
-type SourceFilter = "all" | "sponsored" | "marketplace";
 type Segment = "discover" | "myBids";
-
-const FILTERS: { id: SourceFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "sponsored", label: "Sponsored" },
-  { id: "marketplace", label: "Marketplace" },
-];
 
 
 export default function FindLoadsScreen() {
@@ -89,15 +70,16 @@ export default function FindLoadsScreen() {
   const canViewFindLoads = canSurface("tripops.pulse_loads");
   const orgId = canViewFindLoads ? organization?.id ?? null : null;
 
-  const [filter, setFilter] = useState<SourceFilter>("all");
-  const [segment, setSegment] = useState<Segment>("discover");
-  const [bidLoad, setBidLoad] = useState<OrgOpenMarketplaceLoad | null>(null);
-  const [bidError, setBidError] = useState<string | undefined>();
+  const params = useLocalSearchParams<{ segment?: string }>();
+  const [segment, setSegment] = useState<Segment>(
+    params.segment === "my-bids" ? "myBids" : "discover",
+  );
   const [appliedSearch, setAppliedSearch] = useState<MarketplaceLoadSearch | null>(
     null,
   );
   const [filterOpen, setFilterOpen] = useState(false);
   const searchReady = isMarketplaceSearchReady(appliedSearch);
+  const searchActive = Object.values(normalizeMarketplaceSearch(appliedSearch)).some(Boolean);
 
   const contentTopInset = layout.isDesktopWeb
     ? Layout.desktopTopNavOffset
@@ -110,32 +92,6 @@ export default function FindLoadsScreen() {
     }
     router.replace(ROUTES.PULSE_LOADS as import("expo-router").Href);
   };
-
-  const loadsQ = useInfiniteQuery({
-    queryKey: queryKeys.findLoadsForOrg.infinite(
-      orgId ?? "",
-      MARKETPLACE_LOAD_PAGE_SIZE,
-      searchReady ? marketplaceSearchKey(appliedSearch) : "",
-    ),
-    queryFn: async ({ pageParam }) => {
-      const { error, loads, nextOffset } = await listOpenMarketplaceLoadsPage(
-        orgId as string,
-        pageParam,
-        MARKETPLACE_LOAD_PAGE_SIZE,
-        appliedSearch,
-      );
-      if (error) throw error;
-      return { loads, nextOffset };
-    },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage) => lastPage.nextOffset,
-    enabled: !!orgId && searchReady && segment === "discover",
-    staleTime: STALE.frequent,
-  });
-  const loads = useMemo(
-    () => loadsQ.data?.pages.flatMap((page) => page.loads) ?? [],
-    [loadsQ.data],
-  );
 
   const vehiclesQ = useQuery({
     queryKey: queryKeys.vehicles.all(orgId ?? ""),
@@ -168,45 +124,16 @@ export default function FindLoadsScreen() {
     [myBids],
   );
 
-  const viewerCanBidCapability =
-    (organization?.capabilities?.canBid ?? true) &&
-    canSurface("sales.marketplace.bid");
-
-  const filteredLoads = useMemo(() => {
-    if (filter === "sponsored") return loads.filter((l) => l.is_sponsored);
-    if (filter === "marketplace") return loads.filter((l) => !l.is_sponsored);
-    return loads;
-  }, [loads, filter]);
+  const lanes = useMemo(() => lanesQ.data ?? [], [lanesQ.data]);
+  const pools = useMemo(
+    () => filterPoolLanes(lanes, appliedSearch),
+    [lanes, appliedSearch],
+  );
+  const poolLoadTotal = useMemo(
+    () => pools.reduce((n, lane) => n + (Number(lane.load_count) || 0), 0),
+    [pools],
+  );
   const discoverColumns = layout.isDesktopWeb ? 3 : 1;
-
-  const submitMarketplaceBid = async (amount: number): Promise<boolean> => {
-    if (!bidLoad) return false;
-    const { error } = await submitOrgMarketBid(orgId, bidLoad.id, amount, "");
-    if (error) {
-      setBidError(formatMarketplaceTransactionError(error.message));
-      return false;
-    }
-    return true;
-  };
-
-  const handleBidSuccess = () => {
-    setBidLoad(null);
-    setBidError(undefined);
-    if (orgId) {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.findLoadsForOrg.list(orgId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.findLoadsForOrg.infinite(
-          orgId,
-          MARKETPLACE_LOAD_PAGE_SIZE,
-          searchReady ? marketplaceSearchKey(appliedSearch) : "",
-        ),
-      });
-      queryClient.invalidateQueries({ queryKey: queryKeys.findLoadsForOrg.myBids(orgId) });
-    }
-    showAppAlert("Bid submitted", "The business will review your offer.");
-  };
 
   if (accessLoading) {
     return <ChromeBelowTopNavLoadingScreen variant="preparing" />;
@@ -235,15 +162,14 @@ export default function FindLoadsScreen() {
     return <ChromeBelowTopNavLoadingScreen variant={orgLoading ? "preparing" : "generic"} />;
   }
 
-  const shownCount = filteredLoads.length;
   const headerSubtitle =
     segment === "myBids"
       ? `${myBids.length} bid${myBids.length === 1 ? "" : "s"} from your org`
-      : !searchReady
-        ? "Pick a lane to browse open loads"
-        : loadsQ.isLoading
-          ? "Finding loads on this route…"
-          : `${shownCount} matching load${shownCount === 1 ? "" : "s"}`;
+      : lanesQ.isLoading
+        ? "Finding pooled opportunities…"
+        : `${pools.length} pooled opportunit${pools.length === 1 ? "y" : "ies"} · ${poolLoadTotal} load${
+            poolLoadTotal === 1 ? "" : "s"
+          }`;
 
   const pageChrome = () => (
       <View
@@ -415,7 +341,7 @@ export default function FindLoadsScreen() {
             <View style={styles.lanePanel}>
               <View style={styles.lanePanelHead}>
                 <Text style={styles.lanePanelHint}>
-                  Filter by pickup, drop, then vehicle
+                  Narrow pools by pickup, drop, then vehicle
                 </Text>
                 <Pressable
                   onPress={() => setFilterOpen(true)}
@@ -440,53 +366,19 @@ export default function FindLoadsScreen() {
                 lanes={lanesQ.data ?? []}
                 value={appliedSearch}
                 onChange={setAppliedSearch}
-                autoOpenFirst
                 stacked={!layout.isDesktopWeb}
               />
-              {searchReady ? (
-                <View style={[styles.filterRow, !layout.isDesktopWeb && styles.filterRowMobile]}>
-                  {FILTERS.map((f) => {
-                    const active = filter === f.id;
-                    return (
-                      <Pressable
-                        key={f.id}
-                        onPress={() => setFilter(f.id)}
-                        style={[
-                          styles.filterChip,
-                          !layout.isDesktopWeb && styles.filterChipMobile,
-                          active && styles.filterChipActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.filterChipText,
-                            active && styles.filterChipTextActive,
-                          ]}
-                        >
-                          {f.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
             </View>
           ) : null}
         </View>
       </View>
     );
 
-  const discoverBody = !searchReady ? (
+  const discoverBody = lanesQ.isError ? (
     <View style={styles.pageBody}>
-      <Text style={styles.message}>
-        Choose pickup, then drop, then vehicle from the lists above.
-      </Text>
-    </View>
-  ) : loadsQ.isError ? (
-    <View style={styles.pageBody}>
-      <Text style={styles.message}>Couldn't load Marketplace loads.</Text>
+      <Text style={styles.message}>Couldn't load Marketplace pools.</Text>
       <Pressable
-        onPress={() => loadsQ.refetch()}
+        onPress={() => lanesQ.refetch()}
         style={({ pressed }) => [styles.retryBtn, pressed && styles.retryBtnPressed]}
         accessibilityRole="button"
         accessibilityLabel="Retry"
@@ -494,21 +386,27 @@ export default function FindLoadsScreen() {
         <Text style={styles.retryBtnText}>Retry</Text>
       </Pressable>
     </View>
-  ) : loadsQ.isLoading ? (
+  ) : lanesQ.isLoading ? (
     <View style={styles.pageBody}>
-      <Text style={styles.message}>Finding loads on this route…</Text>
+      <Text style={styles.message}>Finding pooled opportunities…</Text>
     </View>
-  ) : filteredLoads.length === 0 ? (
+  ) : pools.length === 0 ? (
     <View style={styles.pageBody}>
-      <Text style={styles.message}>No Marketplace loads on this route.</Text>
-      <Pressable
-        onPress={() => setFilterOpen(true)}
-        style={({ pressed }) => [styles.retryBtn, pressed && styles.retryBtnPressed]}
-        accessibilityRole="button"
-        accessibilityLabel="Change marketplace filters"
-      >
-        <Text style={styles.retryBtnText}>Change filters</Text>
-      </Pressable>
+      <Text style={styles.message}>
+        {searchActive
+          ? "No pooled opportunities match these filters."
+          : "No open Marketplace loads right now."}
+      </Text>
+      {searchActive ? (
+        <Pressable
+          onPress={() => setFilterOpen(true)}
+          style={({ pressed }) => [styles.retryBtn, pressed && styles.retryBtnPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Change marketplace filters"
+        >
+          <Text style={styles.retryBtnText}>Change filters</Text>
+        </Pressable>
+      ) : null}
     </View>
   ) : null;
 
@@ -535,10 +433,10 @@ export default function FindLoadsScreen() {
         </ScrollView>
       ) : showDiscoverCards ? (
         <FlatList
-          data={filteredLoads}
+          data={pools}
           key={`discover-${discoverColumns}`}
           numColumns={discoverColumns}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.poolId}
           style={styles.list}
           contentContainerStyle={[
             styles.listContent,
@@ -547,40 +445,13 @@ export default function FindLoadsScreen() {
           columnWrapperStyle={
             discoverColumns > 1 ? styles.listRow : undefined
           }
-          ListHeaderComponent={pageChrome}
-          onEndReachedThreshold={0.4}
-          onEndReached={() => {
-            if (loadsQ.hasNextPage && !loadsQ.isFetchingNextPage) {
-              void loadsQ.fetchNextPage();
-            }
-          }}
-          ListFooterComponent={
-            loadsQ.isFetchingNextPage ? (
-              <View style={styles.loadMoreWrap}>
-                <Text style={styles.loadMoreHint}>Loading more…</Text>
-              </View>
-            ) : loadsQ.hasNextPage ? (
-              <Pressable
-                onPress={() => void loadsQ.fetchNextPage()}
-                style={({ pressed }) => [
-                  styles.loadMoreBtn,
-                  pressed && styles.retryBtnPressed,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Load more marketplace loads"
-              >
-                <Text style={styles.retryBtnText}>Load more</Text>
-              </Pressable>
-            ) : null
-          }
+          ListHeaderComponent={pageChrome()}
           renderItem={({ item }) => (
-            <FindLoadsCard
-              load={item}
+            <PooledOpportunityCard
+              lane={item}
               fitsFleet={isVehicleTypeCompatibleWithFleet(item.vehicle_type, fleetVehicleTypes)}
-              viewerCanBidCapability={viewerCanBidCapability}
-              viewerOrgId={orgId}
               isDesktop={!!layout.isDesktopWeb}
-              onPress={() => setBidLoad(item)}
+              onPress={() => router.push(ROUTES.findLoadsPool(poolKeyFromLane(item)) as Href)}
             />
           )}
         />
@@ -594,24 +465,6 @@ export default function FindLoadsScreen() {
         </ScrollView>
       )}
 
-      <MarketLoadBidSheet
-        visible={bidLoad != null}
-        onClose={() => {
-          setBidLoad(null);
-          setBidError(undefined);
-        }}
-        onSubmitAmount={submitMarketplaceBid}
-        onSuccessDone={handleBidSuccess}
-        shipperName={bidLoad?.creator_organization_name}
-        pickup={bidLoad?.pickup_area}
-        drop={bidLoad?.drop_location}
-        vehicleType={bidLoad?.vehicle_type}
-        loadType={bidLoad?.load_type}
-        targetRateInr={bidLoad?.rate_offer}
-        indentDisplayId={bidLoad ? findLoadsDisplayId(bidLoad) : null}
-        validationError={bidError}
-        onClearValidationError={() => setBidError(undefined)}
-      />
       <MarketplaceSearchSheet
         visible={filterOpen && segment === "discover"}
         initial={appliedSearch}
@@ -626,100 +479,6 @@ export default function FindLoadsScreen() {
         }}
       />
     </View>
-  );
-}
-
-function FindLoadsCard({
-  load,
-  fitsFleet,
-  viewerCanBidCapability,
-  viewerOrgId,
-  isDesktop = false,
-  onPress,
-}: {
-  load: OrgOpenMarketplaceLoad;
-  fitsFleet: boolean;
-  viewerCanBidCapability: boolean;
-  viewerOrgId: string;
-  isDesktop?: boolean;
-  onPress: () => void;
-}) {
-  const opportunity = useMemo(
-    () => composeFindLoadsOpportunity(load, viewerOrgId, viewerCanBidCapability),
-    [load, viewerOrgId, viewerCanBidCapability],
-  );
-  const rate = formatFindLoadsRateOffer(load.rate_offer);
-  const biddable = opportunity.bidding.canBid;
-  const shipperRaw = (load.creator_organization_name ?? "").trim() || "Unknown shipper";
-  const shipper = titleCaseWord(shipperRaw);
-  const specChips = [load.vehicle_type, load.load_type]
-    .map((v) => (v ?? "").trim())
-    .filter(Boolean)
-    .map(titleCaseWord);
-  const dateLabel = load.pickup_date ? formatStoryDate(load.pickup_date) : null;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={!biddable}
-      style={({ pressed }) => [
-        styles.card,
-        isDesktop && styles.cardDesktop,
-        !biddable && styles.cardDisabled,
-        pressed && biddable && styles.cardPressed,
-      ]}
-      accessibilityRole="button"
-      accessibilityLabel={`${shipper}, ${findLoadsRouteLabel(load)}, ${rate ?? "rate not listed"}`}
-    >
-      <View style={styles.cardTop}>
-        <PartyAvatar
-          name={shipper}
-          initialsColorSeed={load.creator_organization_id ?? shipper}
-          entityType="client"
-          size={32}
-        />
-        <View style={styles.cardTopText}>
-          <Text style={styles.orgName} numberOfLines={1}>
-            {shipper}
-          </Text>
-          <Text style={styles.metaLine} numberOfLines={1}>
-            {findLoadsDisplayId(load)}
-          </Text>
-        </View>
-        {load.is_sponsored || fitsFleet ? (
-          <View style={styles.badgeStack}>
-            {load.is_sponsored ? (
-              <View style={styles.sponsoredBadge}>
-                <Text style={styles.sponsoredBadgeText}>Sponsored</Text>
-              </View>
-            ) : null}
-            {fitsFleet ? (
-              <View style={styles.fitBadge}>
-                <Text style={styles.fitBadgeText}>Fleet fit</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
-
-      <MarketplaceRouteGrid pickup={load.pickup_area} drop={load.drop_location} />
-      <MarketplaceSpecChips chips={specChips} dateLabel={dateLabel} />
-
-      <View style={styles.cardFooter}>
-        <View style={styles.rateBlock}>
-          <Text style={styles.rateLabel}>Target rate</Text>
-          <Text style={styles.rate}>{rate ?? "—"}</Text>
-        </View>
-        {biddable ? (
-          <View style={styles.bidCta}>
-            <Text style={styles.bidCtaText}>Bid</Text>
-            <ChevronRight size={13} color={Theme.buttonPrimaryText} strokeWidth={2.4} />
-          </View>
-        ) : (
-          <Text style={styles.notYetBiddable}>No bidding access</Text>
-        )}
-      </View>
-    </Pressable>
   );
 }
 
@@ -755,26 +514,6 @@ const styles = StyleSheet.create({
   },
   retryBtnPressed: { opacity: 0.85 },
   retryBtnText: { fontSize: 14, fontWeight: "700", color: Theme.buttonPrimaryText },
-  loadMoreWrap: {
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  loadMoreHint: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.textSecondary,
-  },
-  loadMoreBtn: {
-    alignSelf: "center",
-    marginTop: 8,
-    marginBottom: 20,
-    minHeight: 44,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: Theme.buttonPrimary,
-    justifyContent: "center",
-  },
   chrome: {
     backgroundColor: Theme.cardWhite,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -980,40 +719,6 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.primary,
     borderColor: Theme.primary,
   },
-  myBidsScroll: { paddingTop: 12, paddingBottom: 32 },
-  filterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-  },
-  filterRowMobile: {
-    alignSelf: "stretch",
-    backgroundColor: Theme.cardWhite,
-    borderRadius: 12,
-    padding: 4,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-  },
-  filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    minHeight: 32,
-    borderRadius: 20,
-    backgroundColor: Theme.brandBlueSoft,
-    justifyContent: "center",
-  },
-  filterChipMobile: {
-    flex: 1,
-    alignItems: "center",
-    minHeight: 36,
-    borderRadius: 10,
-    backgroundColor: "transparent",
-  },
-  filterChipActive: { backgroundColor: Theme.primary },
-  filterChipText: { fontSize: 12, fontWeight: "600", color: Theme.primary },
-  filterChipTextActive: { color: Theme.textOnPrimary },
   list: {
     flex: 1,
     width: "100%",
@@ -1034,120 +739,4 @@ const styles = StyleSheet.create({
     width: "100%",
     paddingHorizontal: 0,
   },
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
-    padding: 16,
-    backgroundColor: Theme.cardWhite,
-    marginBottom: 12,
-    gap: 14,
-    overflow: "hidden",
-    ...Platform.select({
-      web: {
-        boxShadow: `0 8px 20px ${Theme.actionAccentShadow}`,
-      } as object,
-      default: {
-        shadowColor: Theme.primaryText,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        elevation: 2,
-      },
-    }),
-  },
-  cardDesktop: {
-    width: "calc((100% - 32px) / 3)" as unknown as number,
-    maxWidth: "calc((100% - 32px) / 3)" as unknown as number,
-    minWidth: 0,
-    flexGrow: 0,
-    flexShrink: 0,
-    marginBottom: 0,
-  },
-  cardPressed: { opacity: 0.92 },
-  cardDisabled: { opacity: 0.72 },
-  cardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  cardTopText: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: "center",
-    gap: 3,
-  },
-  orgName: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.1,
-    lineHeight: 18,
-  },
-  metaLine: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: Theme.textMuted,
-    letterSpacing: 0.2,
-    lineHeight: 15,
-  },
-  badgeStack: { alignItems: "flex-end", justifyContent: "center", gap: 4, flexShrink: 0 },
-  sponsoredBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: Theme.brandBlue,
-  },
-  sponsoredBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-    color: Theme.brandBlueInk,
-  },
-  fitBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: Theme.positiveMuted,
-  },
-  fitBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    textTransform: "uppercase",
-    color: Theme.positive,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: 12,
-    paddingTop: 12,
-    marginTop: 2,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.surfaceBorder,
-  },
-  rateBlock: { gap: 2, minWidth: 0, flex: 1 },
-  rateLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.45,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
-  },
-  rate: { fontSize: 16, fontWeight: "700", color: Theme.primary, letterSpacing: -0.3 },
-  bidCta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
-  },
-  bidCtaText: { fontSize: 12, fontWeight: "700", color: Theme.buttonPrimaryText },
-  notYetBiddable: { fontSize: 11, color: Theme.textMuted, fontStyle: "italic" },
 });

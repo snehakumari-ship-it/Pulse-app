@@ -58,6 +58,16 @@ export type MarketplaceFeePreview =
   | { status: "inactive" }
   | { status: "active"; amount: number; capped: boolean };
 
+/** Copy overrides for callers whose one amount is sent as several bids (pooled loads). */
+export type BidConfirmCopy = {
+  /** Shown above the fee on review: what the amount applies to. */
+  scopeNote?: string;
+  /** Replaces the single-bid fee sentence; receives the RPC-resolved fee. */
+  feeNote?: (feeInr: number) => string;
+  successTitle?: string;
+  successSubtitle?: string;
+};
+
 export type BidConfirmModalProps = {
   visible: boolean;
   phase?: BidConfirmPhase;
@@ -76,6 +86,7 @@ export type BidConfirmModalProps = {
   marketplaceFee?: MarketplaceFeePreview;
   /** Render inside a parent modal instead of a second RN Modal (iOS stacked-modal tap bug). */
   embedded?: boolean;
+  copy?: BidConfirmCopy;
   onCancel: () => void;
   onConfirm: () => void;
   /** Dismiss after success celebration. */
@@ -131,6 +142,7 @@ export const BidConfirmModal = memo(function BidConfirmModal({
   submitting = false,
   marketplaceFee,
   embedded = false,
+  copy,
   onCancel,
   onConfirm,
   onSuccessDone,
@@ -283,10 +295,13 @@ export const BidConfirmModal = memo(function BidConfirmModal({
       ? "Confirm update"
       : "Confirm bid";
 
-  const successTitle = isEditMode ? "Quote updated" : "Quote submitted";
-  const successSubtitle = isEditMode
-    ? "Your revised offer is live for the load owner."
-    : "Your offer is live — the load owner can review it now.";
+  const successTitle =
+    copy?.successTitle ?? (isEditMode ? "Quote updated" : "Quote submitted");
+  const successSubtitle =
+    copy?.successSubtitle ??
+    (isEditMode
+      ? "Your revised offer is live for the load owner."
+      : "Your offer is live — the load owner can review it now.");
 
   const heroAmountColor =
     amountVsTarget?.tone === "over"
@@ -571,6 +586,11 @@ export const BidConfirmModal = memo(function BidConfirmModal({
               </View>
 
               <View style={styles.body}>
+                {copy?.scopeNote ? (
+                  <View style={styles.feeBlock}>
+                    <Text style={styles.scopeNote}>{copy.scopeNote}</Text>
+                  </View>
+                ) : null}
                 {marketplaceFee && marketplaceFee.status === "active" ? (
                   <View style={styles.feeBlock}>
                     <View style={styles.feeRow}>
@@ -586,7 +606,9 @@ export const BidConfirmModal = memo(function BidConfirmModal({
                       </Text>
                     </View>
                     <Text style={styles.feeNote}>
-                      You pay Pulse {formatINR(marketplaceFee.amount)} separately if you win this bid
+                      {copy?.feeNote
+                        ? copy.feeNote(marketplaceFee.amount)
+                        : `You pay Pulse ${formatINR(marketplaceFee.amount)} separately if you win this bid`}
                     </Text>
                   </View>
                 ) : marketplaceFee && marketplaceFee.status === "inactive" ? (
@@ -904,6 +926,12 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: Theme.textMuted,
     lineHeight: 15,
+  },
+  scopeNote: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    lineHeight: 17,
   },
   metaList: {
     gap: 0,

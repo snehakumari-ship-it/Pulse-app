@@ -141,6 +141,16 @@ export const ORG_POLICIES: readonly PolicyRecord[] = [
     softDeny: true,
   },
   {
+    // Pooled opportunity detail — same gate as Find Loads itself.
+    id: 'org.find-loads-pool',
+    pattern: '/find-loads/pool',
+    experience: 'org',
+    priority: 100,
+    grants: { anyOf: ['dispatch', 'dispatch_for_own_fleet'] },
+    onDeny: { type: 'path', path: '/find-loads' },
+    softDeny: true,
+  },
+  {
     id: 'org.create-indent',
     pattern: '/create-indent',
     experience: 'org',

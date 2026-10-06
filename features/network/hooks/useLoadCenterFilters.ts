@@ -48,6 +48,8 @@ export interface LoadCenterFiltersResult {
   findWorkDoneUnionLoads: IndentRow[];
   getLoads: IndentRow[];
   findWorkLoads: IndentRow[];
+  /** Network Loads (OPEN) before text search — the universe Network pools are built from. */
+  findWorkOpenLoads: IndentRow[];
   filteredHirePartnerLoads: IndentRow[];
   filteredFindWorkLoads: IndentRow[];
   filteredFindWorkDoneLoads: IndentRow[];
@@ -234,20 +236,24 @@ export function useLoadCenterFilters({
     [],
   );
 
+  // Find Work Open Market: loads I haven't bid on yet, before text search.
+  // Deliberately keyed on MY quote, not the indent status: `quoted` is a
+  // shared field set by the first bidder, so filtering on it here would
+  // hide a still-biddable load from every other supplier.
+  const findWorkOpenLoads = useMemo(
+    () =>
+      findWorkLoads.filter(
+        (load) =>
+          !myQuoteByIndentId.has(load.id) &&
+          !statusMatchesFilter((load.status || "").toLowerCase(), "AWARDED") &&
+          !statusMatchesFilter((load.status || "").toLowerCase(), "DONE"),
+      ),
+    [findWorkLoads, myQuoteByIndentId],
+  );
+
   const filteredFindWorkLoads = useMemo(() => {
     const statusFiltered = (() => {
-      if (statusFilterTab === "OPEN") {
-        // Find Work Open Market: loads I haven't bid on yet.
-        // Deliberately keyed on MY quote, not the indent status: `quoted` is a
-        // shared field set by the first bidder, so filtering on it here would
-        // hide a still-biddable load from every other supplier.
-        return findWorkLoads.filter(
-          (load) =>
-            !myQuoteByIndentId.has(load.id) &&
-            !statusMatchesFilter((load.status || "").toLowerCase(), "AWARDED") &&
-            !statusMatchesFilter((load.status || "").toLowerCase(), "DONE"),
-        );
-      }
+      if (statusFilterTab === "OPEN") return findWorkOpenLoads;
       if (statusFilterTab === "QUOTED") {
         // Find Work My Bids: loads where I already sent a bid/quote.
         return findWorkLoads.filter((load) => myQuoteByIndentId.has(load.id));
@@ -264,6 +270,7 @@ export function useLoadCenterFilters({
     );
   }, [
     findWorkLoads,
+    findWorkOpenLoads,
     statusFilterTab,
     searchQuery,
     loadMatchesSearch,
@@ -556,6 +563,7 @@ export function useLoadCenterFilters({
     findWorkDoneUnionLoads,
     getLoads,
     findWorkLoads,
+    findWorkOpenLoads,
     filteredHirePartnerLoads,
     filteredFindWorkLoads,
     filteredFindWorkDoneLoads,

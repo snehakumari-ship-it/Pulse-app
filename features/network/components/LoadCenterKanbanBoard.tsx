@@ -60,6 +60,8 @@ export type LoadCenterKanbanBoardProps = {
   matchHeight?: number | null;
   /** Open full-page list for this column (indent cards only). */
   onColumnPress?: (column: LoadCenterKanbanColumn) => void;
+  /** Replaces a column's indent cards (e.g. Network Loads as pools); null keeps the cards. */
+  renderColumnBody?: (column: LoadCenterKanbanColumn) => ReactNode | null;
 };
 
 function KanbanColumn({
@@ -67,12 +69,15 @@ function KanbanColumn({
   renderCard,
   highlightedIndentId,
   onColumnPress,
+  renderColumnBody,
 }: {
   column: LoadCenterKanbanColumn;
   renderCard: (load: IndentRow) => ReactNode;
   highlightedIndentId?: string | null;
   onColumnPress?: (column: LoadCenterKanbanColumn) => void;
+  renderColumnBody?: (column: LoadCenterKanbanColumn) => ReactNode | null;
 }) {
+  const customBody = renderColumnBody?.(column) ?? null;
   const [hovered, setHovered] = useState(false);
   const tabs = column.tabs ?? [];
   const hasTabs = tabs.length > 0;
@@ -175,7 +180,9 @@ function KanbanColumn({
         onScroll={onScroll}
         scrollEventThrottle={16}
       >
-        {showEmpty ? (
+        {customBody != null && !showEmpty ? (
+          customBody
+        ) : showEmpty ? (
           <View style={styles.emptyColumn}>
             <View style={styles.emptyIconWrap}>
               <FontAwesome name="inbox" size={14} color={Theme.textMuted} />
@@ -195,7 +202,7 @@ function KanbanColumn({
             </View>
           ))
         )}
-        {hasMore ? (
+        {hasMore && customBody == null ? (
           <View style={styles.loadMoreHint} accessibilityLabel={`${remaining} more ${column.label}`}>
             <Text style={styles.loadMoreBtnText}>
               Scroll for more · {remaining} of {badgeCount} remaining
@@ -214,6 +221,7 @@ export function LoadCenterKanbanBoard({
   highlightedIndentId = null,
   matchHeight = null,
   onColumnPress,
+  renderColumnBody,
 }: LoadCenterKanbanBoardProps) {
   const shellHeight =
     matchHeight != null && matchHeight > 0 ? Math.round(matchHeight) : null;
@@ -253,6 +261,7 @@ export function LoadCenterKanbanBoard({
             renderCard={renderCard}
             highlightedIndentId={highlightedIndentId}
             onColumnPress={onColumnPress}
+            renderColumnBody={renderColumnBody}
           />
         ))}
       </ScrollView>

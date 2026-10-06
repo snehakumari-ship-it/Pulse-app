@@ -33,6 +33,9 @@ function tripDetailRouteQuery(options?: TripDetailRouteOptions): string {
   return qs ? `?${qs}` : "";
 }
 
+/** `/indent/[id]?context=` value: detail opened from a Network pool, shipper hidden. */
+export const INDENT_DETAIL_ANONYMOUS_CONTEXT = "network-pool";
+
 export const ROUTES = {
   INDEX: '/',
   /** Marketing landing (web). */
@@ -88,6 +91,15 @@ export const ROUTES = {
   driverAvailableLoad: (indentId: string, opts?: { bid?: boolean }) => {
     const path = `/(driver)/available-loads/${encodeURIComponent(indentId)}`;
     return (opts?.bid ? `${path}?bid=1` : path) as `/(driver)/available-loads/${string}`;
+  },
+  /** One pooled Marketplace opportunity (pickup × drop × vehicle), bid on with one rate. */
+  driverAvailableLoadPool: (key: { pickup: string; drop: string; vehicleType: string }) => {
+    const qs = new URLSearchParams({
+      pickup: key.pickup,
+      drop: key.drop,
+      vehicle: key.vehicleType,
+    }).toString();
+    return `/(driver)/available-loads/pool?${qs}` as `/(driver)/available-loads/pool?${string}`;
   },
   /** Phase A/B: this bidder's own market_bids rows. */
   driverMyBids: () => '/(driver)/my-bids' as const,
@@ -329,6 +341,9 @@ export const ROUTES = {
   /** Load / indent detail (GET LOAD hub, review, deploy entry). */
   indentDetail: (indentId: string) =>
     `/indent/${encodeURIComponent(indentId)}` as const,
+  /** Indent detail reached from an opened Network Loads pool — shipper identity hidden. */
+  indentDetailAnonymous: (indentId: string) =>
+    `/indent/${encodeURIComponent(indentId)}?context=${INDENT_DETAIL_ANONYMOUS_CONTEXT}` as const,
   /** Awarded indent → deploy trip (asset roster or aggregate partner flow). */
   indentAllocation: (indentId: string, focus?: "driver" | "vehicle") => {
     const base = `/indent/${encodeURIComponent(indentId)}/allocation` as const;
@@ -371,6 +386,13 @@ export const ROUTES = {
   /** A4 — Business Find Loads: open Marketplace discovery, separate from
    * Load Center's relationship-based Get Load tab. */
   FIND_LOADS:    '/find-loads'    as const,
+  /** Find Loads opened on its My Bids segment (awarded → fee → allocation). */
+  FIND_LOADS_MY_BIDS: '/find-loads?segment=my-bids' as const,
+  /** One pooled Marketplace opportunity = one live lane (pickup × drop × vehicle). */
+  findLoadsPool: (pool: { pickup: string; drop: string; vehicleType: string }) =>
+    `/find-loads/pool?pickup=${encodeURIComponent(pool.pickup)}&drop=${encodeURIComponent(
+      pool.drop,
+    )}&vehicle=${encodeURIComponent(pool.vehicleType)}` as const,
   /** DBA audit tool — web only. */
   DBA_AUDIT:     '/audit'          as const,
   /** Workspace audit trail — who changed what (KYC, members, branding, trips). */

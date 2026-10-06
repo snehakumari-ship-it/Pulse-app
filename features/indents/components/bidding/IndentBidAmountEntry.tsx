@@ -12,6 +12,7 @@ import {
 import type { NumericEntryPartyPreview } from "@/components/mobile-input";
 import {
   BidConfirmModal,
+  type BidConfirmCopy,
   type BidConfirmPhase,
 } from "@/features/network/components/bidding/BidConfirmModal";
 
@@ -42,6 +43,10 @@ export interface IndentBidAmountEntryProps {
   validationError?: string;
   onClearValidationError?: () => void;
   onInvalidAmount?: () => void;
+  /** Line under the title, e.g. what the amount applies to. */
+  contextLine?: string;
+  submitLabel?: string;
+  confirmCopy?: BidConfirmCopy;
 }
 
 function routeSubtitle(
@@ -80,6 +85,9 @@ export function IndentBidAmountEntry({
   validationError,
   onClearValidationError,
   onInvalidAmount,
+  contextLine,
+  submitLabel,
+  confirmCopy,
 }: IndentBidAmountEntryProps) {
   const title = isUpdate ? "Update your bid" : "Place your bid";
 
@@ -209,14 +217,14 @@ export function IndentBidAmountEntry({
         onSubmit={requestConfirm}
         initialValue={initialValue}
         label={title}
-        contextLine={undefined}
+        contextLine={contextLine}
         partyPreview={partyPreview}
         type="currency"
         prefix="₹"
         placeholder="0"
         allowDecimal={false}
         maxDecimalPlaces={0}
-        submitLabel={isUpdate ? "Update bid" : "Submit bid"}
+        submitLabel={submitLabel ?? (isUpdate ? "Update bid" : "Submit bid")}
         validationError={
           confirmSubmitting
             ? isUpdate
@@ -244,6 +252,7 @@ export function IndentBidAmountEntry({
           targetRateInr != null && targetRateInr > 0 ? targetRateInr : null
         }
         submitting={confirmSubmitting}
+        copy={confirmCopy}
         onCancel={handleCancelConfirm}
         onConfirm={() => {
           void handleConfirm();

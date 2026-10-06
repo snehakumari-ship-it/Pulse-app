@@ -18,8 +18,11 @@ export function formatMarketplaceTransactionError(message: string | null | undef
     // A6.4 wording -- preserved exactly, do not regress.
     return "You're currently on an active trip. Complete it before bidding on another load.";
   }
-  if (m.includes('not_biddable')) {
+  if (m.includes('not_biddable') || m.includes('indent_not_open')) {
     return 'This load is no longer open for bidding.';
+  }
+  if (m.includes('not_marketplace_circulated')) {
+    return 'This load is not offered on Marketplace.';
   }
   if (m.includes('already_awarded')) {
     return 'This load has already been awarded to another bid.';

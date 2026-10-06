@@ -21,6 +21,13 @@ import {
   type MarketplaceLoadSearch,
 } from "@/features/network/utils/marketplaceSearch.util";
 import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
+import { IncompleteLaneNotice } from "@/features/network/components/pooled/IncompleteLaneNotice";
+import { NetworkLoadPoolCard } from "@/features/network/components/pooled/NetworkLoadPoolCard";
+import {
+  buildNetworkLoadPools,
+  filterNetworkLoadPools,
+  type NetworkLoadPool,
+} from "@/features/network/utils/networkLoadPools.util";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
@@ -69,6 +76,8 @@ export type LoadCenterKanbanColumnModalProps = {
   highlightedIndentId?: string | null;
   /** Indent detail opened from cards while this modal is up (stays on top). */
   detailIndentId?: string | null;
+  /** Detail was opened from a Network pool member: hide shipper identity. */
+  detailAnonymous?: boolean;
   onCloseDetail?: () => void;
   onEditIndent?: (indent: IndentRow) => void;
   /** Adjacent stages in board order — edge bookmark arrows jump full-page. */
@@ -77,6 +86,18 @@ export type LoadCenterKanbanColumnModalProps = {
   onNavigateStage?: (columnId: string) => void;
   /** Nested overlays (Award / Bid modals) — render inside so they stack above this page. */
   children?: ReactNode;
+  /**
+   * When set, Network Loads (OPEN) lists lane + shipper pools instead of one
+   * card per indent; each pool takes one quote for all its loads.
+   */
+  onQuotePool?: (pool: NetworkLoadPool<IndentRow>) => void;
+  canQuotePools?: boolean;
+  /** Indent card inside an opened pool — details only, no per-indent commercial action. */
+  renderPoolMemberCard?: (load: IndentRow) => ReactNode;
+  /** Every open Network load before search, so a shown pool is always whole. */
+  poolLoads?: IndentRow[];
+  /** Pool to open when the column opens (from the board preview). */
+  initialOpenPoolId?: string | null;
 };
 
 function maxColumnsForWidth(width: number): 1 | 2 | 3 {
@@ -228,12 +249,18 @@ export function LoadCenterKanbanColumnModal({
   renderCard,
   highlightedIndentId = null,
   detailIndentId = null,
+  detailAnonymous = false,
   onCloseDetail,
   onEditIndent,
   previousStage = null,
   nextStage = null,
   onNavigateStage,
   children,
+  onQuotePool,
+  canQuotePools = false,
+  renderPoolMemberCard,
+  poolLoads,
+  initialOpenPoolId = null,
 }: LoadCenterKanbanColumnModalProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -252,6 +279,10 @@ export function LoadCenterKanbanColumnModal({
   );
   const searchFirst = column?.id === "OPEN";
   const searchReady = isMarketplaceSearchReady(appliedSearch);
+  const pooledMode =
+    searchFirst && onQuotePool != null && renderPoolMemberCard != null;
+  const awaitingSearch = searchFirst && !searchReady && !pooledMode;
+  const [openPoolId, setOpenPoolId] = useState<string | null>(null);
 
   const tabs = column?.tabs ?? [];
   const hasTabs = tabs.length > 0;
@@ -269,12 +300,18 @@ export function LoadCenterKanbanColumnModal({
     setOpenMenu(null);
     setMenuQuery("");
     setAppliedSearch(null);
-  }, [column]);
+    setOpenPoolId(initialOpenPoolId);
+  }, [column, initialOpenPoolId]);
 
   const allColumnLoads = column?.loads ?? [];
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0] ?? null;
-  const stageLoads = hasTabs ? (activeTab?.loads ?? []) : allColumnLoads;
+  const activeTabLoads = activeTab?.loads;
+  const columnLoads = column?.loads;
+  const stageLoads = useMemo(
+    () => (hasTabs ? (activeTabLoads ?? []) : (columnLoads ?? [])),
+    [hasTabs, activeTabLoads, columnLoads],
+  );
   const laneDraft = useMemo(
     () => ({
       pickup: pickupFilter,
@@ -298,7 +335,36 @@ export function LoadCenterKanbanColumnModal({
     [columnLanes, laneDraft, openMenu, menuQuery],
   );
 
+  const networkPools = useMemo(() => {
+    if (!pooledMode) {
+      return { pools: [] as NetworkLoadPool<IndentRow>[], unpooled: [] as IndentRow[] };
+    }
+    if (!poolLoads) return buildNetworkLoadPools(stageLoads);
+    const shownIds = new Set(stageLoads.map((l) => l.id));
+    const all = buildNetworkLoadPools(poolLoads);
+    return {
+      pools: all.pools.filter((p) => p.members.some((m) => shownIds.has(m.id))),
+      unpooled: all.unpooled.filter((l) => shownIds.has(l.id)),
+    };
+  }, [pooledMode, stageLoads, poolLoads]);
+  const shownPools = useMemo(
+    () => filterNetworkLoadPools(networkPools.pools, appliedSearch),
+    [networkPools, appliedSearch],
+  );
+  const openPool = openPoolId
+    ? (networkPools.pools.find((p) => p.id === openPoolId) ?? null)
+    : null;
+
   const filteredLoads = useMemo(() => {
+    if (pooledMode) {
+      if (openPool) return openPool.members;
+      return networkPools.unpooled.filter(
+        (load) =>
+          fieldEquals(load.pickup_area, appliedSearch?.pickup ?? "") &&
+          fieldEquals(load.drop_location, appliedSearch?.drop ?? "") &&
+          fieldEquals(load.vehicle_type, appliedSearch?.vehicleType ?? ""),
+      );
+    }
     if (searchFirst && !searchReady) return [];
     const pickup = searchFirst ? (appliedSearch?.pickup ?? "") : pickupFilter;
     const drop = searchFirst ? (appliedSearch?.drop ?? "") : dropFilter;
@@ -313,6 +379,9 @@ export function LoadCenterKanbanColumnModal({
         fieldEquals(load.vehicle_type, vehicle),
     );
   }, [
+    pooledMode,
+    openPool,
+    networkPools,
     searchFirst,
     searchReady,
     appliedSearch,
@@ -331,10 +400,14 @@ export function LoadCenterKanbanColumnModal({
   } = useScrollPagedItems(
     filteredLoads,
     MARKETPLACE_LOAD_PAGE_SIZE,
-    `${column?.id ?? ""}:${activeTabId}:${searchQuery}:${pickupFilter}:${dropFilter}:${vehicleFilter}:${appliedSearch ? "s" : ""}`,
+    `${column?.id ?? ""}:${activeTabId}:${searchQuery}:${pickupFilter}:${dropFilter}:${vehicleFilter}:${appliedSearch ? "s" : ""}:${openPoolId ?? ""}`,
   );
 
-  const columns = columnsForGrid(width, visibleLoads.length);
+  const showPoolList = pooledMode && !openPool;
+  const columns = columnsForGrid(
+    width,
+    showPoolList ? shownPools.length : visibleLoads.length,
+  );
 
   const cellStyle = useMemo(() => {
     if (Platform.OS === "web") {
@@ -371,7 +444,9 @@ export function LoadCenterKanbanColumnModal({
     };
   }, [columns, boardMaxWidth]);
 
-  const hasActiveFilters = searchFirst
+  const hasActiveFilters = pooledMode
+    ? Boolean(appliedSearch?.pickup || appliedSearch?.drop || appliedSearch?.vehicleType)
+    : searchFirst
     ? searchReady
     : searchQuery.trim().length > 0 ||
       pickupFilter.length > 0 ||
@@ -386,10 +461,19 @@ export function LoadCenterKanbanColumnModal({
     setOpenMenu(null);
     setMenuQuery("");
     setAppliedSearch(null);
+    setOpenPoolId(null);
+  }, []);
+
+  const changeLaneSearch = useCallback((next: MarketplaceLoadSearch) => {
+    setAppliedSearch(next);
+    setOpenPoolId(null);
   }, []);
 
   const badgeCount = allColumnLoads.length;
-  const shownCount = filteredLoads.length;
+  const shownCount = showPoolList
+    ? shownPools.reduce((n, p) => n + p.members.length, 0) + filteredLoads.length
+    : filteredLoads.length;
+  const poolSummary = `${shownPools.length} pool${shownPools.length === 1 ? "" : "s"} · ${shownCount} load${shownCount === 1 ? "" : "s"}`;
 
   if (!column) return null;
 
@@ -523,7 +607,7 @@ export function LoadCenterKanbanColumnModal({
                 </View>
               </View>
               <View style={styles.headerRight}>
-                {searchFirst && !searchReady ? null : (
+                {awaitingSearch ? null : (
                   <View
                     style={[
                       styles.countBadge,
@@ -558,9 +642,13 @@ export function LoadCenterKanbanColumnModal({
               style={[styles.subtitle, !isDesktop && styles.subtitleMobile]}
               numberOfLines={isDesktop ? 1 : 2}
             >
-              {searchFirst && !searchReady
+              {awaitingSearch
                 ? "Choose pickup, drop, and vehicle to see matching loads"
-                : hasActiveFilters
+                : openPool
+                  ? `${openPool.members.length} load${openPool.members.length === 1 ? "" : "s"} in this pool · one quote`
+                  : showPoolList
+                    ? `${poolSummary} · one quote per pool`
+                    : hasActiveFilters
                   ? `${shownCount} matching load${shownCount === 1 ? "" : "s"}`
                   : `${badgeCount} load${badgeCount === 1 ? "" : "s"} in this stage`}
             </Text>
@@ -613,16 +701,18 @@ export function LoadCenterKanbanColumnModal({
                   Pickup · Drop · Vehicle
                 </Text>
                 <Text style={styles.lanePanelMeta} numberOfLines={1}>
-                  {searchReady
-                    ? `${shownCount} match${shownCount === 1 ? "" : "es"}`
-                    : "Choose a lane"}
+                  {pooledMode
+                    ? poolSummary
+                    : searchReady
+                      ? `${shownCount} match${shownCount === 1 ? "" : "es"}`
+                      : "Choose a lane"}
                 </Text>
               </View>
               <MarketplaceLaneFilters
                 lanes={columnLanes}
                 value={appliedSearch}
-                onChange={setAppliedSearch}
-                autoOpenFirst
+                onChange={changeLaneSearch}
+                autoOpenFirst={!pooledMode}
                 stacked={!isDesktop}
               />
             </View>
@@ -719,7 +809,80 @@ export function LoadCenterKanbanColumnModal({
           onScroll={onPagedScroll}
           scrollEventThrottle={16}
         >
-          {filteredLoads.length === 0 ? (
+          {openPool ? (
+            <View
+              style={[
+                styles.poolDetail,
+                Platform.OS === "web"
+                  ? ({ maxWidth: boardMaxWidth, alignSelf: "center", width: "100%" } as object)
+                  : null,
+              ]}
+            >
+              <Pressable
+                onPress={() => setOpenPoolId(null)}
+                style={styles.poolBack}
+                accessibilityRole="button"
+                accessibilityLabel="Back to all pools"
+                hitSlop={8}
+              >
+                <FontAwesome name="chevron-left" size={11} color={Theme.primary} />
+                <Text style={styles.poolBackText}>All pools</Text>
+              </Pressable>
+              <NetworkLoadPoolCard
+                pool={openPool}
+                canQuote={canQuotePools}
+                showIndentsAction={false}
+                onQuote={() => onQuotePool?.(openPool)}
+              />
+              <Text style={styles.poolSectionTitle}>
+                Indents in this pool
+              </Text>
+            </View>
+          ) : null}
+          {showPoolList ? (
+            shownPools.length === 0 && filteredLoads.length === 0 ? (
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}>
+                  <FontAwesome name="inbox" size={18} color={Theme.primary} />
+                </View>
+                <Text style={styles.emptyTitle}>
+                  {hasActiveFilters ? "No pools on this lane" : "No open Network loads"}
+                </Text>
+                <Text style={styles.emptyText}>
+                  {hasActiveFilters
+                    ? "Try another city pair or vehicle type."
+                    : "Partner loads will appear here, grouped by shipper and lane."}
+                </Text>
+                {hasActiveFilters ? (
+                  <Pressable onPress={clearFilters} style={styles.emptyClearBtn}>
+                    <Text style={styles.emptyClearText}>Change search</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              <View
+                style={[
+                  styles.grid,
+                  columns === 1 && styles.gridStack,
+                  Platform.OS !== "web" && { maxWidth: boardMaxWidth, alignSelf: "center" },
+                  webGridStyle as object,
+                ]}
+              >
+                {shownPools.map((pool) => (
+                  <View key={pool.id} style={cellStyle}>
+                    <NetworkLoadPoolCard
+                      pool={pool}
+                      canQuote={canQuotePools}
+                      onQuote={() => onQuotePool?.(pool)}
+                      onViewIndents={() => setOpenPoolId(pool.id)}
+                    />
+                  </View>
+                ))}
+              </View>
+            )
+          ) : null}
+          {showPoolList && filteredLoads.length > 0 ? <IncompleteLaneNotice /> : null}
+          {showPoolList && filteredLoads.length === 0 ? null : filteredLoads.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
                 <FontAwesome
@@ -773,7 +936,11 @@ export function LoadCenterKanbanColumnModal({
                     highlightedIndentId === load.id && styles.cardHighlighted,
                   ]}
                 >
-                  <View style={styles.cardFill}>{renderCard(load)}</View>
+                  <View style={styles.cardFill}>
+                    {pooledMode && renderPoolMemberCard
+                      ? renderPoolMemberCard(load)
+                      : renderCard(load)}
+                  </View>
                 </View>
               ))}
             </View>
@@ -818,6 +985,7 @@ export function LoadCenterKanbanColumnModal({
             >
               <IndentDetailScreen
                 indentId={detailIndentId}
+                anonymous={detailAnonymous}
                 onBack={() => onCloseDetail?.()}
                 onEditPress={onEditIndent}
               />
@@ -1452,6 +1620,24 @@ const styles = StyleSheet.create({
     zIndex: 80,
     elevation: 80,
     backgroundColor: Theme.screenBackground,
+  },
+  poolDetail: { gap: 12, marginBottom: GRID_GAP },
+  poolBack: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    minHeight: 44,
+  },
+  poolBackText: { fontSize: 13, fontWeight: "700", color: Theme.primary },
+  poolSectionTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+    marginTop: 8,
+    marginBottom: 10,
   },
   empty: {
     alignItems: "center",

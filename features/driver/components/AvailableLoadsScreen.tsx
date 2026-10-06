@@ -15,7 +15,17 @@ import {
   isLoadCompatibleWithFleet,
   type FleetOwnerOpenLoad,
 } from '@/features/driver/services/fleetOwnerLoads.service';
-import { marketBidStatusLabel, type MarketBidStatus } from '@/features/driver/services/marketBids.service';
+import {
+  marketBidStatusLabel,
+  type MarketBidRow,
+  type MarketBidStatus,
+} from '@/features/driver/services/marketBids.service';
+import {
+  driverPoolEyebrow,
+  groupDriverMarketLoads,
+  summarizeDriverPool,
+  type DriverMarketPool,
+} from '@/features/driver/utils/driverMarketPools.util';
 import { DriverWorkOpportunityCard } from '@/features/driver/components/DriverWorkOpportunityCard';
 import { MyBidsContent } from '@/features/driver/components/MyBidsScreen';
 import { cityOf, StoriesContent, type SharedFeedFilters } from '@/features/reach/screens/DriverStoriesScreen';
@@ -165,7 +175,7 @@ function MarketFindWorkScreen({
  * (tender-board) layer. Shared pickup/drop/fits-my-fleet filters come from the parent feed rather
  * than owning a separate filter bar -- this reads as one filtered work surface, not two.
  */
-function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFilters }) {
+export function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFilters }) {
   const router = useRouter();
   const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
@@ -174,7 +184,13 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
     marketplaceAllowed,
     isLoading: modeLoading,
   } = useDriverOperatingModeQuery(uid);
-  const { loads, isLoading, error, refetch: refetchLoads } = useFleetOwnerOpenLoadsQuery(uid);
+  const {
+    loads,
+    readComplete,
+    isLoading,
+    error,
+    refetch: refetchLoads,
+  } = useFleetOwnerOpenLoadsQuery(uid);
   const { vehicles } = useOwnerVehiclesQuery(uid);
   const { bids } = useMyMarketBidsQuery(uid);
   const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';
@@ -203,8 +219,8 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
     return map;
   }, [bids]);
 
-  const visible = useMemo(() => {
-    return loads.filter((l) => {
+  const { visiblePools, visible } = useMemo(() => {
+    const passes = (l: FleetOwnerOpenLoad) => {
       if (filters.pickup) {
         const origin = cityOf(l.pickup_area);
         if (origin.toLowerCase() !== filters.pickup.toLowerCase()) return false;
@@ -215,7 +231,12 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
       }
       if (filters.fitsFleet && !isLoadCompatibleWithFleet(l, fleetTypes)) return false;
       return true;
-    });
+    };
+    const { pools, unpooled } = groupDriverMarketLoads(loads);
+    return {
+      visiblePools: pools.filter((p) => p.members[0] != null && passes(p.members[0])),
+      visible: unpooled.filter(passes),
+    };
   }, [loads, filters, fleetTypes]);
 
   if (!modeLoading && !marketplaceAllowed) {
@@ -255,7 +276,7 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
           </Text>
         ) : isLoading ? (
           <ActivityIndicator color={colors.emerald} style={{ marginTop: 28 }} />
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && visiblePools.length === 0 ? (
           <View
             style={[
               styles.empty,
@@ -274,29 +295,98 @@ function FindLoadsContent({ uid, filters }: { uid: string; filters: SharedFeedFi
             </Text>
           </View>
         ) : (
-          visible.map((load) => (
-            <LoadCard
-              key={load.id}
-              load={load}
-              compatible={isLoadCompatibleWithFleet(load, fleetTypes)}
-              bidStatus={bidStatusByIndentId.get(load.id)}
-              onOpenDetail={() =>
-                router.push(
-                  ROUTES.driverAvailableLoad(load.id) as Parameters<typeof router.push>[0],
-                )
-              }
-              onBid={() =>
-                router.push(
-                  ROUTES.driverAvailableLoad(load.id, { bid: true }) as Parameters<
-                    typeof router.push
-                  >[0],
-                )
-              }
-            />
-          ))
+          <>
+            {visiblePools.map((pool) => (
+              <PoolCard
+                key={pool.poolId}
+                pool={pool}
+                loads={loads}
+                bids={bids}
+                readComplete={readComplete}
+                canBid={marketplaceAllowed && vehicles.some((v) => v.status === 'active')}
+                compatible={isLoadCompatibleWithFleet(pool.members[0]!, fleetTypes)}
+                onOpen={() =>
+                  router.push(
+                    ROUTES.driverAvailableLoadPool(pool.key) as Parameters<typeof router.push>[0],
+                  )
+                }
+              />
+            ))}
+            {visible.map((load) => (
+              <LoadCard
+                key={load.id}
+                load={load}
+                compatible={isLoadCompatibleWithFleet(load, fleetTypes)}
+                bidStatus={bidStatusByIndentId.get(load.id)}
+                onOpenDetail={() =>
+                  router.push(
+                    ROUTES.driverAvailableLoad(load.id) as Parameters<typeof router.push>[0],
+                  )
+                }
+                onBid={() =>
+                  router.push(
+                    ROUTES.driverAvailableLoad(load.id, { bid: true }) as Parameters<
+                      typeof router.push
+                    >[0],
+                  )
+                }
+              />
+            ))}
+          </>
         )}
       </View>
     </View>
+  );
+}
+
+/** One canonical pool: anonymous shipper, no per-load identity, one route into the pool rate. */
+function PoolCard({
+  pool,
+  loads,
+  bids,
+  readComplete,
+  canBid,
+  compatible,
+  onOpen,
+}: {
+  pool: DriverMarketPool;
+  loads: readonly FleetOwnerOpenLoad[];
+  bids: readonly MarketBidRow[];
+  readComplete: boolean;
+  canBid: boolean;
+  compatible: boolean;
+  onOpen: () => void;
+}) {
+  const summary = summarizeDriverPool({ key: pool.key, loads, bids, canBid });
+  const lo = formatFleetOwnerRateOffer(summary.targetRateMin);
+  const hi = formatFleetOwnerRateOffer(summary.targetRateMax);
+  const target = lo && hi ? (lo === hi ? lo : `${lo} – ${hi}`) : null;
+  const awarded = summary.state === 'awarded';
+  const quoted = summary.state === 'submitted';
+  const open = summary.state === 'open';
+
+  return (
+    <DriverWorkOpportunityCard
+      orgName="Pooled opportunity"
+      orgSeed={pool.poolId}
+      kicker={driverPoolEyebrow(pool.members.length, readComplete)}
+      badge={awarded ? 'awarded' : quoted ? 'quoted' : open ? 'open' : null}
+      origin={pool.key.pickup}
+      destination={pool.key.drop}
+      vehicleType={pool.key.vehicleType}
+      material={summary.loadTypes.join(', ') || null}
+      pickupDate={summary.earliestPickup}
+      fleetMatch={compatible && !awarded}
+      targetLabel="Shipper target"
+      targetValue={target}
+      primaryCta={{
+        title: quoted ? 'Update pool rate' : open ? 'Quote for pool' : summary.stateLabel,
+        hint: open || quoted ? 'One rate for every load in this pool' : null,
+        variant: quoted ? 'quoted' : open ? 'primary' : 'info',
+        onPress: onOpen,
+      }}
+      secondaryCta={null}
+    />
   );
 }
 

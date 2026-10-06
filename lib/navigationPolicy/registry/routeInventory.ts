@@ -127,6 +127,7 @@ export const ROUTE_INVENTORY: readonly RouteInventoryEntry[] = [
   { file: 'app/compliance/bulk-payment.tsx', samplePath: '/compliance/bulk-payment' },
   { file: 'app/compliance/report.tsx', samplePath: '/compliance/report' },
   { file: 'app/find-loads/index.tsx', samplePath: '/find-loads' },
+  { file: 'app/find-loads/pool.tsx', samplePath: '/find-loads/pool' },
   { file: 'app/r/[code].tsx', samplePath: '/r/samp-code' },
   { file: 'app/reach/index.tsx', samplePath: '/reach' },
   { file: 'app/reach/campaign/[id].tsx', samplePath: '/reach/campaign/samp-id' },

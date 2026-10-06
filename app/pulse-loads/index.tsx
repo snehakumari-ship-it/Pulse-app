@@ -56,9 +56,13 @@ export default function PulseLoadsScreen() {
           if (!canSurface("tripops.indents.create")) return;
           router.push(ROUTES.CREATE_INDENT as import("expo-router").Href);
         }}
-        onIndentPress={(indent) => {
+        onIndentPress={(indent, options) => {
           setInitialIndentForDetail(indent);
-          router.push(`/indent/${indent.id}` as import("expo-router").Href);
+          router.push(
+            (options?.anonymous
+              ? ROUTES.indentDetailAnonymous(indent.id)
+              : `/indent/${indent.id}`) as import("expo-router").Href,
+          );
         }}
         onMyNetworkPress={() =>
           router.push(ROUTES.TABS.NETWORK as import("expo-router").Href)

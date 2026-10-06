@@ -24,8 +24,15 @@ export type FleetOwnerOpenLoad = {
   created_at: string | null;
 };
 
+/**
+ * list_open_marketplace_loads_for_fleet_owner returns the newest open loads up
+ * to p_limit (clamped to 100) and takes no offset. A response shorter than the
+ * limit is every open load; a full response may have left some unread.
+ */
+export const FLEET_OWNER_OPEN_LOADS_LIMIT = 50;
+
 export async function listOpenMarketplaceLoadsForFleetOwner(
-  limit = 50,
+  limit = FLEET_OWNER_OPEN_LOADS_LIMIT,
 ): Promise<{ error: Error | null; loads: FleetOwnerOpenLoad[] }> {
   const { data, error } = await supabase().rpc(
     'list_open_marketplace_loads_for_fleet_owner',

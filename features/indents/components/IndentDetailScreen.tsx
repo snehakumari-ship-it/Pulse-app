@@ -128,7 +128,15 @@ export interface IndentDetailScreenProps {
   onBack: () => void;
   /** Optional: called when Edit or Edit All is pressed. */
   onEditPress?: (indent: IndentRow) => void;
+  /**
+   * Opened from a Network Loads pool member. Shipper/client identity is hidden and
+   * there is no individual bid — the pool quote is the only commercial action.
+   */
+  anonymous?: boolean;
 }
+
+/** Stands in for the shipper wherever an anonymous pool detail would name it. */
+const ANONYMOUS_SHIPPER_LABEL = "Network pool shipper";
 
 function normalizeStatus(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
@@ -210,6 +218,7 @@ export function IndentDetailScreen({
   indentId,
   onBack,
   onEditPress,
+  anonymous = false,
 }: IndentDetailScreenProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -847,9 +856,10 @@ export function IndentDetailScreen({
   }, []);
 
   const openQuoteEntry = useCallback(() => {
+    if (anonymous) return;
     setQuoteEntryError(undefined);
     setQuoteModalVisible(true);
-  }, []);
+  }, [anonymous]);
 
   const submitQuoteAmount = useCallback(
     async (amount: number): Promise<boolean> => {
@@ -906,6 +916,7 @@ export function IndentDetailScreen({
   const isOwnerBeforeRender = !!orgId && indent?.organization_id === orgId;
   const statusLowerBeforeRender = normalizeStatus(indent?.status);
   const canSupplierBidBeforeRender =
+    !anonymous &&
     !isOwnerBeforeRender &&
     SUPPLIER_BID_ENABLED_STATUSES.has(statusLowerBeforeRender);
   const canOpenQuoteModalBeforeRender =
@@ -915,7 +926,7 @@ export function IndentDetailScreen({
 
   const supplierFooterInsight = useMemo(
     () =>
-      !isOwnerBeforeRender && indent
+      !anonymous && !isOwnerBeforeRender && indent
         ? buildSupplierQuoteFooterInsight({
             amount: Number(myQuote?.amount ?? 0),
             targetRateInr: Number(indent.supplier_target ?? 0),
@@ -925,6 +936,7 @@ export function IndentDetailScreen({
           })
         : null,
     [
+      anonymous,
       isOwnerBeforeRender,
       indent,
       myQuote,
@@ -993,7 +1005,9 @@ export function IndentDetailScreen({
   /** Originated from a Commerce (multi-order e-commerce) execution plan — no new column, existing FK. */
   const isCommerce = Boolean(indent.execution_plan_id);
   const isOwner = !!orgId && indent.organization_id === orgId;
-  const clientEntityRawName = resolveIndentClientEntityDisplayName(indent, orgId);
+  const clientEntityRawName = anonymous
+    ? ""
+    : resolveIndentClientEntityDisplayName(indent, orgId);
   const awardedQuote =
     quotes.find((q) => normalizeStatus(q.status) === "accepted") ?? null;
   const tripSupplier = linkedTrip?.supplier_id
@@ -1075,6 +1089,7 @@ export function IndentDetailScreen({
     statusLower !== "deployed" &&
     canSurface("tripops.indents.award");
   const canSupplierBid =
+    !anonymous &&
     !isOwner &&
     SUPPLIER_BID_ENABLED_STATUSES.has(statusLower) &&
     canSurface("tripops.indents.bid");
@@ -1086,8 +1101,9 @@ export function IndentDetailScreen({
     (statusLower === "broadcast" || statusLower === "open") &&
     liveBidsCount === 0;
   const isIndentCompleted = statusLower === "completed";
-  const supplierFooterStatus =
-    myQuoteStatus === "accepted"
+  const supplierFooterStatus = anonymous
+    ? "QUOTE FROM POOL"
+    : myQuoteStatus === "accepted"
       ? isIndentCompleted
         ? "COMPLETED"
         : "BIDS WON"
@@ -1096,6 +1112,7 @@ export function IndentDetailScreen({
         : "BIDDING LOCKED";
 
   const showSupplierPartySummaries =
+    !anonymous &&
     !isOwner &&
     !!myQuote &&
     myQuoteStatus === "accepted" &&
@@ -1107,7 +1124,9 @@ export function IndentDetailScreen({
     !isIndentCompleted &&
     (statusLower === "awarded" || statusLower === "assigned" || statusLower === "deployed");
 
-  const supplierQuoteActionHint: SupplierQuoteActionHint = canSupplierAllocateVehicle
+  const supplierQuoteActionHint: SupplierQuoteActionHint = anonymous
+    ? null
+    : canSupplierAllocateVehicle
     ? "allocate"
     : !canOpenQuoteModal && !showSupplierPartySummaries
       ? "locked"
@@ -1287,7 +1306,7 @@ export function IndentDetailScreen({
         {stackedHub ? (
           <>
             <Text style={styles.headerMobileTitle} numberOfLines={1}>
-              {isOwner ? "Loads" : "My bid"}
+              {isOwner ? "Loads" : anonymous ? "Pool load" : "My bid"}
             </Text>
             <TouchableOpacity
               style={styles.headerHelpBtn}
@@ -1520,14 +1539,26 @@ export function IndentDetailScreen({
               }
               supplierRate={supplierTarget}
               marginPct={marginPct}
-              client={{
-                displayName: clientEntityRawName,
-                avatarName: clientEntityRawName,
-                clientId: indent.client_id,
-                ownerOrgId: orgId,
-                shipperOrgId: indent.organization_id,
-                isOwner,
-              }}
+              client={
+                anonymous
+                  ? {
+                      displayName: ANONYMOUS_SHIPPER_LABEL,
+                      avatarName: ANONYMOUS_SHIPPER_LABEL,
+                      clientId: null,
+                      ownerOrgId: orgId,
+                      shipperOrgId: null,
+                      isOwner,
+                      anonymous: true,
+                    }
+                  : {
+                      displayName: clientEntityRawName,
+                      avatarName: clientEntityRawName,
+                      clientId: indent.client_id,
+                      ownerOrgId: orgId,
+                      shipperOrgId: indent.organization_id,
+                      isOwner,
+                    }
+              }
               quoteStatus={myQuote ? myQuoteStatus || "pending" : null}
               quoteAmountInr={myQuote ? Number(myQuote.amount ?? 0) : null}
               counterAmountInr={
@@ -1935,7 +1966,9 @@ export function IndentDetailScreen({
             : undefined
         }
         ownerName={
-          (indent?.client_name ?? "").trim() ||
+          anonymous
+            ? undefined
+            : (indent?.client_name ?? "").trim() ||
           (indent?.creator_organization_name ?? "").trim() ||
           undefined
         }

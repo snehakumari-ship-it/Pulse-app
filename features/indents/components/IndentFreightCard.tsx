@@ -16,6 +16,8 @@ export type IndentFreightCardClientProps = {
   ownerOrgId: string | null;
   shipperOrgId: string | null | undefined;
   isOwner: boolean;
+  /** Network pool detail: render a neutral stand-in, never the party. */
+  anonymous?: boolean;
 };
 
 export type IndentFreightCardProps = {
@@ -95,6 +97,7 @@ export const IndentFreightCard = memo(function IndentFreightCard({
                 ownerOrgId={client.ownerOrgId}
                 shipperOrgId={client.shipperOrgId}
                 isOwner={client.isOwner}
+                anonymous={client.anonymous}
                 align="left"
                 nameLines={2}
                 surface="dark"
@@ -112,6 +115,7 @@ export const IndentFreightCard = memo(function IndentFreightCard({
                 ownerOrgId={client.ownerOrgId}
                 shipperOrgId={client.shipperOrgId}
                 isOwner={client.isOwner}
+                anonymous={client.anonymous}
                 align="left"
                 nameLines={2}
                 surface="dark"

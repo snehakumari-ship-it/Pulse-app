@@ -8,6 +8,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Package } from "lucide-react-native";
 
 import { PartyAvatar } from "@/components/PartyAvatar";
 import Theme from "@/constants/Theme";
@@ -37,6 +38,11 @@ export type IndentFreightClientEntityProps = {
   avatarSize?: number;
   /** Hide contact/phone detail under the name. */
   hideDetail?: boolean;
+  /**
+   * Network pool detail: no avatar lookup, no contact line, no profile link.
+   * Shows `displayName` (a neutral label) beside a plain load mark.
+   */
+  anonymous?: boolean;
 };
 
 export const IndentFreightClientEntity = memo(function IndentFreightClientEntity({
@@ -54,20 +60,21 @@ export const IndentFreightClientEntity = memo(function IndentFreightClientEntity
   hideLabel = false,
   avatarSize,
   hideDetail = false,
+  anonymous = false,
 }: IndentFreightClientEntityProps) {
   const router = useRouter();
-  const {
-    fields,
-    canOpenPublicProfile,
-    publicProfileClientId,
-    publicProfileTarget,
-  } = useIndentClientEntityAvatar({
-    clientId,
+  const resolved = useIndentClientEntityAvatar({
+    clientId: anonymous ? null : clientId,
     ownerOrgId,
-    shipperOrgId,
+    shipperOrgId: anonymous ? null : shipperOrgId,
     isOwner,
-    enabled: true,
+    enabled: !anonymous,
   });
+  const fields = anonymous
+    ? { ...resolved.fields, detailLine: null, isIntegrated: null }
+    : resolved.fields;
+  const canOpenPublicProfile = !anonymous && resolved.canOpenPublicProfile;
+  const { publicProfileClientId, publicProfileTarget } = resolved;
 
   const isRight = align === "right";
   const onLight = surface === "light";
@@ -88,7 +95,21 @@ export const IndentFreightClientEntity = memo(function IndentFreightClientEntity
     }
   };
 
-  const avatar = (
+  const avatar = anonymous ? (
+    <View
+      style={[
+        styles.anonymousMark,
+        { width: resolvedAvatarSize, height: resolvedAvatarSize },
+      ]}
+      testID="indent-detail-anonymous-shipper"
+    >
+      <Package
+        size={Math.round(resolvedAvatarSize * 0.45)}
+        color={Theme.primary}
+        strokeWidth={2.2}
+      />
+    </View>
+  ) : (
     <PartyAvatar
       name={resolvedAvatarName}
       avatarUrl={fields.avatarUrl}
@@ -248,6 +269,11 @@ const styles = StyleSheet.create({
     borderColor: Theme.separatorDark,
     overflow: "hidden",
     flexShrink: 0,
+  },
+  anonymousMark: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.brandBlueSoft,
   },
   avatarPressPressed: {
     opacity: 0.88,

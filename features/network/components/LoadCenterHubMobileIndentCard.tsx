@@ -28,7 +28,7 @@ import {
   MutualAvatarStack,
   type MutualFace,
 } from "@/features/network/components/MutualAvatarStack";
-import { ArrowRight, Eye, Map } from "lucide-react-native";
+import { ArrowRight, Eye, Map, Package } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import {
@@ -271,6 +271,11 @@ export type LoadCenterHubMobileIndentCardProps = {
   fillGrid?: boolean;
   /** Soften LOST / CANCELLED / EXPIRED Done cards. */
   dimmed?: boolean;
+  /**
+   * Network pool member: no shipper/party identity. Title is the indent number,
+   * party avatars and client faces are replaced by a neutral load mark.
+   */
+  anonymous?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -310,6 +315,7 @@ export function LoadCenterHubMobileIndentCard({
   dense = false,
   fillGrid = false,
   dimmed = false,
+  anonymous = false,
   style,
 }: LoadCenterHubMobileIndentCardProps) {
   const router = useRouter();
@@ -332,7 +338,8 @@ export function LoadCenterHubMobileIndentCard({
     extraStops > 0
       ? `+${extraStops} ${extraStops === 1 ? "stop" : "stops"}`
       : "Plan";
-  const displayName = asLabel(titleName);
+  const indentNumber = getIndentDisplayNumber(indent);
+  const displayName = anonymous ? indentNumber : asLabel(titleName);
   const avatarFb =
     (initialsColorSeed ?? avatarSeed ?? "").trim() ||
     (indent.client_id
@@ -342,7 +349,7 @@ export function LoadCenterHubMobileIndentCard({
   const mergedClientFaces = (clientFaces ?? []).filter((face) =>
     (face.id ?? "").trim(),
   );
-  const showMergedClientPile = mergedClientFaces.length > 1;
+  const showMergedClientPile = !anonymous && mergedClientFaces.length > 1;
   const statusChip = resolveStatusChip(statusLabel, sourceTag);
   const channelLabel = resolveChannelLabel(sourceTag, statusLabel);
   const isGetLoadCard = sourceTag != null;
@@ -400,7 +407,9 @@ export function LoadCenterHubMobileIndentCard({
     (!heroAmount ? rightFooterLabel : null);
   const fallbackCta =
     Boolean(onPress) && !actions
-      ? resolveInlineCta(statusLabel, sourceTag)
+      ? anonymous
+        ? "Review"
+        : resolveInlineCta(statusLabel, sourceTag)
       : null;
 
   const priceTrailing =
@@ -412,7 +421,13 @@ export function LoadCenterHubMobileIndentCard({
         {actions}
       </View>
     ) : fallbackCta ? (
-      <Pressable style={styles.ctaHit} onPress={onPress} hitSlop={6}>
+      <Pressable
+        style={styles.ctaHit}
+        onPress={onPress}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`${fallbackCta} ${indentNumber}`}
+      >
         <Text style={styles.ctaText}>{fallbackCta}</Text>
         <ArrowRight size={12} color={LINK} strokeWidth={2.4} />
       </Pressable>
@@ -440,7 +455,9 @@ export function LoadCenterHubMobileIndentCard({
           accessibilityRole={onPress ? "button" : undefined}
           accessibilityLabel={
             onPress
-              ? `${getIndentDisplayNumber(indent)} ${displayName}, ${asLabel(origin)} to ${asLabel(dest)}`
+              ? anonymous
+                ? `${indentNumber}, ${asLabel(origin)} to ${asLabel(dest)}`
+                : `${indentNumber} ${displayName}, ${asLabel(origin)} to ${asLabel(dest)}`
               : undefined
           }
         >
@@ -476,6 +493,15 @@ export function LoadCenterHubMobileIndentCard({
                     <Eye size={12} color={Theme.textRouteCard} strokeWidth={2} />
                   ) : null}
                 </Pressable>
+              </View>
+            ) : anonymous ? (
+              <View
+                style={styles.anonymousMark}
+                testID="network-pool-member-mark"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                <Package size={16} color={Theme.primary} strokeWidth={2.2} />
               </View>
             ) : (
               <PartyAvatar
@@ -849,6 +875,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  anonymousMark: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.brandBlueSoft,
   },
   mergedClientsSlot: {
     flexShrink: 0,

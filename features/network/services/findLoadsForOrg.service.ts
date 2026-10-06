@@ -27,6 +27,10 @@ import {
   type MarketplaceLoadSearch,
   type MarketplaceSearchLane,
 } from '@/features/network/utils/marketplaceSearch.util';
+import {
+  runPoolBidSubmission,
+  type PoolBidSubmissionResult,
+} from '@/features/network/utils/pooledOpportunity.util';
 
 const LANE_FALLBACK_LIMIT = 80;
 
@@ -245,6 +249,24 @@ export async function submitOrgMarketBid(
 }
 
 /**
+ * Pooled opportunity bid: the same rate on each selected indent via the
+ * existing per-indent submit_market_bid. Not atomic — each indent is its own
+ * bid and its own award; the result reports which loads failed and why.
+ */
+/** Refuses, before any write, unless every indent is a canonical member of the pool. */
+export async function submitOrgPoolBid(
+  orgId: string,
+  pool: { indentIds: readonly string[]; memberIds: ReadonlySet<string> },
+  amount: number,
+): Promise<PoolBidSubmissionResult> {
+  return runPoolBidSubmission({
+    indentIds: pool.indentIds,
+    memberIds: pool.memberIds,
+    submitOne: (indentId) => submitOrgMarketBid(orgId, indentId, amount, null),
+  });
+}
+
+/**
  * Composes one discovered row into commercial truth for this viewer org.
  * `viewerCanBidCapability` must come from the same check StoryDetailScreen
  * uses (`currentOrganization.capabilities.canBid && can("sales.marketplace.bid")`)
@@ -268,12 +290,6 @@ export function composeFindLoadsOpportunity(
     hasActiveCampaign: Boolean(load.is_sponsored),
     viewerCanBidCapability,
   });
-}
-
-export function findLoadsRouteLabel(load: OrgOpenMarketplaceLoad): string {
-  const from = (load.pickup_area ?? '').trim() || 'Pickup';
-  const to = (load.drop_location ?? '').trim() || 'Drop';
-  return `${from} → ${to}`;
 }
 
 export function findLoadsDisplayId(load: OrgOpenMarketplaceLoad): string {

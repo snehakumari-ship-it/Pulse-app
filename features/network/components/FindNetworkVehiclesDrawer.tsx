@@ -6,7 +6,6 @@
  */
 import Theme from "@/constants/Theme";
 import { ResponsiveDrawer } from "@/components/ResponsiveDrawer";
-import type { IndentRow } from "@/features/indents";
 import {
   OpportunityCard,
   useLoadCenterOpportunityPosts,
@@ -17,7 +16,7 @@ import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplace
 import type { PostRow } from "@/features/network/services/posts.service";
 import { splitLocationParts } from "@/features/network/utils/storyDisplay";
 import { Search, X } from "lucide-react-native";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -38,13 +37,10 @@ export type FindNetworkVehiclesDrawerProps = {
   visible: boolean;
   onClose: () => void;
   orgId: string | null;
-  /** give = idle vehicles · get = advertised marketplace loads */
+  /** give = idle vehicles · get = sponsored Reach loads */
   mode?: LoadCenterOpportunityMode;
   supplierOrgIds?: ReadonlySet<string>;
   clientOrgIds?: ReadonlySet<string>;
-  /** Get Load: advertised network indent catalog (full list for metrics). */
-  indentLoads?: IndentRow[];
-  renderIndentCard?: (load: IndentRow) => ReactNode;
 };
 
 function norm(value: string | null | undefined): string {
@@ -93,37 +89,6 @@ function postMatchesFilters(
   return true;
 }
 
-function indentMatchesFilters(
-  load: IndentRow,
-  filters: {
-    search: string;
-    vehicleType: string;
-    pickup: string;
-    drop: string;
-  },
-): boolean {
-  const search = norm(filters.search);
-  const vehicleFilter = norm(filters.vehicleType);
-  const pickupFilter = norm(filters.pickup);
-  const dropFilter = norm(filters.drop);
-  const vehicle = norm(load.vehicle_type);
-  const origin = norm(load.pickup_area);
-  const dest = norm(load.drop_location);
-  const org = norm(load.creator_organization_name ?? load.client_name);
-  const material = norm(load.load_type);
-
-  if (vehicleFilter && vehicleFilter !== "all" && !vehicle.includes(vehicleFilter)) {
-    return false;
-  }
-  if (pickupFilter && !origin.includes(pickupFilter)) return false;
-  if (dropFilter && !dest.includes(dropFilter)) return false;
-  if (search) {
-    const hay = [org, vehicle, origin, dest, material].join(" ");
-    if (!hay.includes(search)) return false;
-  }
-  return true;
-}
-
 export function FindNetworkVehiclesDrawer({
   visible,
   onClose,
@@ -131,8 +96,6 @@ export function FindNetworkVehiclesDrawer({
   mode = "give",
   supplierOrgIds,
   clientOrgIds,
-  indentLoads,
-  renderIndentCard,
 }: FindNetworkVehiclesDrawerProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -159,33 +122,14 @@ export function FindNetworkVehiclesDrawer({
     setDrop("");
   }, [visible, mode]);
 
-  const useIndentCatalog = Boolean(
-    isGet && renderIndentCard && (indentLoads?.length ?? 0) > 0,
-  );
-
   const vehicleTypes = useMemo(() => {
     const set = new Set<string>();
-    if (useIndentCatalog) {
-      for (const load of indentLoads ?? []) {
-        const v = load.vehicle_type?.trim();
-        if (v) set.add(v);
-      }
-    } else {
-      for (const p of posts) {
-        const v = p.vehicle_type?.trim();
-        if (v) set.add(v);
-      }
+    for (const p of posts) {
+      const v = p.vehicle_type?.trim();
+      if (v) set.add(v);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [useIndentCatalog, indentLoads, posts]);
-
-  const filteredIndents = useMemo(
-    () =>
-      (indentLoads ?? []).filter((load) =>
-        indentMatchesFilters(load, { search, vehicleType, pickup, drop }),
-      ),
-    [indentLoads, search, vehicleType, pickup, drop],
-  );
+  }, [posts]);
 
   const filteredPosts = useMemo(
     () =>
@@ -193,17 +137,6 @@ export function FindNetworkVehiclesDrawer({
         postMatchesFilters(p, { search, vehicleType, pickup, drop }),
       ),
     [posts, search, vehicleType, pickup, drop],
-  );
-
-  const {
-    visibleItems: visibleIndents,
-    hasMore: hasMoreIndents,
-    remaining: remainingIndents,
-    onScroll: onIndentScroll,
-  } = useScrollPagedItems(
-    filteredIndents,
-    MARKETPLACE_LOAD_PAGE_SIZE,
-    `find-indents:${orgId ?? ""}:${search}:${vehicleType}:${pickup}:${drop}`,
   );
 
   const {
@@ -217,9 +150,7 @@ export function FindNetworkVehiclesDrawer({
     `find-posts:${orgId ?? ""}:${search}:${vehicleType}:${pickup}:${drop}`,
   );
 
-  const filteredCount = useIndentCatalog
-    ? filteredIndents.length
-    : filteredPosts.length;
+  const filteredCount = filteredPosts.length;
 
   const openStory = (post: PostRow) => {
     onClose();
@@ -248,7 +179,7 @@ export function FindNetworkVehiclesDrawer({
 
   const title = isGet ? "Find load" : "Find vehicles";
   const subtitle = isGet
-    ? "Indents from network and advertised loads"
+    ? "Sponsored Reach loads — bid on each load"
     : "Idle capacity from network and fleet owners";
   const searchPlaceholder = isGet
     ? "Search loads, org, route…"
@@ -367,10 +298,10 @@ export function FindNetworkVehiclesDrawer({
 
       <View style={styles.listHeader}>
         <Text style={styles.listCount}>
-          {isLoading && !useIndentCatalog
+          {isLoading
             ? "Loading…"
             : (() => {
-                const bidded = isGet && !useIndentCatalog
+                const bidded = isGet
                   ? filteredPosts.filter((p) => viewerBidByPostId.has(p.id)).length
                   : 0;
                 const base = `${filteredCount} ${listNoun}${filteredCount === 1 ? "" : "s"}`;
@@ -384,7 +315,7 @@ export function FindNetworkVehiclesDrawer({
         ) : null}
       </View>
 
-      {isLoading && !useIndentCatalog && posts.length === 0 ? (
+      {isLoading && posts.length === 0 ? (
         <View style={styles.empty}>
           <ActivityIndicator size="small" color={Theme.primary} />
         </View>
@@ -402,29 +333,23 @@ export function FindNetworkVehiclesDrawer({
           style={styles.list}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator
-          onScroll={useIndentCatalog ? onIndentScroll : onPostScroll}
+          onScroll={onPostScroll}
           scrollEventThrottle={16}
         >
-          {useIndentCatalog
-            ? visibleIndents.map((load) => (
-                <View key={load.id}>{renderIndentCard!(load)}</View>
-              ))
-            : visiblePosts.map((post) => (
-                <OpportunityCard
-                  key={post.id}
-                  post={post}
-                  mode={mode}
-                  fillWidth
-                  viewerBid={viewerBidByPostId.get(post.id) ?? null}
-                  orgProfileMap={orgProfileMap}
-                  onPress={() => openStory(post)}
-                />
-              ))}
-          {(useIndentCatalog ? hasMoreIndents : hasMorePosts) ? (
+          {visiblePosts.map((post) => (
+            <OpportunityCard
+              key={post.id}
+              post={post}
+              mode={mode}
+              fillWidth
+              viewerBid={viewerBidByPostId.get(post.id) ?? null}
+              orgProfileMap={orgProfileMap}
+              onPress={() => openStory(post)}
+            />
+          ))}
+          {hasMorePosts ? (
             <Text style={styles.moreHint}>
-              Scroll for more ·{" "}
-              {useIndentCatalog ? remainingIndents : remainingPosts} of{" "}
-              {filteredCount} remaining
+              Scroll for more · {remainingPosts} of {filteredCount} remaining
             </Text>
           ) : null}
         </ScrollView>

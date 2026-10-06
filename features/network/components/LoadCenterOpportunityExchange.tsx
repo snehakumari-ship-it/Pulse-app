@@ -1,6 +1,7 @@
 /**
  * Load Center — opportunity exchange strip.
- * Get load: open LOAD stories + sponsored load ads from the network.
+ * Get load: sponsored Reach load ads only — every other Network indent is
+ * quoted through its Indent Pool on the Network Loads board.
  * Give load: idle VEHICLE_AVAILABILITY stories + sponsored capacity ads.
  *
  * Card chrome aligned with IndentMobileLoadDetail (Ajio-style density).
@@ -11,7 +12,7 @@ import { LoadCenterSidebarFindEmpty } from "@/features/network/components/LoadCe
 import Theme from "@/constants/Theme";
 import { useLinkedOrgDisplayMap } from "@/lib/queries/useLinkedOrgDisplayQuery";
 import type { LinkedOrgDisplay } from "@/lib/useLinkedOrgProfileMap";
-import type { DirectQuoteRow, IndentRow } from "@/features/indents";
+import type { DirectQuoteRow } from "@/features/indents";
 import type { PostRow } from "@/features/network/services/posts.service";
 import { getMyBidsForPostIds } from "@/features/network/services/bids.service";
 import {
@@ -24,10 +25,8 @@ import {
   formatStoryDate,
   isFleetOwnerCapacityPost,
 } from "@/features/network/utils/storyDisplay";
-import { useScrollPagedItems } from "@/features/network/hooks/useScrollPagedItems";
-import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
 import { shouldHideLoadStoryFromAuthor } from "@/features/network/utils/storyLoadVisibility.util";
-import { isIndentStoryLive } from "@/features/network/utils/indentStoryWindow.util";
+import { isSponsoredReachPost } from "@/features/network/utils/sponsoredReach.util";
 import { formatINR } from "@/lib/format";
 import { useMyDirectQuotesQuery } from "@/lib/queries";
 import { useNetworkFeedQuery } from "@/lib/queries/usePostsQuery";
@@ -36,7 +35,7 @@ import { STALE } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ArrowRight, Truck } from "lucide-react-native";
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -79,12 +78,6 @@ type LoadCenterOpportunityExchangeProps = {
    */
   supplierOrgIds?: ReadonlySet<string>;
   /** Orgs in my clients book (linked). Overrides supplier hide when dual-role. */
-  /**
-   * Get Load advertised rail: network indent cards (same catalog as Network
-   * Loads). Header metrics use this full list, not the painted page.
-   */
-  indentLoads?: IndentRow[];
-  renderIndentCard?: (load: IndentRow) => ReactNode;
 };
 
 const MAX_CARDS = 12;
@@ -120,13 +113,9 @@ function filterOpportunityPosts(
   const matched = posts.filter((p) => {
     if (!p.is_active) return false;
     if ((p.type ?? "").toUpperCase() !== wantType) return false;
-    if (
-      wantType === "LOAD" &&
-      !p.is_sponsored &&
-      !isIndentStoryLive(p)
-    ) {
-      return false;
-    }
+    // Only sponsored Reach loads are individual opportunities; every other
+    // Network indent is quoted through its Indent Pool.
+    if (wantType === "LOAD" && !isSponsoredReachPost(p)) return false;
 
     if (mode === "give" && isFleetOwnerCapacityPost(p)) return true;
 
@@ -615,8 +604,6 @@ export function LoadCenterOpportunityExchange({
   sidebarStack = false,
   supplierOrgIds,
   clientOrgIds,
-  indentLoads,
-  renderIndentCard,
 }: LoadCenterOpportunityExchangeProps) {
   const router = useRouter();
   const { posts, isLoading, viewerBidByPostId, orgProfileMap } =
@@ -640,21 +627,6 @@ export function LoadCenterOpportunityExchange({
   }, [columnStack, mode, posts, viewerBidByPostId]);
 
   const isGet = mode === "get";
-  const indentCatalog = indentLoads ?? [];
-  const useIndentCatalog = Boolean(
-    sidebarStack && isGet && renderIndentCard,
-  );
-  const {
-    visibleItems: visibleIndentLoads,
-    total: indentTotal,
-    hasMore: hasMoreIndents,
-    remaining: remainingIndents,
-    onScroll: onIndentScroll,
-  } = useScrollPagedItems(
-    indentCatalog,
-    MARKETPLACE_LOAD_PAGE_SIZE,
-    `advertised-indents:${orgId ?? ""}:${indentCatalog.length}`,
-  );
 
   const sponsoredCount = displayPosts.filter((p) => p.is_sponsored).length;
   const biddedCount = isGet
@@ -662,18 +634,10 @@ export function LoadCenterOpportunityExchange({
         .length
     : 0;
   const networkCount = displayPosts.length - sponsoredCount;
-  const liveOpenCount = useIndentCatalog
-    ? indentTotal
-    : Math.max(0, networkCount - biddedCount);
-  const title = isGet
-    ? sidebarStack
-      ? "Advertised loads"
-      : "Open opportunities"
-    : "Idle capacity nearby";
+  const liveOpenCount = Math.max(0, networkCount - biddedCount);
+  const title = isGet ? "Sponsored loads" : "Idle capacity nearby";
   const subtitle = isGet
-    ? sidebarStack
-      ? "Indents from network — already-bid loads are marked"
-      : "Sponsored ads and network indents"
+    ? "Sponsored Reach loads — bid on each load"
     : "Sponsored capacity and fleet Stories";
   const loadingSidebarText = isGet ? "Finding loads…" : "Finding capacity…";
 
@@ -727,8 +691,7 @@ export function LoadCenterOpportunityExchange({
   );
 
   if (columnStack || sidebarStack) {
-    const waitOnFeed =
-      !useIndentCatalog && isLoading && posts.length === 0;
+    const waitOnFeed = isLoading && posts.length === 0;
     if (waitOnFeed) {
       if (!sidebarStack) return null;
       return (
@@ -742,10 +705,7 @@ export function LoadCenterOpportunityExchange({
         </View>
       );
     }
-    const catalogEmpty = useIndentCatalog
-      ? indentTotal === 0
-      : displayPosts.length === 0;
-    if (catalogEmpty) {
+    if (displayPosts.length === 0) {
       if (!sidebarStack) return null;
       return (
         <View
@@ -757,21 +717,17 @@ export function LoadCenterOpportunityExchange({
       );
     }
 
-    const cards = useIndentCatalog
-      ? visibleIndentLoads.map((load) => (
-          <View key={load.id}>{renderIndentCard!(load)}</View>
-        ))
-      : displayPosts.map((post) => (
-          <OpportunityCard
-            key={post.id}
-            post={post}
-            mode={mode}
-            fillWidth
-            viewerBid={viewerBidByPostId.get(post.id) ?? null}
-            orgProfileMap={orgProfileMap}
-            onPress={() => openStory(post)}
-          />
-        ));
+    const cards = displayPosts.map((post) => (
+      <OpportunityCard
+        key={post.id}
+        post={post}
+        mode={mode}
+        fillWidth
+        viewerBid={viewerBidByPostId.get(post.id) ?? null}
+        orgProfileMap={orgProfileMap}
+        onPress={() => openStory(post)}
+      />
+    ));
 
     if (columnStack) {
       return <View style={styles.columnStack}>{cards}</View>;
@@ -787,15 +743,8 @@ export function LoadCenterOpportunityExchange({
           contentContainerStyle={styles.columnStack}
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled
-          onScroll={useIndentCatalog ? onIndentScroll : undefined}
-          scrollEventThrottle={16}
         >
           {cards}
-          {useIndentCatalog && hasMoreIndents ? (
-            <Text style={styles.sidebarMoreHint}>
-              Scroll for more · {remainingIndents} of {indentTotal} remaining
-            </Text>
-          ) : null}
         </ScrollView>
       </View>
     );
@@ -1012,13 +961,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     width: "100%",
-  },
-  sidebarMoreHint: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Theme.textMuted,
-    textAlign: "center",
-    paddingVertical: 8,
   },
   card: {
     position: "relative",

@@ -88,6 +88,14 @@ import { useSuccessToast } from "@/features/network/hooks/useSuccessToast";
 import { useTripDeployment } from "@/features/network/hooks/useTripDeployment";
 import { AwardModal } from "@/features/network/components/AwardModal";
 import { BidModal } from "@/features/network/components/bidding/BidModal";
+import { NetworkPoolQuoteModal } from "@/features/network/components/bidding/NetworkPoolQuoteModal";
+import { NetworkLoadPoolList } from "@/features/network/components/pooled/NetworkLoadPoolList";
+import {
+  isSponsoredReachLoad,
+  sponsoredReachIndentIds,
+} from "@/features/network/utils/sponsoredReach.util";
+import { useNetworkFeedQuery } from "@/lib/queries/usePostsQuery";
+import type { NetworkLoadPool } from "@/features/network/utils/networkLoadPools.util";
 import { ShareLoadSheet } from "@/features/network/components/ShareLoadSheet";
 import { BoostSheet } from "@/features/reach/components/BoostSheet";
 import { queryKeys } from "@/lib/queryKeys";
@@ -180,7 +188,8 @@ interface LoadCenterViewProps {
   /** Opens Network → My Network (connections / invitations). */
   onMyNetworkPress?: () => void;
   onCreateIndentPress: () => void;
-  onIndentPress: (indent: IndentRow) => void;
+  /** `anonymous`: opened from a Network pool — the detail must hide shipper identity. */
+  onIndentPress: (indent: IndentRow, options?: { anonymous?: boolean }) => void;
   highlightedIndentId?: string | null;
   /** @deprecated Pulse reboost is handled inside Load Center. */
   onShareToNetwork?: (indent: IndentRow) => void;
@@ -256,9 +265,12 @@ export function LoadCenterView({
   const [kanbanDetailIndentId, setKanbanDetailIndentId] = useState<string | null>(
     null,
   );
+  const [kanbanDetailAnonymous, setKanbanDetailAnonymous] = useState(false);
   const [showPostModal, setShowPostModal] = useState(false);
   const { showSuccess, successMsg, trigger: triggerSuccess } = useSuccessToast();
   const [bidLoad, setBidLoad] = useState<IndentRow | null>(null);
+  const [quotePool, setQuotePool] =
+    useState<NetworkLoadPool<IndentRow> | null>(null);
   const [localBidHistoryByIndentId, setLocalBidHistoryByIndentId] = useState<
     Record<string, { amount: number; updatedAt: string }[]>
   >({});
@@ -470,6 +482,7 @@ export function LoadCenterView({
     awardedToMeIndentIds,
     awardedLoads,
     findWorkLoads,
+    findWorkOpenLoads,
     findWorkDoneUnionLoads,
     filteredHirePartnerLoads,
     filteredFindWorkList,
@@ -479,15 +492,19 @@ export function LoadCenterView({
     loadMatchesSearch,
   } = filters;
 
-  const advertisedNetworkLoads = useMemo(
-    () =>
-      findWorkLoads.filter((load) => {
-        if (searchQuery.trim() && !loadMatchesSearch(load, searchQuery)) {
-          return false;
-        }
-        return !myQuoteByIndentId.has(load.id);
-      }),
-    [findWorkLoads, loadMatchesSearch, searchQuery, myQuoteByIndentId],
+  const networkFeedQ = useNetworkFeedQuery(orgId, { enabled: !!orgId });
+  const sponsoredIndentIds = useMemo(
+    () => sponsoredReachIndentIds(networkFeedQ.data),
+    [networkFeedQ.data],
+  );
+  /** Open loads that form Indent Pools; sponsored Reach indents stay individual. */
+  const isPoolableOpenLoad = useCallback(
+    (load: IndentRow) => !isSponsoredReachLoad(load, sponsoredIndentIds),
+    [sponsoredIndentIds],
+  );
+  const findWorkOpenPoolLoads = useMemo(
+    () => findWorkOpenLoads.filter(isPoolableOpenLoad),
+    [findWorkOpenLoads, isPoolableOpenLoad],
   );
 
   const [networkVisibleCount, setNetworkVisibleCount] = useState(
@@ -714,7 +731,7 @@ export function LoadCenterView({
         id,
         label: getLoadKanbanColumnLabel(id),
         accent: accents[id],
-        loads: buckets[id],
+        loads: id === "OPEN" ? buckets.OPEN.filter(isPoolableOpenLoad) : buckets[id],
         pageSize: MARKETPLACE_LOAD_PAGE_SIZE,
       };
     });
@@ -726,6 +743,7 @@ export function LoadCenterView({
     searchQuery,
     loadMatchesSearch,
     tripByIndentId,
+    isPoolableOpenLoad,
   ]);
 
   /** Action required tab: prefer pending-allocation count so quiet-mode badge stays honest. */
@@ -911,8 +929,17 @@ export function LoadCenterView({
     getLoadKanbanColumns,
   ]);
 
+  const [kanbanInitialPoolId, setKanbanInitialPoolId] = useState<string | null>(
+    null,
+  );
+
   const openKanbanColumn = useCallback(
-    (mode: "give" | "get", column: LoadCenterKanbanColumn) => {
+    (
+      mode: "give" | "get",
+      column: LoadCenterKanbanColumn,
+      poolId: string | null = null,
+    ) => {
+      setKanbanInitialPoolId(poolId);
       setExpandedKanbanMode(mode);
       setExpandedKanbanColumnId(column.id);
     },
@@ -921,17 +948,41 @@ export function LoadCenterView({
 
   const closeKanbanColumn = useCallback(() => {
     setKanbanDetailIndentId(null);
+    setKanbanInitialPoolId(null);
     setExpandedKanbanColumnId(null);
     setExpandedKanbanMode(null);
   }, []);
 
+  /** Get Load OPEN before search — the board's Network pools are built from all of it. */
+  const getLoadOpenPoolUniverse = useMemo(
+    () =>
+      findWorkLoads.filter(
+        (load) => !myQuoteByIndentId.has(load.id) && isPoolableOpenLoad(load),
+      ),
+    [findWorkLoads, myQuoteByIndentId, isPoolableOpenLoad],
+  );
+
   const handleCardIndentPress = useCallback(
     (indent: IndentRow) => {
       if (expandedKanbanColumnId != null) {
+        setKanbanDetailAnonymous(false);
         setKanbanDetailIndentId(indent.id);
         return;
       }
       onIndentPress(indent);
+    },
+    [expandedKanbanColumnId, onIndentPress],
+  );
+
+  /** Opened Network pool → member → detail: the detail must not reveal the shipper. */
+  const handlePoolMemberIndentPress = useCallback(
+    (indent: IndentRow) => {
+      if (expandedKanbanColumnId != null) {
+        setKanbanDetailAnonymous(true);
+        setKanbanDetailIndentId(indent.id);
+        return;
+      }
+      onIndentPress(indent, { anonymous: true });
     },
     [expandedKanbanColumnId, onIndentPress],
   );
@@ -969,6 +1020,7 @@ export function LoadCenterView({
   const navigateKanbanStage = useCallback(
     (columnId: string) => {
       setKanbanDetailIndentId(null);
+      setKanbanInitialPoolId(null);
       setBidLoad(null);
       awardModal.close();
       setExpandedKanbanColumnId(columnId);
@@ -1686,6 +1738,10 @@ export function LoadCenterView({
         dense?: boolean;
         fillGrid?: boolean;
         withActions: boolean;
+        /** False inside an opened Network pool: the pool quote is the only commercial action. */
+        commerce?: boolean;
+        /** Opened Network pool member: no shipper/party identity on the card. */
+        anonymous?: boolean;
       },
     ) => {
       const existingQuote = myQuoteByIndentId.get(load.id);
@@ -1704,7 +1760,8 @@ export function LoadCenterView({
         statusMatchesFilter(load.status || "", "DONE") ||
         indentIdsWithTrip.has(load.id);
       const vehicleDetail = (load.vehicle_type || "—").toUpperCase();
-      const clientLabel = resolveMarketIndentShipperLabel(load);
+      const anonymous = layout.anonymous === true;
+      const clientLabel = anonymous ? "" : resolveMarketIndentShipperLabel(load);
       const mobileLabels = resolveGetLoadMobileCardLabels(
         statusFilterTab,
         doneSubTab,
@@ -1786,7 +1843,15 @@ export function LoadCenterView({
                   ? "New quote"
                   : "Bid now";
 
-      const avatar = marketLoadIndentAvatarProps(load, creatorOrgProfileMap);
+      const avatar = anonymous
+        ? {
+            avatarUrl: null,
+            avatarSeed: null,
+            organizationImageUrl: null,
+            organizationAvatarSeed: null,
+            initialsColorSeed: undefined,
+          }
+        : marketLoadIndentAvatarProps(load, creatorOrgProfileMap);
       const sourceTag = resolveGetLoadSourceTag(
         load.organization_id,
         connectedClientOrgIds,
@@ -1794,6 +1859,10 @@ export function LoadCenterView({
       const route = indentDisplayOriginDest(load, planRouteById);
 
       const openLoad = () => {
+        if (anonymous) {
+          handlePoolMemberIndentPress(load);
+          return;
+        }
         if (isAwardedByIndent && !isDoneOutcome) {
           openIndentAllocation(load);
           return;
@@ -1823,19 +1892,21 @@ export function LoadCenterView({
           onPress={openLoad}
           dense={layout.dense}
           fillGrid={layout.fillGrid}
+          anonymous={anonymous}
           dimmed={
             doneOutcome != null &&
             !doneOutcome.interactive &&
             doneOutcome.kind !== "converted"
           }
           actions={
-            layout.withActions ? (
+            // Anonymous pool members get no Share: its /indent link opens the identified detail.
+            layout.withActions && !anonymous ? (
               <GetLoadIndentCardActions
                 load={load}
                 isAccepted={isAwardedByIndent}
                 isDoneOutcome={isDoneOutcome}
                 ctaLabel={ctaLabel}
-                showPrimaryCta={allowPrimaryCta}
+                showPrimaryCta={allowPrimaryCta && layout.commerce !== false}
                 quoteVariant={quoteVariant}
                 quoteAmount={quoteAmount}
                 onIndentPress={handleCardIndentPress}
@@ -1858,6 +1929,7 @@ export function LoadCenterView({
       indentIdsWithTrip,
       myQuoteByIndentId,
       handleCardIndentPress,
+      handlePoolMemberIndentPress,
       openIndentAllocation,
       statusFilterTab,
       tripAllocationForLoad,
@@ -1883,6 +1955,18 @@ export function LoadCenterView({
         withActions: true,
       }),
     [renderGetLoadHubCard],
+  );
+
+  const renderGetLoadPoolMemberCard = useCallback(
+    (load: IndentRow) =>
+      renderGetLoadHubCard(load, {
+        dense: !isMobileView,
+        fillGrid: !isMobileView,
+        withActions: false,
+        commerce: false,
+        anonymous: true,
+      }),
+    [renderGetLoadHubCard, isMobileView],
   );
 
   const renderGetLoadListCard = useCallback(
@@ -2241,8 +2325,6 @@ export function LoadCenterView({
                         clientOrgIds={connectedClientOrgIds}
                         embedded
                         sidebarStack
-                        indentLoads={advertisedNetworkLoads}
-                        renderIndentCard={renderGetLoadGridCard}
                       />
                       <Pressable
                         onPress={() => setFindMarketplaceMode("get")}
@@ -2430,6 +2512,20 @@ export function LoadCenterView({
                       highlightedIndentId={highlightedIndentId}
                       matchHeight={desktopBoardHeight}
                       onColumnPress={(col) => openKanbanColumn("get", col)}
+                      renderColumnBody={(col) =>
+                        col.id === "OPEN" ? (
+                          <NetworkLoadPoolList
+                            openLoads={getLoadOpenPoolUniverse}
+                            shownLoads={col.loads}
+                            canQuote={Boolean(orgId)}
+                            onQuotePool={setQuotePool}
+                            renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                            onViewIndents={(pool) =>
+                              openKanbanColumn("get", col, pool.id)
+                            }
+                          />
+                        ) : null
+                      }
                     />
                   ) : null}
                 </>
@@ -2472,7 +2568,16 @@ export function LoadCenterView({
                     </View>
                   </View>
                 ) : null}
-                {visibleFindWorkList.map((load) => (
+                {statusFilterTab === "OPEN" ? (
+                  <NetworkLoadPoolList
+                    openLoads={findWorkOpenPoolLoads}
+                    shownLoads={filteredFindWorkList}
+                    canQuote={Boolean(orgId)}
+                    onQuotePool={setQuotePool}
+                    renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                  />
+                ) : null}
+                {statusFilterTab === "OPEN" ? null : visibleFindWorkList.map((load) => (
                   <View
                     key={load.id}
                     style={
@@ -2486,7 +2591,7 @@ export function LoadCenterView({
                       : renderGetLoadListCard(load)}
                   </View>
                 ))}
-                {renderNetworkLoadMore()}
+                {statusFilterTab === "OPEN" ? null : renderNetworkLoadMore()}
               </LoadCenterHubMobileListCanvas>
             ))}
               </View>
@@ -2635,12 +2740,28 @@ export function LoadCenterView({
         }
         highlightedIndentId={highlightedIndentId}
         detailIndentId={kanbanDetailIndentId}
+        detailAnonymous={kanbanDetailAnonymous}
         onCloseDetail={() => setKanbanDetailIndentId(null)}
         onEditIndent={handleKanbanEditIndent}
         previousStage={kanbanStageNeighbors.previous}
         nextStage={kanbanStageNeighbors.next}
         onNavigateStage={navigateKanbanStage}
+        onQuotePool={expandedKanbanMode === "get" ? setQuotePool : undefined}
+        renderPoolMemberCard={renderGetLoadPoolMemberCard}
+        poolLoads={expandedKanbanMode === "get" ? getLoadOpenPoolUniverse : undefined}
+        initialOpenPoolId={kanbanInitialPoolId}
+        canQuotePools={Boolean(orgId)}
       >
+        <NetworkPoolQuoteModal
+          pool={quotePool}
+          orgId={orgId}
+          onClose={() => setQuotePool(null)}
+          onSuccess={triggerSuccess}
+          queryClient={queryClient}
+          invalidateIndents={invalidateIndents}
+          refetchMyQuotes={refetchMyQuotes}
+          refetchMarketIndents={refetchMarketIndents}
+        />
         <AwardModal
           visible={awardModal.isOpen}
           award={awardModal}
@@ -2686,6 +2807,18 @@ export function LoadCenterView({
           insets={insets}
         />
       ) : null}
+      {expandedKanbanColumn == null ? (
+        <NetworkPoolQuoteModal
+          pool={quotePool}
+          orgId={orgId}
+          onClose={() => setQuotePool(null)}
+          onSuccess={triggerSuccess}
+          queryClient={queryClient}
+          invalidateIndents={invalidateIndents}
+          refetchMyQuotes={refetchMyQuotes}
+          refetchMarketIndents={refetchMarketIndents}
+        />
+      ) : null}
 
       <FindNetworkVehiclesDrawer
         visible={findMarketplaceMode != null}
@@ -2694,12 +2827,6 @@ export function LoadCenterView({
         orgId={orgId}
         supplierOrgIds={connectedSupplierOrgIds}
         clientOrgIds={connectedClientOrgIds}
-        indentLoads={
-          findMarketplaceMode === "get" ? advertisedNetworkLoads : undefined
-        }
-        renderIndentCard={
-          findMarketplaceMode === "get" ? renderGetLoadGridCard : undefined
-        }
       />
 
       {expandedKanbanColumn == null ? (

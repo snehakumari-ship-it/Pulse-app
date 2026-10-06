@@ -10,6 +10,7 @@ import {
 } from '@/components/mobile-input';
 import {
   BidConfirmModal,
+  type BidConfirmCopy,
   type BidConfirmPhase,
   type MarketplaceFeePreview,
 } from '@/features/network/components/bidding/BidConfirmModal';
@@ -33,6 +34,11 @@ export type MarketLoadBidSheetProps = {
   indentDisplayId?: string | null;
   validationError?: string;
   onClearValidationError?: () => void;
+  /** Overrides for pooled opportunities; default copy is the single-load bid. */
+  entryLabel?: string;
+  contextLine?: string;
+  submitLabel?: string;
+  confirmCopy?: BidConfirmCopy;
 };
 
 function cityOf(value?: string | null): string | undefined {
@@ -61,6 +67,10 @@ export function MarketLoadBidSheet({
   indentDisplayId,
   validationError,
   onClearValidationError,
+  entryLabel = 'Place your bid',
+  contextLine,
+  submitLabel = 'Submit bid',
+  confirmCopy,
 }: MarketLoadBidSheetProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmPhase, setConfirmPhase] = useState<BidConfirmPhase>('review');
@@ -205,15 +215,15 @@ export function MarketLoadBidSheet({
       onClose={handleCloseEntry}
       onSubmit={requestConfirm}
       initialValue={initialValue}
-      label="Place your bid"
-      contextLine={undefined}
+      label={entryLabel}
+      contextLine={contextLine}
       partyPreview={partyPreview}
       type="currency"
       prefix="₹"
       placeholder="0"
       allowDecimal={false}
       maxDecimalPlaces={0}
-      submitLabel="Submit bid"
+      submitLabel={submitLabel}
       validationError={
         confirmSubmitting ? 'Submitting…' : validationError
       }
@@ -234,6 +244,7 @@ export function MarketLoadBidSheet({
             targetRate={target}
             submitting={confirmSubmitting}
             marketplaceFee={feePreview}
+            copy={confirmCopy}
             onCancel={handleCancelConfirm}
             onConfirm={() => {
               void handleConfirm();

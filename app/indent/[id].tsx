@@ -1,4 +1,5 @@
 import { LazySuspenseInlineFallback } from "@/components/LazySuspenseFallback";
+import { INDENT_DETAIL_ANONYMOUS_CONTEXT } from "@/lib/routes";
 import { useSafeBack } from "@/lib/useSafeBack";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { lazy, Suspense } from "react";
@@ -10,15 +11,17 @@ const IndentDetailScreen = lazy(() =>
 );
 
 export default function IndentDetailRoute() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, context } = useLocalSearchParams<{ id: string; context?: string }>();
   const router = useRouter();
   const safeBack = useSafeBack();
   const indentId = typeof id === "string" ? id : (id?.[0] ?? "");
+  const anonymous = context === INDENT_DETAIL_ANONYMOUS_CONTEXT;
 
   return (
     <Suspense fallback={<LazySuspenseInlineFallback message="Loading indent…" />}>
       <IndentDetailScreen
         indentId={indentId}
+        anonymous={anonymous}
         onBack={safeBack}
         onEditPress={(indent) =>
           router.push(

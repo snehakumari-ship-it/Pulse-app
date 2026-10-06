@@ -49,6 +49,9 @@ import { giveLoadIndentAvatarProps, resolveMergedOrderCardTitle } from "@/featur
 import { extractCommercePlanIds } from "@/features/network/utils/commercePlanIds.util";
 import { useExecutionPlanClients } from "@/features/network/hooks/useExecutionPlanClientNames";
 import { TripsHubIndentStageCard } from "@/features/trips/components/TripsHubIndentStageCard";
+import { IndentStageViews } from "@/features/trips/components/IndentStagePoolView";
+import { useShipperPoolIndentView } from "@/features/network/hooks/useShipperPoolIndentView";
+import { FINITE_LIST_CAP } from "@/lib/pagination";
 import { GiveLoadIndentCardActions } from "@/features/network/components/LoadCenterIndentCardActions";
 import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIndentActions";
 import type { IndentRow } from "@/features/indents";
@@ -474,6 +477,24 @@ export default function TripsScreen() {
     }
     return counts;
   }, [activeMetricTab, visibleUnallocatedIndents, indentOfferCounts]);
+  const canViewIndentPools = canSurface("tripops.indents.view");
+  const canSelectPoolIndents = canSurface("tripops.indents.allocate");
+  const allocatedOrgIndents = useMemo(
+    () =>
+      allIndents.filter(
+        (i) =>
+          (i.organization_id ?? "") === (orgId ?? "") &&
+          indentIdsWithTrip.has(i.id),
+      ),
+    [allIndents, orgId, indentIdsWithTrip],
+  );
+  const indentPoolView = useShipperPoolIndentView({
+    poolIndents: unallocatedIndents,
+    visibleIndents: indentStageIndents,
+    allocatedIndents: allocatedOrgIndents,
+  });
+  const showIndentPoolView =
+    canViewIndentPools && indentPoolView.view === "indents";
   const indentHubActionOrgId =
     activeMetricTab === "all" || activeMetricTab === "indent" ? orgId : null;
   const handleOpenUnallocatedIndent = useCallback(
@@ -2469,7 +2490,18 @@ export default function TripsScreen() {
             <TripsHubTableView
               trips={[]}
               hideBody
-              renderAboveBody={renderIndentStageBody(paginatedHubIndents)}
+              renderAboveBody={
+                <IndentStageViews
+                  state={indentPoolView}
+                  canView={canViewIndentPools}
+                  canSelect={canSelectPoolIndents}
+                  bidCountById={indentOfferCounts}
+                  listCapped={allIndents.length >= FINITE_LIST_CAP}
+                  compact={isMobileViewport}
+                  onOpenIndent={handleOpenUnallocatedIndent}
+                  cards={renderIndentStageBody(paginatedHubIndents)}
+                />
+              }
               renderBody={() => null}
               toolbarCountLabel={`Showing ${indentStageIndents.length} of ${dateFilteredUnallocatedIndents.length}`}
               toolbarTags={[
@@ -2506,7 +2538,7 @@ export default function TripsScreen() {
               ]}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
-              pagination={tripsListPagination}
+              pagination={showIndentPoolView ? undefined : tripsListPagination}
               onDisplayedTripsLengthChange={undefined}
               currentOrganizationId={currentOrganization?.id ?? null}
               getStageLabel={getStageLabelForTrip}

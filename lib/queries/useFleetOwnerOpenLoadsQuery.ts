@@ -1,5 +1,8 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { listOpenMarketplaceLoadsForFleetOwner } from '@/features/driver/services/fleetOwnerLoads.service';
+import {
+  FLEET_OWNER_OPEN_LOADS_LIMIT,
+  listOpenMarketplaceLoadsForFleetOwner,
+} from '@/features/driver/services/fleetOwnerLoads.service';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
 import { queryKeys } from '@/lib/queryKeys';
 import {
@@ -16,7 +19,9 @@ export function useFleetOwnerOpenLoadsQuery(userId?: string | null) {
   const query = useQuery({
     queryKey: queryKeys.driverApp.fleetOwnerOpenLoads(uid),
     queryFn: async () => {
-      const { error, loads } = await listOpenMarketplaceLoadsForFleetOwner(50);
+      const { error, loads } = await listOpenMarketplaceLoadsForFleetOwner(
+        FLEET_OWNER_OPEN_LOADS_LIMIT,
+      );
       if (error) throw error;
       return loads;
     },
@@ -31,5 +36,10 @@ export function useFleetOwnerOpenLoadsQuery(userId?: string | null) {
   return {
     ...query,
     loads: marketplaceAllowed ? (query.data ?? []) : [],
+    /** Every open load was read: the response came back shorter than the limit. */
+    readComplete:
+      marketplaceAllowed &&
+      query.isSuccess &&
+      (query.data?.length ?? 0) < FLEET_OWNER_OPEN_LOADS_LIMIT,
   };
 }
