@@ -727,6 +727,7 @@ export function ComplianceDocumentWorkspace({
   canManageFinance = false,
   canManagePod = false,
   showHardCopyPodLog = false,
+  compliancePendingQueue = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
   onPay,
@@ -759,6 +760,8 @@ export function ComplianceDocumentWorkspace({
   canManagePod?: boolean;
   /** True only while the Compliance queue filter is Awaiting POD. */
   showHardCopyPodLog?: boolean;
+  /** True while the Compliance queue filter is Compliance Pending (hides the Finance tab for every listed trip). */
+  compliancePendingQueue?: boolean;
   /**
    * Increments when the page bar asks to create a hard-copy POD log
    * for the selected Awaiting POD trip.
@@ -942,7 +945,8 @@ export function ComplianceDocumentWorkspace({
     const base = deriveFinanceDocumentRows(summary.documents);
     return mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
   }, [summary, supplierBankProof]);
-  const isFinanceMode = checklistPreviewMode === "finance" && summary?.stage !== "compliance_pending";
+  const isFinanceMode =
+    checklistPreviewMode === "finance" && summary?.stage !== "compliance_pending" && !compliancePendingQueue;
   const listRows = isFinanceMode ? financeRows : checklistRows;
   const reviewScope: DocTab = isFinanceMode ? "trip" : tab;
   const displayListRows = useMemo(
@@ -1019,6 +1023,12 @@ export function ComplianceDocumentWorkspace({
   useEffect(() => {
     setLocalDecisionByKey({});
   }, [summary?.trip.id]);
+
+  useEffect(() => {
+    if (compliancePendingQueue) {
+      setChecklistPreviewMode((mode) => (mode === "finance" || mode === "advance" ? "document" : mode));
+    }
+  }, [compliancePendingQueue]);
 
   useEffect(() => {
     setDocIndex(0);
@@ -1536,6 +1546,8 @@ export function ComplianceDocumentWorkspace({
       canVerify,
   );
   const isCompliancePendingStage = summary?.stage === "compliance_pending";
+  /** Compliance Pending look (no Finance / Advance / POD) — trip stage or the page filter. */
+  const compliancePendingView = isCompliancePendingStage || compliancePendingQueue;
   const tabMarkedApproved = useMemo(() => {
     const none = { finance: false, trip: false, vehicle: false, driver: false };
     if (!summary || !isCompliancePendingStage || summary.complianceVerifiedAt) return none;
@@ -2024,7 +2036,7 @@ export function ComplianceDocumentWorkspace({
               <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
                 <View style={styles.checklistPanelToolbar}>
                   <View style={styles.checklistPanelTabs}>
-                    {isCompliancePendingStage ? null : (
+                    {compliancePendingView ? null : (
                     <Pressable
                       onPress={() => {
                         setTab("trip");
@@ -2232,7 +2244,7 @@ export function ComplianceDocumentWorkspace({
                             Trip Detail
                           </Text>
                         </TouchableOpacity>
-                        {isCompliancePendingStage ? null : (
+                        {compliancePendingView ? null : (
                         <TouchableOpacity
                           style={[
                             styles.checklistModeBtn,
@@ -2255,7 +2267,7 @@ export function ComplianceDocumentWorkspace({
                           </Text>
                         </TouchableOpacity>
                         )}
-                        {canManagePod && !isPendingDocsTrip && !isCompliancePendingStage ? (
+                        {canManagePod && !isPendingDocsTrip && !compliancePendingView ? (
                           <TouchableOpacity
                             style={styles.checklistModeBtn}
                             activeOpacity={0.8}
@@ -2444,7 +2456,7 @@ export function ComplianceDocumentWorkspace({
                       }
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                     />
-                  ) : checklistPreviewMode === "advance" && summary && !isCompliancePendingStage ? (
+                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}

@@ -1066,6 +1066,7 @@ export default function ComplianceScreen() {
           onMarkComplianceVerified={canMarkVerified ? markTripVerified : undefined}
           canManagePod={canManagePod}
           showHardCopyPodLog={stage === "hard_copy_pod_received"}
+          compliancePendingQueue={stage === "compliance_pending"}
           logHardCopyPodRequest={logHardCopyPodRequest}
           courierLrOptions={courierLrOptions}
           selectedTripId={cardTripId}

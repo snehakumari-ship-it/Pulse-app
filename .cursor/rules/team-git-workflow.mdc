@@ -1,0 +1,73 @@
+---
+description: Team Git / PR / preprod / release workflow and the trigger words AI agents must act on (Claude Code + Cursor)
+alwaysApply: true
+---
+
+# Team Git workflow (V1 → preprod → prod)
+
+Applies to Claude Code and Cursor. When the user says a trigger word below, run that procedure exactly, step by step. Stop and report on any failure instead of improvising.
+
+## Who and what
+
+| Who | Role | Branch | Deploy | DB |
+|---|---|---|---|---|
+| Vasanth | Product owner, prod | `vasanth/*`, `gogopulse/*` | gogopulse.com | Prod `nafxpivddesgsrthmosv` |
+| Nihas | Integrator | `V1` on nihas-gogox/Pulse-app | gx-pulse.netlify.app (auto from V1) | Preprod `xbisiveavvbifbzyfhgy` |
+| Sneha, Praveen, Nihas | Developers | `<name>/V1.0.x` | none | none |
+
+- **Upstream** = the git remote whose URL contains `nihas-gogox/Pulse-app` (it's `origin` for Nihas and usually `nihas` for devs). Find it with `git remote -v`; never guess remote names.
+- **Fork** = the dev's own remote (Nihas pushes his own branches to `origin`).
+
+## Hard rules
+- Nobody pushes straight to `V1`. Every change, Nihas's included, goes through a GitHub PR into `V1`, and the PR is merged on GitHub only after CI passes.
+- Force-pushing is allowed only on your own dev branch after a rebase (use `--force-with-lease`). Never force-push `V1` or any tag.
+- Never push to `vasanth` or `gogopulse` remotes, never touch the prod DB, and never work on `V1.0.x` marker branches.
+- Migrations: create them only with `supabase migration new <name>` and never a `000000` time. Devs never run `db push`; only Nihas pushes to preprod, and only Vasanth pushes to prod.
+- Don't edit `CHANGELOG.md` on a dev branch. Write `changes/<name>-V1.0.x.md` instead; Nihas compiles these at release.
+- No Co-Authored-By / AI trailers in commits. No keys or DB passwords in files, chat or commits.
+
+## Trigger words
+
+### "start" / "start round" (dev begins work)
+1. `git fetch <upstream>`
+2. `git switch -c <name>/V1.0.<next> <upstream>/V1`. Next = one above the highest existing `<name>/V1.0.x`.
+3. Create `changes/<name>-V1.0.<next>.md` with headings: What / Why / Areas / Migrations / Tested.
+
+### "sync" (bring a dev branch up to date with V1)
+1. `git fetch <upstream> && git rebase <upstream>/V1`
+2. Resolve conflicts by reading both sides: keep V1's newer code and port your fix into it. Then grep for leftover `<<<<<<<` markers and duplicate declarations.
+
+### "handoff" / "done" (dev finished, wants it merged)
+1. Make sure the `changes/<name>-V1.0.x.md` file is filled in. If not, fill it from the diff and ask the dev to confirm.
+2. List new migrations (`git diff --name-only <upstream>/V1... -- supabase/migrations`) and confirm none end in `000000`.
+3. Run "sync" (rebase onto latest V1).
+4. Checks:
+   - `npm run lint`
+   - `NODE_OPTIONS=--max-old-space-size=12288 npx tsc --noEmit -p tsconfig.json` and check the exit code. The error count must not go above the baseline (140).
+   - `npx jest --ci --silent`. No failing suites beyond the 5 known ones: sign-in, IntegratedChatContext.bootstrapDedupe, logPods.service.concurrency, loadCenterMarketplaceGate, mutualConnectionsPartnerDisplay.
+5. `git push --force-with-lease <fork> <branch>`
+6. `gh pr create --repo nihas-gogox/Pulse-app --base V1 --title "<name> V1.0.x: <summary>"`, with the changes file as the body.
+7. Report: the PR link, check results, and the migration list.
+
+### "merge <PR#>" (Nihas only)
+1. `gh pr view <PR#> --repo nihas-gogox/Pulse-app` and `gh pr checks <PR#>`. Report commits, whether there's a changes file, and new migrations.
+2. If the PR has conflicts or is behind V1: don't merge. Tell the dev to "sync" and "handoff" again.
+3. If CI is red: don't merge. Report what failed.
+4. Green: `gh pr merge <PR#> --merge` (merge commit, never squash or rebase).
+5. If it adds migrations: `npm run db:preflight`, then `supabase db push --linked --include-all --dry-run`. Show the result and hand Nihas the push command.
+6. Netlify deploys preprod by itself. Give Nihas a short preprod test list plus the message for the dev: "merged; start <name>/V1.0.(x+1) from V1".
+
+### "release <version>" (Nihas only, after preprod passes)
+1. Confirm which V1 commit was tested on preprod.
+2. Compile `changes/*.md` into `CHANGELOG.md` under `<version>`, delete the compiled change files, and open a PR into V1 for that (ask Nihas before deleting).
+3. `git tag v<version> <tested-commit> && git push <upstream> v<version>`
+4. Draft the message for Vasanth: the tag, what's in it, and the migrations he must push to prod, in order.
+
+### "hotfix <desc>" (prod bug)
+1. Branch `nihas/hotfix-<desc>` from the current prod tag (not from V1 if V1 has untested work).
+2. Fix it, PR into V1, "merge", verify on preprod.
+3. Tag a patch `v<prod-version>.1` on the hotfix commit and draft the message for Vasanth.
+
+### "sync prod" (Vasanth changed prod directly)
+1. `git fetch vasanth`
+2. Open a PR from a branch containing `vasanth/<prod-branch>` into V1, resolve conflicts on that branch, then "merge". Prod changes must always come back into V1.
