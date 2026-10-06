@@ -19,7 +19,7 @@ import type {
 } from '../utils/vehicleDocuments.util';
 
 const BUCKET = 'vehicle-documents';
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB — large scans / multi-page PDFs
 const STORAGE_RETRY_DELAYS_MS = [250, 800, 1800] as const;
 
 const ALLOWED_MIME_TYPES: ReadonlySet<string> = new Set([
@@ -168,7 +168,7 @@ export function validateDocumentFile(file: {
   const byteLength = file.blob?.size ?? file.arrayBuffer?.byteLength ?? 0;
   if (!byteLength) return 'File is empty';
   if (byteLength > MAX_FILE_SIZE_BYTES)
-    return `File too large (${(byteLength / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.`;
+    return `File too large (${(byteLength / 1024 / 1024).toFixed(1)} MB). Maximum is ${Math.round(MAX_FILE_SIZE_BYTES / 1024 / 1024)} MB.`;
   const mime = (file.mimeType ?? '').toLowerCase();
   if (mime && !ALLOWED_MIME_TYPES.has(mime))
     return `Unsupported file type (${mime}). Use JPEG, PNG, WebP, or PDF.`;

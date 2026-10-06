@@ -48,7 +48,9 @@ let mockLiveTripFlags: Pick<TripRow, "compliance_verified_at" | "pod_received_at
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (table: string) => {
-      if (table === "transactions") return mockMakeThenable(mockTxnsResult);
+      if (table === "transactions") {
+        return mockMakeThenable(mockTxnsResult);
+      }
       if (table === "trips") {
         const builder: Record<string, unknown> = {};
         builder.select = () => builder;

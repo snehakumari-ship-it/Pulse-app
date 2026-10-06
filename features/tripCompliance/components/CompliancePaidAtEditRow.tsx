@@ -5,8 +5,8 @@ import {
   toComplianceTransactionDateInput,
   validateComplianceTransactionDate,
 } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
-import { Check, Pencil, X } from "lucide-react-native";
-import React, { useEffect, useRef, useState } from "react";
+import { Calendar, Check, Pencil, X } from "lucide-react-native";
+import React, { createElement, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -19,8 +19,9 @@ import {
 } from "react-native";
 
 /**
- * Paid at row of a posted advance. Same Edit / Save / Cancel pattern as UTR;
- * only `transactions.transaction_date` changes.
+ * Paid at row of a posted advance. Blank until Ops sets a date; then shows the
+ * confirmed day with Edit. Calendar date control — only
+ * `transactions.transaction_date` (+ confirmation marker) changes.
  */
 export function CompliancePaidAtEditRow({
   paidAt,
@@ -34,7 +35,7 @@ export function CompliancePaidAtEditRow({
   const posted = toComplianceTransactionDateInput(paidAt);
   const [optimistic, setOptimistic] = useState<string | null>(null);
   const current = optimistic ?? posted;
-  const display = formatComplianceTxnDate(current || paidAt);
+  const display = formatComplianceTxnDate(current);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(current);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +54,7 @@ export function CompliancePaidAtEditRow({
     setDraft(current || toComplianceTransactionDateInput(new Date().toISOString()));
     setError(null);
     setEditing(true);
-    setTimeout(() => inputRef.current?.focus(), 0);
+    if (Platform.OS !== "web") setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const cancel = () => {
@@ -62,15 +63,15 @@ export function CompliancePaidAtEditRow({
     setError(null);
   };
 
-  const save = async () => {
+  const save = async (raw?: string) => {
     if (saving) return;
-    const next = normalizeComplianceTransactionDate(draft);
+    const next = normalizeComplianceTransactionDate(raw ?? draft);
     const invalid = validateComplianceTransactionDate(next);
     if (invalid) {
       setError(invalid);
       return;
     }
-    if (next === current) {
+    if (next === current && current) {
       setEditing(false);
       return;
     }
@@ -93,13 +94,11 @@ export function CompliancePaidAtEditRow({
         <Text style={styles.label}>Paid at</Text>
         <View style={styles.valueCol}>
           <View style={styles.valueLine}>
-            <Text
-              style={[styles.value, !current && styles.valueEmpty]}
-              numberOfLines={1}
-              selectable
-            >
-              {display}
-            </Text>
+            {current ? (
+              <Text style={styles.value} numberOfLines={1} selectable>
+                {display}
+              </Text>
+            ) : null}
             {canEdit ? (
               <TouchableOpacity
                 style={styles.editBtn}
@@ -107,7 +106,7 @@ export function CompliancePaidAtEditRow({
                 activeOpacity={0.75}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel="Edit paid at date"
+                accessibilityLabel={current ? "Edit paid at date" : "Add paid at date"}
               >
                 <Pencil size={11} color={Theme.textPrimaryDark} strokeWidth={2.2} />
                 <Text style={styles.editBtnText}>Edit</Text>
@@ -119,32 +118,75 @@ export function CompliancePaidAtEditRow({
     );
   }
 
+  const isoDraft = /^\d{4}-\d{2}-\d{2}$/.test(draft) ? draft : "";
+
   return (
     <View style={[styles.row, styles.rowEditing]}>
       <Text style={styles.label}>Paid at</Text>
       <View style={styles.valueCol}>
         <View style={styles.editLine}>
-          <TextInput
-            ref={inputRef}
-            value={draft}
-            onChangeText={(text) => {
-              setDraft(text);
-              if (error) setError(null);
-            }}
-            onSubmitEditing={() => void save()}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={Theme.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            maxLength={10}
-            editable={!saving}
-            returnKeyType="done"
-            keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "default"}
-            {...(Platform.OS === "web" ? ({ type: "date" } as object) : null)}
-            style={[styles.input, error ? styles.inputError : null] as TextStyle[]}
-            accessibilityLabel="Paid at date"
-          />
+          {Platform.OS === "web" ? (
+            <View style={[styles.dateShell, error ? styles.dateShellError : null]}>
+              {createElement("input", {
+                type: "date",
+                value: isoDraft,
+                disabled: saving,
+                lang: "en-IN",
+                "aria-label": "Paid at date",
+                onChange: (e: { target?: { value?: string } }) => {
+                  const next = String(e?.target?.value ?? "");
+                  setDraft(next);
+                  if (error) setError(null);
+                  if (next) void save(next);
+                },
+                style: {
+                  flex: 1,
+                  width: "100%",
+                  minWidth: 0,
+                  boxSizing: "border-box",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  lineHeight: "18px",
+                  color: Theme.textPrimaryDark,
+                  fontFamily:
+                    'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                  padding: 0,
+                  margin: 0,
+                  minHeight: 20,
+                  cursor: saving ? "default" : "pointer",
+                },
+              })}
+              {saving ? (
+                <ActivityIndicator size="small" color={Theme.textMuted} />
+              ) : (
+                <Calendar size={13} color={Theme.textMuted} strokeWidth={2.2} />
+              )}
+            </View>
+          ) : (
+            <TextInput
+              ref={inputRef}
+              value={draft}
+              onChangeText={(text) => {
+                setDraft(text);
+                if (error) setError(null);
+              }}
+              onSubmitEditing={() => void save()}
+              placeholder="dd/mm/yyyy"
+              placeholderTextColor={Theme.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              maxLength={10}
+              editable={!saving}
+              returnKeyType="done"
+              keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "default"}
+              style={[styles.nativeInput, error ? styles.dateShellError : null] as TextStyle[]}
+              accessibilityLabel="Paid at date"
+            />
+          )}
           <TouchableOpacity
             style={[styles.iconBtn, styles.cancelBtn]}
             onPress={cancel}
@@ -156,26 +198,28 @@ export function CompliancePaidAtEditRow({
           >
             <X size={14} color={Theme.textPrimaryDark} strokeWidth={2.4} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.iconBtn, styles.saveBtn, saving && styles.saveBtnBusy]}
-            onPress={() => void save()}
-            disabled={saving}
-            activeOpacity={0.85}
-            hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel="Save paid at"
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color={Theme.cardWhite} />
-            ) : (
-              <Check size={14} color={Theme.cardWhite} strokeWidth={2.6} />
-            )}
-          </TouchableOpacity>
+          {Platform.OS !== "web" ? (
+            <TouchableOpacity
+              style={[styles.iconBtn, styles.saveBtn, saving && styles.saveBtnBusy]}
+              onPress={() => void save()}
+              disabled={saving}
+              activeOpacity={0.85}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              accessibilityRole="button"
+              accessibilityLabel="Save paid at"
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={Theme.cardWhite} />
+              ) : (
+                <Check size={14} color={Theme.cardWhite} strokeWidth={2.6} />
+              )}
+            </TouchableOpacity>
+          ) : null}
         </View>
         {error ? (
           <Text style={styles.error}>{error}</Text>
         ) : (
-          <Text style={styles.hint}>Only the date changes — amount, mode and UTR stay as posted.</Text>
+          <Text style={styles.hint}>Pick a date — amount, mode and UTR stay as posted.</Text>
         )}
       </View>
     </View>
@@ -185,13 +229,14 @@ export function CompliancePaidAtEditRow({
 const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
+    minHeight: 40,
   },
-  rowEditing: { backgroundColor: Theme.compliancePageBg },
+  rowEditing: { alignItems: "flex-start", backgroundColor: Theme.compliancePageBg },
   label: {
     width: 128,
     flexShrink: 0,
@@ -200,7 +245,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    paddingTop: 4,
+    paddingTop: 8,
   },
   valueCol: { flex: 1, minWidth: 0, alignItems: "flex-end", gap: 4 },
   valueLine: {
@@ -220,7 +265,6 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     lineHeight: 15,
   },
-  valueEmpty: { color: Theme.textMuted, fontWeight: "500" },
   editBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -238,24 +282,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     width: "100%",
-    maxWidth: 280,
+    maxWidth: 300,
   },
-  input: {
+  dateShell: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  dateShellError: { borderColor: Theme.complianceStageDocsFg },
+  nativeInput: {
     flex: 1,
     minWidth: 0,
     height: 32,
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Theme.textPrimaryDark,
+    borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
     fontSize: 12,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
     textAlign: "right",
-    ...(Platform.OS === "web" ? { outlineStyle: "none" } : null),
   },
-  inputError: { borderColor: Theme.complianceStageDocsFg },
   iconBtn: {
     width: 32,
     height: 32,

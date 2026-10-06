@@ -16,6 +16,7 @@ import {
 import {
   normalizeComplianceTransactionDate,
   validateComplianceTransactionDate,
+  withLedgerDescriptionTxnDateConfirmed,
 } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
@@ -446,7 +447,10 @@ export async function updateCompliancePaymentTransactionDate(
   if (invalid) return { error: new Error(invalid) };
   const { row, error } = await readCompliancePaymentRow(params);
   if (!row) return { error };
-  return writeCompliancePaymentRow(params.transactionId, { transaction_date: normalized });
+  return writeCompliancePaymentRow(params.transactionId, {
+    transaction_date: normalized,
+    description: withLedgerDescriptionTxnDateConfirmed(row.description),
+  });
 }
 
 /**

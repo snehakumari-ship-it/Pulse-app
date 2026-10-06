@@ -1,6 +1,5 @@
 import {
   isComplianceVerifiedRejected,
-  matchesComplianceVerifiedOutcome,
   paymentStatusVisual,
   pendingDocumentsCopy,
   splitPlace,
@@ -183,25 +182,15 @@ describe("complianceCardVisual", () => {
   });
 });
 
-describe("matchesComplianceVerifiedOutcome", () => {
-  const verified = summary({ complianceVerifiedAt: "2026-09-28T10:00:00Z", complianceDeclinedAt: null });
-  const rejected = summary({
-    complianceVerifiedAt: "2026-09-28T10:00:00Z",
-    complianceDeclinedAt: "2026-09-29T10:00:00Z",
-  });
-
-  it("splits Verified-stage trips by the same rule as the card pill", () => {
+describe("isComplianceVerifiedRejected", () => {
+  it("matches the Verified-stage Rejected card pill rule", () => {
+    const verified = summary({ complianceVerifiedAt: "2026-09-28T10:00:00Z", complianceDeclinedAt: null });
+    const rejected = summary({
+      complianceVerifiedAt: "2026-09-28T10:00:00Z",
+      complianceDeclinedAt: "2026-09-29T10:00:00Z",
+    });
     expect(isComplianceVerifiedRejected(rejected)).toBe(true);
     expect(isComplianceVerifiedRejected(verified)).toBe(false);
-    expect(matchesComplianceVerifiedOutcome(rejected, "rejected")).toBe(true);
-    expect(matchesComplianceVerifiedOutcome(rejected, "verified")).toBe(false);
-    expect(matchesComplianceVerifiedOutcome(verified, "verified")).toBe(true);
-    expect(matchesComplianceVerifiedOutcome(verified, "rejected")).toBe(false);
-  });
-
-  it("keeps every trip on All", () => {
-    expect(matchesComplianceVerifiedOutcome(verified, "all")).toBe(true);
-    expect(matchesComplianceVerifiedOutcome(rejected, "all")).toBe(true);
   });
 });
 

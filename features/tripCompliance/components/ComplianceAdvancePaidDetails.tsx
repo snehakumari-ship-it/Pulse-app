@@ -106,7 +106,7 @@ export function ComplianceAdvancePaidDetails({
         <View style={styles.rowBorder}>
           <CompliancePaidAtEditRow
             key={`${payment.transactionId}-paid-at`}
-            paidAt={payment.paidAt}
+            paidAt={payment.txnDateConfirmed ? payment.paidAt : null}
             canEdit={Boolean(onUpdatePaidAt)}
             onSave={(transactionDate) => savePaidAt(payment, transactionDate)}
           />

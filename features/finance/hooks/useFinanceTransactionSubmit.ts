@@ -16,8 +16,11 @@ import {
 import type { TripEntryContext } from "../components/EntityDetailOverlay";
 import { updateSalaryRequestStatus } from "@/features/drivers/services/salaryRequests.service";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { Alert } from "react-native";
+import type { QueryClient } from "@tanstack/react-query";
 
 export interface UseFinanceTransactionSubmitArgs {
   orgId: string | null;
@@ -60,6 +63,7 @@ function doSubmit(
   setPendingDriverSalaryRequests: React.Dispatch<React.SetStateAction<import("@/features/drivers/services/salaryRequests.service").SalaryRequestWithDriverRow[]>>,
   salaryRequestIdToPayAfterSubmitRef: React.MutableRefObject<string | null>,
   onSuccessNavigate?: (data: AddTransactionData) => void,
+  queryClient?: QueryClient,
 ) {
   const promise = options?.entryId
     ? updateLedgerEntry(orgId, options.entryId, payload)
@@ -72,6 +76,15 @@ function doSubmit(
             ? prev.map((r) => (r.id === options.entryId ? updatedRow : r))
             : prev,
         );
+      }
+      if (queryClient) {
+        syncFinanceComplianceCaches({
+          queryClient,
+          organizationId: orgId,
+          tripId: data.tripId ?? payload.trip_id ?? null,
+          includeFinance: true,
+          includeCompliance: true,
+        });
       }
       if (
         !options?.entryId &&
@@ -172,6 +185,7 @@ export function useFinanceTransactionSubmit(
   args: UseFinanceTransactionSubmitArgs,
 ): (data: AddTransactionData, options?: { entryId: string }) => void {
   const { t } = useLanguage();
+  const queryClient = useQueryClient();
   const {
     orgId,
     profileUid,
@@ -278,6 +292,7 @@ export function useFinanceTransactionSubmit(
           setPendingDriverSalaryRequests,
           salaryRequestIdToPayAfterSubmitRef,
           onSuccessNavigate,
+          queryClient,
         );
 
       if (!options?.entryId && (ledgerTransactions ?? []).length > 0) {
@@ -402,6 +417,7 @@ export function useFinanceTransactionSubmit(
       setPendingDriverSalaryRequests,
       salaryRequestIdToPayAfterSubmitRef,
       onSuccessNavigate,
+      queryClient,
     ],
   );
 }

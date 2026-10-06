@@ -31,11 +31,14 @@ import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerif
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Pencil } from "lucide-react-native";
-import React, { useCallback, useMemo, useState } from "react";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Calendar, Check, Pencil } from "lucide-react-native";
+import React, { createElement, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -96,7 +99,7 @@ const COL = {
   account: { flex: 0.95, minWidth: 0 },
   branch: { flex: 0.8, minWidth: 0 },
   mode: { flex: 0.55, minWidth: 0 },
-  date: { flex: 0.95, minWidth: 108 },
+  date: { flex: 1.05, minWidth: 132 },
   amount: { flex: 0.75, minWidth: 0 },
   requestId: { flex: 1.0, minWidth: 104 },
   utr: { flex: 1.15, minWidth: 120 },
@@ -181,6 +184,194 @@ function Checkbox({ checked, onPress, label }: { checked: boolean; onPress: () =
 type EditState = { draft: string; saving: boolean; error: string | null; editing: boolean };
 const EMPTY_EDIT: EditState = { draft: "", saving: false, error: null, editing: false };
 
+function parseTxnDate(value: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T12:00:00`);
+  return new Date();
+}
+
+function toTxnIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Compact calendar date control for the Txn Date column (native picker on web). */
+function TxnDateCell({
+  style,
+  saved,
+  state,
+  disabledLabel,
+  onCommit,
+  onEdit,
+}: {
+  style: ViewStyle;
+  saved: string;
+  state: EditState | undefined;
+  disabledLabel: string | null;
+  onCommit: (iso: string) => void;
+  onEdit: () => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [iosDraft, setIosDraft] = useState<string>("");
+  const displaySaved = formatComplianceTxnDate(saved);
+  const draft = state?.editing ? state.draft : saved;
+  const isoValue = /^\d{4}-\d{2}-\d{2}$/.test(draft) ? draft : "";
+  const saving = Boolean(state?.saving);
+  const showPicker = Boolean(state?.editing) || !saved;
+
+  if (disabledLabel) {
+    return (
+      <View style={[styles.cell, style]}>
+        <Text style={styles.editDisabled} numberOfLines={2}>
+          {disabledLabel}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!showPicker && saved) {
+    return (
+      <View style={[styles.cell, style]}>
+        <TouchableOpacity
+          style={styles.txnDateSaved}
+          onPress={onEdit}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel={`Txn Date ${displaySaved}. Edit`}
+        >
+          <Text style={styles.txnDateValue} numberOfLines={1} selectable>
+            {displaySaved}
+          </Text>
+          <Pencil size={11} color={Theme.textMuted} strokeWidth={2.2} />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const commit = (next: string) => {
+    const normalized = normalizeComplianceTransactionDate(next);
+    if (!normalized || validateComplianceTransactionDate(normalized)) return;
+    onCommit(normalized);
+  };
+
+  return (
+    <View style={[styles.cell, style]}>
+      {Platform.OS === "web" ? (
+        <View style={[styles.txnDateShell, state?.error ? styles.txnDateShellError : null, saving && styles.txnDateShellBusy]}>
+          {createElement("input", {
+            type: "date",
+            value: isoValue,
+            disabled: saving,
+            lang: "en-IN",
+            "aria-label": "Txn Date",
+            onChange: (e: { target?: { value?: string } }) => {
+              const next = String(e?.target?.value ?? "");
+              if (next) commit(next);
+            },
+            style: {
+              flex: 1,
+              width: "100%",
+              minWidth: 0,
+              boxSizing: "border-box",
+              border: "none",
+              outline: "none",
+              background: "transparent",
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: "16px",
+              color: Theme.textPrimaryDark,
+              fontFamily:
+                'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              padding: 0,
+              margin: 0,
+              minHeight: 18,
+              cursor: saving ? "default" : "pointer",
+            },
+          })}
+          {saving ? (
+            <ActivityIndicator size="small" color={Theme.textMuted} />
+          ) : (
+            <Calendar size={12} color={Theme.textMuted} strokeWidth={2.2} />
+          )}
+        </View>
+      ) : (
+        <>
+          <Pressable
+            onPress={() => {
+              if (saving) return;
+              setIosDraft(isoValue || toTxnIsoDate(new Date()));
+              setPickerOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.txnDateShell,
+              state?.error ? styles.txnDateShellError : null,
+              saving && styles.txnDateShellBusy,
+              pressed && { opacity: 0.9 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Txn Date"
+          >
+            <Text style={[styles.txnDatePlaceholder, isoValue ? styles.txnDateValue : null]} numberOfLines={1}>
+              {isoValue ? formatComplianceTxnDate(isoValue) : "dd/mm/yyyy"}
+            </Text>
+            {saving ? (
+              <ActivityIndicator size="small" color={Theme.textMuted} />
+            ) : (
+              <Calendar size={12} color={Theme.textMuted} strokeWidth={2.2} />
+            )}
+          </Pressable>
+          {pickerOpen && Platform.OS === "android" ? (
+            <DateTimePicker
+              value={parseTxnDate(isoValue)}
+              mode="date"
+              display="default"
+              onChange={(e, date) => {
+                setPickerOpen(false);
+                if (e.type === "set" && date) commit(toTxnIsoDate(date));
+              }}
+            />
+          ) : null}
+          {Platform.OS === "ios" ? (
+            <Modal visible={pickerOpen} transparent animationType="slide">
+              <Pressable style={styles.txnDateBackdrop} onPress={() => setPickerOpen(false)}>
+                <View style={styles.txnDateSheet} onStartShouldSetResponder={() => true}>
+                  <View style={styles.txnDateSheetHeader}>
+                    <Pressable onPress={() => setPickerOpen(false)} hitSlop={10}>
+                      <Text style={styles.txnDateSheetMuted}>Cancel</Text>
+                    </Pressable>
+                    <Text style={styles.txnDateSheetTitle}>Txn Date</Text>
+                    <Pressable
+                      onPress={() => {
+                        commit(iosDraft || toTxnIsoDate(new Date()));
+                        setPickerOpen(false);
+                      }}
+                      hitSlop={10}
+                    >
+                      <Text style={styles.txnDateSheetDone}>Done</Text>
+                    </Pressable>
+                  </View>
+                  <DateTimePicker
+                    value={parseTxnDate(iosDraft || isoValue)}
+                    mode="date"
+                    display="spinner"
+                    onChange={(_, date) => date && setIosDraft(toTxnIsoDate(date))}
+                  />
+                </View>
+              </Pressable>
+            </Modal>
+          ) : null}
+        </>
+      )}
+      {state?.error ? (
+        <Text style={styles.editError} numberOfLines={2}>
+          {state.error}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function EditableCell({
   field,
   style,
@@ -190,6 +381,7 @@ function EditableCell({
   onChange,
   onSave,
   onEdit,
+  onCommitDate,
 }: {
   field: EditField;
   style: ViewStyle;
@@ -199,9 +391,22 @@ function EditableCell({
   onChange: (value: string) => void;
   onSave: () => void;
   onEdit: () => void;
+  onCommitDate: (iso: string) => void;
 }) {
   const config = FIELD_CONFIG[field];
-  const displaySaved = field === "txnDate" ? formatComplianceTxnDate(saved) : saved;
+  const displaySaved = saved;
+  if (field === "txnDate") {
+    return (
+      <TxnDateCell
+        style={style}
+        saved={saved}
+        state={state}
+        disabledLabel={disabledLabel}
+        onCommit={onCommitDate}
+        onEdit={onEdit}
+      />
+    );
+  }
   if (disabledLabel) {
     return (
       <View style={[styles.cell, style]}>
@@ -253,7 +458,6 @@ function EditableCell({
           maxLength={config.maxLength}
           editable={!state?.saving}
           returnKeyType="done"
-          {...(Platform.OS === "web" && field === "txnDate" ? ({ type: "date" } as object) : null)}
           style={[styles.input, state?.error ? styles.inputError : null] as TextStyle[]}
           accessibilityLabel={config.label}
         />
@@ -310,7 +514,10 @@ export function ComplianceAdvanceProcessedTable({
       if (local != null) return local;
       if (field === "utr") return (info?.payment?.utr ?? summary.advance?.utr ?? "").trim();
       if (field === "txnDate") {
-        return toComplianceTransactionDateInput(info?.payment?.paidAt ?? summary.advance?.paidAt);
+        // Blank until Ops confirms a date in Compliance (Finance posting day is ignored).
+        const payment = info?.payment ?? summary.advance;
+        if (!payment?.txnDateConfirmed) return "";
+        return toComplianceTransactionDateInput(payment.paidAt);
       }
       return (info?.requestId ?? "").trim();
     },
@@ -321,22 +528,22 @@ export function ComplianceAdvanceProcessedTable({
     setEdits((cur) => ({ ...cur, [key]: { ...(cur[key] ?? EMPTY_EDIT), ...patch } }));
 
   const saveField = useCallback(
-    async (summary: ComplianceTripSummary, field: EditField) => {
+    async (summary: ComplianceTripSummary, field: EditField, draftOverride?: string) => {
       const tripId = summary.trip.id;
       const key = editKey(tripId, field);
       const info = enrichment?.[tripId];
       const config = FIELD_CONFIG[field];
-      const value = config.normalize(edits[key]?.draft ?? "");
+      const value = config.normalize(draftOverride ?? edits[key]?.draft ?? "");
       const invalid = config.validate(value);
       if (invalid) {
-        patchEdit(key, { error: invalid });
+        patchEdit(key, { draft: value, editing: true, error: invalid });
         return false;
       }
       if (!info?.transactionId) {
-        patchEdit(key, { error: "Payment not found. Refresh and try again." });
+        patchEdit(key, { draft: value, editing: true, error: "Payment not found. Refresh and try again." });
         return false;
       }
-      patchEdit(key, { saving: true, error: null });
+      patchEdit(key, { draft: value, editing: true, saving: true, error: null });
       const target = { tripId, transactionId: info.transactionId, category: info.utrCategory };
       const { error } =
         field === "utr"
@@ -351,10 +558,21 @@ export function ComplianceAdvanceProcessedTable({
       setSavedLocal((cur) => ({ ...cur, [key]: value }));
       patchEdit(key, { saving: false, editing: false, draft: value });
       void queryClient.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
+      {
+        const { syncFinanceComplianceCaches } = await import(
+          "@/lib/queries/syncFinanceComplianceCaches"
+        );
+        syncFinanceComplianceCaches({
+          queryClient,
+          organizationId,
+          tripId,
+          includeCompliance: false, // advanceProcessed + onUtrSaved already cover Compliance
+        });
+      }
       onUtrSaved?.(tripId);
       return true;
     },
-    [edits, enrichment, onUtrSaved, queryClient],
+    [edits, enrichment, onUtrSaved, organizationId, queryClient],
   );
 
   const pendingSelected = rows.flatMap((summary) => {
@@ -485,6 +703,7 @@ export function ComplianceAdvanceProcessedTable({
               onChange={(value) => patchEdit(key, { draft: value, error: null, editing: true })}
               onEdit={() => patchEdit(key, { draft: saved, editing: true, error: null })}
               onSave={() => void saveField(summary, field)}
+              onCommitDate={(iso) => void saveField(summary, "txnDate", iso)}
             />
           );
         };
@@ -688,6 +907,75 @@ const styles = StyleSheet.create({
   saveBtnIdle: { opacity: 0.3 },
   editError: { fontSize: 9, lineHeight: 11, fontWeight: "600", color: Theme.complianceStageDocsFg },
   editDisabled: { fontSize: 9, lineHeight: 12, fontWeight: "500", color: Theme.textMuted },
+  txnDateShell: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 30,
+    width: "100%",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  txnDateShellError: { borderColor: Theme.complianceStageDocsFg },
+  txnDateShellBusy: { opacity: 0.7 },
+  txnDatePlaceholder: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    letterSpacing: 0.2,
+  },
+  txnDateSaved: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+    minHeight: 30,
+    width: "100%",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: Theme.border,
+    backgroundColor: Theme.cardWhite,
+  },
+  txnDateValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
+  },
+  txnDateBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15,23,42,0.35)",
+  },
+  txnDateSheet: {
+    backgroundColor: Theme.cardWhite,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+  },
+  txnDateSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.border,
+  },
+  txnDateSheetTitle: { fontSize: 14, fontWeight: "700", color: Theme.textPrimaryDark },
+  txnDateSheetMuted: { fontSize: 14, fontWeight: "600", color: Theme.textMuted },
+  txnDateSheetDone: { fontSize: 14, fontWeight: "700", color: Theme.complianceBulk },
   savedChip: {
     flexDirection: "row",
     alignItems: "center",

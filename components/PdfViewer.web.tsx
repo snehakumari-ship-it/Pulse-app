@@ -23,6 +23,11 @@ interface PdfViewerProps {
   sizing?: "original" | "fit";
   /** 1-based page. Omitted leaves the viewer on its default first page. */
   page?: number;
+  /**
+   * When false, the iframe ignores pointer events so a parent can own drag-pan
+   * (needed after CSS rotate — browser PDF coords no longer match the cursor).
+   */
+  interactive?: boolean;
 }
 
 function withPdfViewerHash(
@@ -49,6 +54,7 @@ export function PdfViewer({
   zoom = 1,
   sizing = "fit",
   page,
+  interactive = true,
 }: PdfViewerProps) {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -97,7 +103,7 @@ export function PdfViewer({
           height: "100%",
           border: "none",
           background: Theme.surface,
-          pointerEvents: "auto",
+          pointerEvents: interactive ? "auto" : "none",
         }}
         title="PDF Preview"
       />

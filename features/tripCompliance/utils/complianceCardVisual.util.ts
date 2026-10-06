@@ -99,23 +99,12 @@ export type ComplianceVerificationStatusVisual = {
 /**
  * Verified trip rejected by finance (decline at/after verify) — stays in Verified,
  * shown as Rejected (red). Same rule as isFinanceDeclinedTrip; drives the card pill,
- * Verified / Rejected filter, Export counts and report status.
+ * Export counts and report status.
  */
 export function isComplianceVerifiedRejected(
   summary: Pick<ComplianceTripSummary, "complianceVerifiedAt" | "complianceDeclinedAt">,
 ): boolean {
   return isFinanceDeclinedTrip(summary as ComplianceTripSummary);
-}
-
-/** Verified-stage outcome filter: All / Verified (incl. Exception) / Rejected. */
-export type ComplianceVerifiedOutcomeFilter = "all" | "verified" | "rejected";
-
-export function matchesComplianceVerifiedOutcome(
-  summary: ComplianceTripSummary,
-  filter: ComplianceVerifiedOutcomeFilter,
-): boolean {
-  if (filter === "all") return true;
-  return isComplianceVerifiedRejected(summary) === (filter === "rejected");
 }
 
 export function verificationStatusVisual(

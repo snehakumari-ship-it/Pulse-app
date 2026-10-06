@@ -1,5 +1,7 @@
 import { PartyAvatar } from "@/components/PartyAvatar";
+import { HubPromoHeroLottie } from "@/components/hub/HubPromoLottie";
 import Theme from "@/constants/Theme";
+import { EMPTY_STATE_LOTTIE } from "@/lib/emptyStateLottieAssets";
 import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
 import { ComplianceInputModal, type ComplianceInputField } from "@/features/tripCompliance/components/ComplianceInputModal";
@@ -217,6 +219,110 @@ function typedDetailsLines(row: ComplianceDocRow | null): { label: string; value
   return readTypedDetails(doc.document_number);
 }
 
+type TypedDetailLineView = { label: string; value: string };
+
+/** Group numbered lines (e.g. "Eway no 1") into entry cards — values unchanged. */
+function groupTypedDetailLines(lines: TypedDetailLineView[]): {
+  key: string;
+  heading: string | null;
+  lines: TypedDetailLineView[];
+}[] {
+  const byIndex = new Map<number, TypedDetailLineView[]>();
+  const plain: TypedDetailLineView[] = [];
+  for (const line of lines) {
+    const match = line.label.match(/^(.*)\s+(\d+)$/);
+    if (!match) {
+      plain.push(line);
+      continue;
+    }
+    const index = Number(match[2]);
+    const fieldLabel = match[1].trim() || line.label;
+    const bucket = byIndex.get(index) ?? [];
+    bucket.push({ label: fieldLabel, value: line.value });
+    byIndex.set(index, bucket);
+  }
+  if (byIndex.size === 0) {
+    return [{ key: "details", heading: null, lines: plain.length > 0 ? plain : lines }];
+  }
+  const groups = [...byIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, groupLines]) => ({
+      key: `entry-${index}`,
+      heading: byIndex.size > 1 ? `Entry ${index}` : null,
+      lines: groupLines,
+    }));
+  if (plain.length > 0) {
+    groups.push({ key: "other", heading: "Other details", lines: plain });
+  }
+  return groups;
+}
+
+function TypedDetailsPreview({
+  title,
+  lines,
+  insetForSideNav = false,
+  darkCanvas = false,
+}: {
+  title: string;
+  lines: TypedDetailLineView[];
+  /** Leave room for overlay prev/next chevrons. */
+  insetForSideNav?: boolean;
+  darkCanvas?: boolean;
+}) {
+  const groups = useMemo(() => groupTypedDetailLines(lines), [lines]);
+  const entryCount = groups.filter((group) => group.key.startsWith("entry-")).length;
+  return (
+    <ScrollView
+      style={[styles.typedPreviewScroll, darkCanvas && styles.typedPreviewScrollDark]}
+      contentContainerStyle={[
+        styles.typedPreviewContent,
+        insetForSideNav && styles.typedPreviewContentWithNav,
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.typedPreviewPanel}>
+        <View style={styles.typedPreviewHeader}>
+          <Text style={styles.typedPreviewKicker}>Entered details</Text>
+          <Text style={styles.typedPreviewTitle} numberOfLines={2}>
+            {title}
+          </Text>
+          <Text style={styles.typedPreviewMeta}>
+            No file on this row
+            {entryCount > 1 ? ` · ${entryCount} entries` : lines.length > 0 ? ` · ${lines.length} fields` : ""}
+          </Text>
+        </View>
+        <View style={styles.typedPreviewGroups}>
+          {groups.map((group) => (
+            <View key={group.key} style={styles.typedEntryCard}>
+              {group.heading ? (
+                <Text style={styles.typedEntryHeading}>{group.heading}</Text>
+              ) : null}
+              <View style={styles.typedEntryFields}>
+                {group.lines.map((line, index) => (
+                  <View
+                    key={`${group.key}-${line.label}-${index}`}
+                    style={[
+                      styles.typedFieldRow,
+                      index < group.lines.length - 1 && styles.typedFieldRowDivider,
+                    ]}
+                  >
+                    <Text style={styles.typedFieldLabel} numberOfLines={2}>
+                      {line.label}
+                    </Text>
+                    <Text style={styles.typedFieldValue} selectable>
+                      {line.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  );
+}
+
 function fitDocumentSize(
   natural: { width: number; height: number },
   box: { width: number; height: number },
@@ -255,33 +361,118 @@ function fitPdfSize(
   };
 }
 
+const MIN_PREVIEW_ZOOM = 0.5;
+const MAX_PREVIEW_ZOOM = 4;
+const PREVIEW_CANVAS_PAD = 12;
+
+function clampPreviewZoom(value: number): number {
+  return Math.min(MAX_PREVIEW_ZOOM, Math.max(MIN_PREVIEW_ZOOM, value));
+}
+
+/** Normalize degrees to [0, 360). */
+function normalizePreviewRotation(rotation: number): number {
+  return ((rotation % 360) + 360) % 360;
+}
+
+/** 90° / 270° swap the visual bounding box vs the layout box. */
+function previewRotationSwapsAxes(rotation: number): boolean {
+  const rot = normalizePreviewRotation(rotation);
+  return rot === 90 || rot === 270;
+}
+
+/**
+ * Pan limits in screen space (pan is applied after rotate/scale).
+ * - Zoomed: classic (scale − 1) · dim / 2
+ * - Full-bleed + 90°/270°: AABB overflows the viewport even at 100%
+ * - In-panel AABB-fitted previews pass rotation=0 (overflow already sized out)
+ */
+function clampPreviewPan(
+  x: number,
+  y: number,
+  scale: number,
+  width: number,
+  height: number,
+  rotation = 0,
+): { x: number; y: number } {
+  if (width <= 0 || height <= 0) return { x: 0, y: 0 };
+  const zoom = Math.max(scale, 0);
+  let maxX = 0;
+  let maxY = 0;
+  if (previewRotationSwapsAxes(rotation)) {
+    const visualW = height * zoom;
+    const visualH = width * zoom;
+    maxX = Math.max(0, (visualW - width) / 2);
+    maxY = Math.max(0, (visualH - height) / 2);
+  } else if (zoom > 1) {
+    maxX = ((zoom - 1) * width) / 2;
+    maxY = ((zoom - 1) * height) / 2;
+  }
+  if (maxX <= 0 && maxY <= 0) return { x: 0, y: 0 };
+  return {
+    x: Math.min(maxX, Math.max(-maxX, x)),
+    y: Math.min(maxY, Math.max(-maxY, y)),
+  };
+}
+
+function canPanPreview(scale: number, rotation = 0): boolean {
+  if (scale > 1) return true;
+  return previewRotationSwapsAxes(rotation);
+}
+
+/** Screen-space pan last so cursor drag matches document motion at any angle. */
+function previewViewTransform(pan: { x: number; y: number }, scale: number, rotation: number) {
+  return [
+    { rotate: `${normalizePreviewRotation(rotation)}deg` as const },
+    { scale },
+    { translateX: pan.x },
+    { translateY: pan.y },
+  ];
+}
+
 function OriginalDocumentPreview({
   uri,
   isPdf,
   zoom,
   rotation,
   label,
+  onZoomChange,
 }: {
   uri: string;
   isPdf: boolean;
   zoom: number;
   rotation: number;
   label: string;
+  onZoomChange?: (nextZoom: number) => void;
 }) {
+  const canvasRef = useRef<View>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
+  const [imageLoading, setImageLoading] = useState(!isPdf);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const viewRef = useRef({ zoom: 1, panX: 0, panY: 0 });
+  viewRef.current = { zoom, panX: pan.x, panY: pan.y };
 
   useEffect(() => {
     setNatural(null);
+    setPan({ x: 0, y: 0 });
+    setImageLoading(!isPdf);
     if (isPdf) return;
     let cancelled = false;
     Image.getSize(
       uri,
       (width, height) => {
-        if (!cancelled && width > 0 && height > 0) setNatural({ width, height });
+        if (cancelled) return;
+        if (width > 0 && height > 0) setNatural({ width, height });
+        setImageLoading(false);
       },
       () => {
-        if (!cancelled) setNatural(null);
+        if (!cancelled) {
+          setNatural(null);
+          setImageLoading(false);
+        }
       },
     );
     return () => {
@@ -289,76 +480,188 @@ function OriginalDocumentPreview({
     };
   }, [uri, isPdf]);
 
+  // In-panel fit already sizes the AABB for rotation — pan limits follow zoom only.
+  useEffect(() => {
+    setPan((prev) => clampPreviewPan(prev.x, prev.y, zoom, box.width, box.height, 0));
+  }, [zoom, box.width, box.height, rotation]);
+
+  const fitBox = useMemo(() => {
+    const width = Math.max(0, box.width - PREVIEW_CANVAS_PAD * 2);
+    const height = Math.max(0, box.height - PREVIEW_CANVAS_PAD * 2);
+    return { width, height };
+  }, [box.height, box.width]);
+
+  /** Base fit at 100% — zoom is applied via transform so pan stays smooth. */
   const display = useMemo(() => {
-    if (box.width < 2 || box.height < 2) return null;
-    if (isPdf) return fitPdfSize(box, zoom, rotation);
-    if (!natural) return fitPdfSize(box, zoom, rotation);
-    return fitDocumentSize(natural, box, zoom, rotation);
-  }, [box, isPdf, natural, rotation, zoom]);
+    if (fitBox.width < 2 || fitBox.height < 2) return null;
+    if (isPdf) return fitPdfSize(fitBox, 1, rotation);
+    if (!natural) return fitPdfSize(fitBox, 1, rotation);
+    return fitDocumentSize(natural, fitBox, 1, rotation);
+  }, [fitBox, isPdf, natural, rotation]);
+
+  const pannable = canPanPreview(zoom);
+
+  const applyZoomAt = useCallback(
+    (nextZoom: number, cursorX: number, cursorY: number) => {
+      if (!onZoomChange) return;
+      const current = viewRef.current;
+      const clamped = clampPreviewZoom(nextZoom);
+      const ratio = clamped / current.zoom;
+      onZoomChange(clamped);
+      setPan(
+        clampPreviewPan(
+          cursorX - ratio * (cursorX - current.panX),
+          cursorY - ratio * (cursorY - current.panY),
+          clamped,
+          box.width,
+          box.height,
+          0,
+        ),
+      );
+    },
+    [box.height, box.width, onZoomChange],
+  );
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || !onZoomChange || box.width < 2) return;
+    const node = canvasRef.current as unknown as HTMLElement | null;
+    if (!node?.addEventListener) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = node.getBoundingClientRect();
+      const cursorX = event.clientX - rect.left - rect.width / 2;
+      const cursorY = event.clientY - rect.top - rect.height / 2;
+      const factor = event.deltaY < 0 ? 1.08 : 1 / 1.08;
+      applyZoomAt(viewRef.current.zoom * factor, cursorX, cursorY);
+    };
+
+    const onDoubleClick = (event: MouseEvent) => {
+      event.preventDefault();
+      const rect = node.getBoundingClientRect();
+      const cursorX = event.clientX - rect.left - rect.width / 2;
+      const cursorY = event.clientY - rect.top - rect.height / 2;
+      const current = viewRef.current;
+      if (current.zoom >= 1.99) {
+        onZoomChange(1);
+        setPan({ x: 0, y: 0 });
+        return;
+      }
+      applyZoomAt(2, cursorX, cursorY);
+    };
+
+    node.addEventListener("wheel", onWheel, { passive: false });
+    node.addEventListener("dblclick", onDoubleClick);
+    return () => {
+      node.removeEventListener("wheel", onWheel);
+      node.removeEventListener("dblclick", onDoubleClick);
+    };
+  }, [applyZoomAt, box.width, onZoomChange, uri]);
+
+  const cursorStyle =
+    Platform.OS === "web"
+      ? ({
+          cursor: dragging ? "grabbing" : pannable ? "grab" : hovered ? "zoom-in" : "default",
+        } as unknown as ViewStyle)
+      : null;
 
   return (
     <View
-      style={styles.previewCanvas}
+      ref={canvasRef}
+      style={[styles.previewCanvas, hovered && styles.previewCanvasHovered, cursorStyle]}
       onLayout={(event) => {
         const { width, height } = event.nativeEvent.layout;
         setBox((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
       }}
+      {...(Platform.OS === "web"
+        ? ({
+            onMouseEnter: () => setHovered(true),
+            onMouseLeave: () => {
+              setHovered(false);
+              setDragging(false);
+              drag.current = null;
+            },
+          } as Record<string, unknown>)
+        : null)}
+      accessibilityLabel={
+        isPdf
+          ? `${label}. Scroll to zoom. Drag to pan when zoomed.`
+          : `${label}. Scroll to zoom. Double-click to zoom. Drag to pan when zoomed.`
+      }
+      onStartShouldSetResponder={() => pannable}
+      onMoveShouldSetResponder={() => pannable}
+      onResponderGrant={(event) => {
+        if (!canPanPreview(viewRef.current.zoom)) return;
+        setDragging(true);
+        drag.current = {
+          x: event.nativeEvent.pageX,
+          y: event.nativeEvent.pageY,
+          panX: pan.x,
+          panY: pan.y,
+        };
+      }}
+      onResponderMove={(event) => {
+        if (!drag.current || !canPanPreview(viewRef.current.zoom)) return;
+        // Screen-space delta (pan is applied after rotate) — cursor and doc move together.
+        setPan(
+          clampPreviewPan(
+            drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+            drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+            viewRef.current.zoom,
+            box.width,
+            box.height,
+            0,
+          ),
+        );
+      }}
+      onResponderRelease={() => {
+        drag.current = null;
+        setDragging(false);
+      }}
+      onResponderTerminate={() => {
+        drag.current = null;
+        setDragging(false);
+      }}
     >
+      {imageLoading && !isPdf ? (
+        <View style={styles.previewLoadingOverlay} pointerEvents="none">
+          <ActivityIndicator color={Theme.textPrimaryDark} />
+        </View>
+      ) : null}
       {display ? (
-        <ScrollView
-          style={styles.previewScroll}
-          contentContainerStyle={[
-            styles.previewAlign,
-            { minWidth: Math.max(box.width, display.width), minHeight: Math.max(box.height, display.height) },
-          ]}
-          showsVerticalScrollIndicator={zoom > 1}
-          showsHorizontalScrollIndicator={zoom > 1}
-        >
-          {isPdf ? (
-            <TripVaultFilePreview
-              uri={uri}
-              isPdf
-              showToolbar={false}
-              zoom={1}
-              sizing="fit"
-              style={[display, rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null]}
-              accessibilityLabel={label}
-            />
-          ) : (
-            <ExpoImage
-              source={{ uri }}
-              style={[display, rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null]}
-              contentFit="contain"
-              accessibilityLabel={label}
-            />
-          )}
-        </ScrollView>
+        <View style={[styles.previewAlign, imageLoading && !isPdf ? { opacity: 0 } : null]} pointerEvents="none">
+          <View
+            style={[
+              display,
+              {
+                transform: previewViewTransform(pan, zoom, rotation),
+              },
+            ]}
+          >
+            {isPdf ? (
+              <TripVaultFilePreview
+                uri={uri}
+                isPdf
+                showToolbar={false}
+                zoom={1}
+                sizing="fit"
+                style={StyleSheet.absoluteFillObject}
+                accessibilityLabel={label}
+              />
+            ) : (
+              <ExpoImage
+                source={{ uri }}
+                style={StyleSheet.absoluteFillObject}
+                contentFit="contain"
+                accessibilityLabel={label}
+              />
+            )}
+          </View>
+        </View>
       ) : null}
     </View>
   );
-}
-
-const MIN_PREVIEW_ZOOM = 0.5;
-const MAX_PREVIEW_ZOOM = 3;
-
-function clampPreviewZoom(value: number): number {
-  return Math.min(MAX_PREVIEW_ZOOM, Math.max(MIN_PREVIEW_ZOOM, value));
-}
-
-function clampPreviewPan(
-  x: number,
-  y: number,
-  scale: number,
-  width: number,
-  height: number,
-): { x: number; y: number } {
-  if (scale <= 1 || width <= 0 || height <= 0) return { x: 0, y: 0 };
-  const maxX = ((scale - 1) * width) / 2;
-  const maxY = ((scale - 1) * height) / 2;
-  return {
-    x: Math.min(maxX, Math.max(-maxX, x)),
-    y: Math.min(maxY, Math.max(-maxY, y)),
-  };
 }
 
 /** Reads /Count from the existing PDF bytes. Does not modify the file. */
@@ -384,21 +687,73 @@ async function readPdfPageCount(uri: string): Promise<number | null> {
   }
 }
 
+function DocSideNavButton({
+  direction,
+  onPress,
+  disabled,
+  tone = "light",
+}: {
+  direction: "prev" | "next";
+  onPress: () => void;
+  disabled?: boolean;
+  tone?: "light" | "dark";
+}) {
+  const Icon = direction === "prev" ? ChevronLeft : ChevronRight;
+  const label = direction === "prev" ? "Previous document" : "Next document";
+  const iconColor = disabled
+    ? Theme.textMuted
+    : tone === "dark"
+      ? Theme.textOnDark
+      : Theme.textPrimaryDark;
+  return (
+    <Pressable
+      style={[
+        styles.docSideNavBtn,
+        tone === "dark" && styles.docSideNavBtnDark,
+        disabled && styles.docSideNavBtnDisabled,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      hitSlop={8}
+      {...(Platform.OS === "web" ? { title: label } : {})}
+    >
+      <Icon size={20} color={iconColor} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
 export function DocumentScreen({
   visible,
   uri,
   isPdf,
   title,
   onClose,
-  presentation = "sheet",
+  presentation = "page",
+  onPrev,
+  onNext,
+  navLabel = null,
+  canNavigate = false,
+  typedLines = null,
+  resolving = false,
 }: {
   visible: boolean;
-  uri: string;
+  uri: string | null;
   isPdf: boolean;
   title: string;
   onClose: () => void;
   /** `page` fills the screen. `sheet` stays a centered card. */
   presentation?: "sheet" | "page";
+  onPrev?: () => void;
+  onNext?: () => void;
+  navLabel?: string | null;
+  canNavigate?: boolean;
+  /** Details-only docs (e.g. typed E-way) — no binary file. */
+  typedLines?: { label: string; value: string }[] | null;
+  /** True while the next signed URL is being fetched. */
+  resolving?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -410,20 +765,50 @@ export function DocumentScreen({
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState<number | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const viewRef = useRef({ scale: 1, panX: 0, panY: 0 });
-  viewRef.current = { scale, panX: pan.x, panY: pan.y };
+  const viewRef = useRef({ scale: 1, panX: 0, panY: 0, rotation: 0 });
+  viewRef.current = { scale, panX: pan.x, panY: pan.y, rotation };
+  /** Coalesce pan updates so wheel/drag stays smooth (one paint per frame). */
+  const panRafRef = useRef(0);
+  const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
+  const schedulePan = useCallback((next: { x: number; y: number }) => {
+    pendingPanRef.current = next;
+    if (panRafRef.current) return;
+    panRafRef.current = requestAnimationFrame(() => {
+      panRafRef.current = 0;
+      const pending = pendingPanRef.current;
+      if (pending) setPan(pending);
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
+    },
+    [],
+  );
   const compact = windowWidth < 720;
+  const fullPage = presentation === "page";
   const sheetWidth = Math.min(1080, windowWidth - Math.max(insets.left, 12) - Math.max(insets.right, 12) - (compact ? 16 : 48));
   const sheetHeight = Math.min(windowHeight - insets.top - insets.bottom - (compact ? 16 : 48), compact ? windowHeight : 880);
-  const frameWidth = presentation === "page" ? windowWidth - Math.max(insets.left, 8) - Math.max(insets.right, 8) : sheetWidth;
-  const frameHeight = presentation === "page" ? windowHeight - Math.max(insets.top, 8) - Math.max(insets.bottom, 8) : sheetHeight;
+  const frameWidth = fullPage ? windowWidth : sheetWidth;
+  const frameHeight = fullPage
+    ? windowHeight
+    : sheetHeight;
+  const sideNavEnabled = Boolean(canNavigate && onPrev && onNext);
+  const showTyped = Boolean(typedLines && typedLines.length > 0 && !uri);
+  const showPdf = Boolean(uri && isPdf && !showTyped);
+  const showImage = Boolean(uri && !isPdf && !showTyped);
 
-  const applyView = useCallback((nextScale: number, nextPan: { x: number; y: number }, size = frame) => {
-    const zoom = clampPreviewZoom(nextScale);
-    setScale(zoom);
-    setPan(clampPreviewPan(nextPan.x, nextPan.y, zoom, size.width, size.height));
-  }, [frame]);
+  const applyView = useCallback(
+    (nextScale: number, nextPan: { x: number; y: number }, size = frame, rot = rotation) => {
+      const zoom = clampPreviewZoom(nextScale);
+      setScale(zoom);
+      setPan(clampPreviewPan(nextPan.x, nextPan.y, zoom, size.width, size.height, rot));
+    },
+    [frame, rotation],
+  );
 
   useEffect(() => {
     if (!visible) return;
@@ -432,10 +817,27 @@ export function DocumentScreen({
     setRotation(0);
     setPage(1);
     setPageCount(null);
-  }, [visible, uri]);
+    setImageFailed(false);
+    setImageLoading(Boolean(uri && !isPdf && !showTyped));
+  }, [visible, uri, isPdf, showTyped]);
+
+  /** Keep pan inside the viewport when zoom or rotation changes. */
+  useEffect(() => {
+    if (!visible || frame.width <= 0) return;
+    setPan((prev) => clampPreviewPan(prev.x, prev.y, scale, frame.width, frame.height, rotation));
+  }, [visible, frame.width, frame.height, scale, rotation]);
+
+  /** Never leave the spinner up forever if onLoad/onError never fire (common on slow signed URLs). */
+  useEffect(() => {
+    if (!visible || !imageLoading || !showImage) return;
+    const timer = setTimeout(() => {
+      setImageLoading(false);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [visible, imageLoading, showImage, uri]);
 
   useEffect(() => {
-    if (!visible || !isPdf) return;
+    if (!visible || !showPdf || !uri) return;
     let cancelled = false;
     void readPdfPageCount(uri).then((count) => {
       if (!cancelled && count) setPageCount(count);
@@ -443,17 +845,24 @@ export function DocumentScreen({
     return () => {
       cancelled = true;
     };
-  }, [visible, isPdf, uri]);
+  }, [visible, showPdf, uri]);
 
   useEffect(() => {
     if (pageCount != null && page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
+
+  /** Any non-zero CSS rotate — native scroll fights the transform; we own pan/wheel. */
+  const pdfViewOwned = showPdf && normalizePreviewRotation(rotation) !== 0;
+  const imageViewOwned = showImage && normalizePreviewRotation(rotation) !== 0;
+  const rotatedViewOwned = pdfViewOwned || imageViewOwned;
 
   useEffect(() => {
     if (!visible || Platform.OS !== "web") return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const blockWheel = (event: WheelEvent) => {
+      // Upright PDF keeps native iframe scroll. Images / rotated media are handled on the stage.
+      if ((showPdf && !pdfViewOwned) || showTyped) return;
       event.preventDefault();
     };
     window.addEventListener("wheel", blockWheel, { passive: false });
@@ -466,18 +875,47 @@ export function DocumentScreen({
       window.removeEventListener("wheel", blockWheel);
       cancelAnimationFrame(frameId);
     };
-  }, [visible]);
+  }, [visible, showPdf, showTyped, pdfViewOwned]);
 
   useEffect(() => {
     if (!visible || frame.width <= 0 || Platform.OS !== "web") return;
     const node = stageRef.current as unknown as HTMLElement | null;
     if (!node?.addEventListener) return;
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
+
+    const panFromWheel = (event: WheelEvent) => {
       const rect = node.getBoundingClientRect();
+      const current = viewRef.current;
+      schedulePan(
+        clampPreviewPan(
+          current.panX - event.deltaX,
+          current.panY - event.deltaY,
+          current.scale,
+          rect.width,
+          rect.height,
+          current.rotation,
+        ),
+      );
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (showTyped) return;
+      // Upright PDF: leave wheel to the browser viewer (smooth native scroll).
+      if (showPdf && !pdfViewOwned) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Rotated image/PDF, or zoomed image: wheel pans in screen space.
+      if (rotatedViewOwned || (showImage && viewRef.current.scale > 1 && !event.ctrlKey && !event.metaKey)) {
+        panFromWheel(event);
+        return;
+      }
+
+      if (showPdf) return;
+      const rect = node.getBoundingClientRect();
+      const current = viewRef.current;
       const cursorX = event.clientX - rect.left - rect.width / 2;
       const cursorY = event.clientY - rect.top - rect.height / 2;
-      const current = viewRef.current;
       const next = clampPreviewZoom(current.scale * (event.deltaY < 0 ? 1.08 : 1 / 1.08));
       const ratio = next / current.scale;
       applyView(
@@ -489,8 +927,54 @@ export function DocumentScreen({
         { width: rect.width, height: rect.height },
       );
     };
+
+    /** Native pointer pan — RN responders are unreliable over transformed media on web. */
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const current = viewRef.current;
+      if (!canPanPreview(current.scale, current.rotation)) return;
+      if (!showImage && !pdfViewOwned) return;
+      drag.current = {
+        x: event.clientX,
+        y: event.clientY,
+        panX: current.panX,
+        panY: current.panY,
+      };
+      try {
+        node.setPointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      node.style.cursor = "grabbing";
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag.current) return;
+      const current = viewRef.current;
+      const rect = node.getBoundingClientRect();
+      schedulePan(
+        clampPreviewPan(
+          drag.current.panX + event.clientX - drag.current.x,
+          drag.current.panY + event.clientY - drag.current.y,
+          current.scale,
+          rect.width,
+          rect.height,
+          current.rotation,
+        ),
+      );
+    };
+    const endPointer = (event: PointerEvent) => {
+      if (!drag.current) return;
+      drag.current = null;
+      try {
+        node.releasePointerCapture(event.pointerId);
+      } catch {
+        /* ignore */
+      }
+      const current = viewRef.current;
+      node.style.cursor = canPanPreview(current.scale, current.rotation) ? "grab" : "default";
+    };
     const onDoubleClick = (event: MouseEvent) => {
-      if (isPdf) return;
+      if (showPdf || showTyped) return;
       const rect = node.getBoundingClientRect();
       const current = viewRef.current;
       if (current.scale >= 1.99) {
@@ -528,11 +1012,17 @@ export function DocumentScreen({
       } else if (event.key === "0") {
         event.preventDefault();
         applyView(1, { x: 0, y: 0 });
-      } else if (isPdf && event.key === "ArrowLeft") {
+      } else if (sideNavEnabled && event.key === "ArrowLeft") {
+        event.preventDefault();
+        onPrev?.();
+      } else if (sideNavEnabled && event.key === "ArrowRight") {
+        event.preventDefault();
+        onNext?.();
+      } else if (showPdf && event.key === "ArrowLeft") {
         event.preventDefault();
         setPage((value) => Math.max(1, value - 1));
         setPan({ x: 0, y: 0 });
-      } else if (isPdf && event.key === "ArrowRight") {
+      } else if (showPdf && event.key === "ArrowRight") {
         event.preventDefault();
         setPage((value) => Math.min(pageCount ?? 40, value + 1));
         setPan({ x: 0, y: 0 });
@@ -540,29 +1030,76 @@ export function DocumentScreen({
     };
     node.addEventListener("wheel", onWheel, { passive: false });
     node.addEventListener("dblclick", onDoubleClick);
+    node.addEventListener("pointerdown", onPointerDown);
+    node.addEventListener("pointermove", onPointerMove);
+    node.addEventListener("pointerup", endPointer);
+    node.addEventListener("pointercancel", endPointer);
     window.addEventListener("keydown", onKey);
     return () => {
       node.removeEventListener("wheel", onWheel);
       node.removeEventListener("dblclick", onDoubleClick);
+      node.removeEventListener("pointerdown", onPointerDown);
+      node.removeEventListener("pointermove", onPointerMove);
+      node.removeEventListener("pointerup", endPointer);
+      node.removeEventListener("pointercancel", endPointer);
       window.removeEventListener("keydown", onKey);
     };
-  }, [visible, frame.width, frame.height, isPdf, onClose, pageCount, applyView]);
+  }, [
+    visible,
+    frame.width,
+    frame.height,
+    showPdf,
+    showImage,
+    showTyped,
+    pdfViewOwned,
+    rotatedViewOwned,
+    onClose,
+    pageCount,
+    applyView,
+    schedulePan,
+    sideNavEnabled,
+    onPrev,
+    onNext,
+  ]);
 
   const pageLimit = pageCount ?? 40;
   const atFirstPage = page <= 1;
   const atLastPage = page >= pageLimit;
+  const showPdfPageTools = showPdf && !sideNavEnabled;
+  const busyResolving = resolving && !uri && !showTyped;
+  const pannable = (showImage || showPdf) && canPanPreview(scale, rotation);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View
-        style={[styles.screenRoot, { paddingTop: Math.max(insets.top, 8), paddingBottom: Math.max(insets.bottom, 8) }]}
+        style={[
+          styles.screenRoot,
+          fullPage && styles.screenRootPage,
+          {
+            paddingTop: fullPage ? 0 : Math.max(insets.top, 8),
+            paddingBottom: fullPage ? 0 : Math.max(insets.bottom, 8),
+          },
+        ]}
         accessibilityViewIsModal
       >
-        <Pressable style={styles.screenBackdrop} onPress={onClose} accessibilityLabel="Close document preview" />
-        <View style={[styles.screenSheet, { width: frameWidth, height: frameHeight }]}>
+        {!fullPage ? (
+          <Pressable style={styles.screenBackdrop} onPress={onClose} accessibilityLabel="Close document preview" />
+        ) : null}
+        <View
+          style={[
+            styles.screenSheet,
+            fullPage && styles.screenSheetPage,
+            {
+              width: frameWidth,
+              height: frameHeight,
+              paddingTop: fullPage ? Math.max(insets.top, 0) : 0,
+              paddingBottom: fullPage ? Math.max(insets.bottom, 0) : 0,
+            },
+          ]}
+        >
           <View style={[styles.screenBar, compact && styles.screenBarCompact]}>
             <Text style={styles.screenTitle} numberOfLines={1}>{title}</Text>
-            {isPdf ? (
+            {showPdfPageTools ? (
               <View style={styles.screenPages}>
                 <Pressable
                   style={styles.screenTool}
@@ -597,49 +1134,54 @@ export function DocumentScreen({
                 </Pressable>
               </View>
             ) : null}
-            <View style={styles.screenTools}>
-              <Pressable
-                style={styles.screenTool}
-                onPress={() => setRotation((value) => (value + 90) % 360)}
-                accessibilityRole="button"
-                accessibilityLabel="Rotate document"
-                {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
-              >
-                <RotateCw size={15} color={Theme.textPrimaryDark} />
-              </Pressable>
-              <Pressable
-                style={styles.screenTool}
-                onPress={() => applyView(scale - 0.25, pan)}
-                accessibilityRole="button"
-                accessibilityLabel="Zoom out"
-                {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
-              >
-                <Minus size={16} color={Theme.textPrimaryDark} />
-              </Pressable>
-              <Text style={styles.screenPercent} accessibilityLabel={`Zoom ${Math.round(scale * 100)} percent`}>
-                {Math.round(scale * 100)}%
+            {navLabel ? (
+              <Text style={styles.screenNavLabel} numberOfLines={1} accessibilityLabel={navLabel}>
+                {navLabel}
               </Text>
-              <Pressable
-                style={styles.screenTool}
-                onPress={() => applyView(scale + 0.25, pan)}
-                accessibilityRole="button"
-                accessibilityLabel="Zoom in"
-                {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
-              >
-                <Plus size={16} color={Theme.textPrimaryDark} />
-              </Pressable>
-              <Pressable
-                style={styles.screenTool}
-                onPress={() => {
-                  applyView(1, { x: 0, y: 0 });
-                  setRotation(0);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Reset view"
-                {...(Platform.OS === "web" ? { title: "Reset view" } : {})}
-              >
-                <RotateCcw size={15} color={Theme.textPrimaryDark} />
-              </Pressable>
+            ) : null}
+            <View style={styles.screenTools}>
+              {showImage || showPdf ? (
+                <>
+                  <Pressable
+                    style={styles.screenTool}
+                    onPress={() => {
+                      setRotation((value) => {
+                        const next = (value + 90) % 360;
+                        setPan((prev) =>
+                          clampPreviewPan(prev.x, prev.y, scale, frame.width, frame.height, next),
+                        );
+                        return next;
+                      });
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Rotate document"
+                    {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
+                  >
+                    <RotateCcw size={15} color={Theme.textPrimaryDark} />
+                  </Pressable>
+                  <Pressable
+                    style={styles.screenTool}
+                    onPress={() => applyView(scale - 0.25, pan)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Zoom out"
+                    {...(Platform.OS === "web" ? { title: "Zoom out" } : {})}
+                  >
+                    <Minus size={16} color={Theme.textPrimaryDark} />
+                  </Pressable>
+                  <Text style={styles.screenPercent} accessibilityLabel={`Zoom ${Math.round(scale * 100)} percent`}>
+                    {Math.round(scale * 100)}%
+                  </Text>
+                  <Pressable
+                    style={styles.screenTool}
+                    onPress={() => applyView(scale + 0.25, pan)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Zoom in"
+                    {...(Platform.OS === "web" ? { title: "Zoom in" } : {})}
+                  >
+                    <Plus size={16} color={Theme.textPrimaryDark} />
+                  </Pressable>
+                </>
+              ) : null}
               <Pressable
                 ref={closeRef}
                 style={styles.screenClose}
@@ -652,62 +1194,173 @@ export function DocumentScreen({
               </Pressable>
             </View>
           </View>
-          <View
-            ref={stageRef}
-            style={[styles.screenStage, Platform.OS === "web" ? ({ cursor: scale > 1 ? "grab" : "default" } as ViewStyle) : null]}
-            accessibilityLabel={isPdf ? "PDF preview. Scroll to zoom." : "Image preview. Scroll to zoom. Double-click to zoom."}
-            onLayout={(event) => {
-              const { width, height } = event.nativeEvent.layout;
-              setFrame((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
-            }}
-            onStartShouldSetResponder={() => scale > 1}
-            onResponderGrant={(event) => {
-              drag.current = { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY, panX: pan.x, panY: pan.y };
-            }}
-            onResponderMove={(event) => {
-              if (!drag.current || viewRef.current.scale <= 1) return;
-              const next = clampPreviewPan(
-                drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-                drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-                viewRef.current.scale,
-                frame.width,
-                frame.height,
-              );
-              setPan(next);
-            }}
-            onResponderRelease={() => {
-              drag.current = null;
-            }}
-          >
+          <View style={[styles.screenStageRow, fullPage && styles.screenStageRowPage]}>
             <View
-              pointerEvents="none"
+              ref={stageRef}
               style={[
-                styles.screenPage,
-                {
-                  transform: [
-                    { translateX: pan.x },
-                    { translateY: pan.y },
-                    { scale },
-                    { rotate: `${rotation}deg` },
-                  ],
-                },
+                styles.screenStage,
+                fullPage && styles.screenStagePage,
+                Platform.OS === "web" && (showImage || showPdf)
+                  ? ({ cursor: pannable ? "grab" : "default" } as ViewStyle)
+                  : null,
               ]}
+              accessibilityLabel={
+                showTyped
+                  ? "Entered document details"
+                  : showPdf
+                    ? pdfViewOwned
+                      ? "Rotated PDF. Scroll or drag to pan. Use the header Rotate to straighten."
+                      : "Original PDF document. Scroll pages in the viewer. Use the header Rotate for a smooth rotated view."
+                    : rotatedViewOwned
+                      ? "Rotated image. Scroll or drag to pan. Use side arrows for the next document."
+                      : "Image preview. Scroll to zoom. Drag to pan when zoomed or rotated."
+              }
+              onLayout={(event) => {
+                const { width, height } = event.nativeEvent.layout;
+                setFrame((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+              }}
+              // Native: keep responders. Web pan uses pointer events above (more reliable when rotated).
+              {...(Platform.OS !== "web"
+                ? {
+                    onStartShouldSetResponder: () => pannable && (showImage || pdfViewOwned),
+                    onMoveShouldSetResponder: () => pannable && (showImage || pdfViewOwned),
+                    onResponderGrant: (event: { nativeEvent: { pageX: number; pageY: number } }) => {
+                      if (!pannable) return;
+                      if (!showImage && !pdfViewOwned) return;
+                      drag.current = {
+                        x: event.nativeEvent.pageX,
+                        y: event.nativeEvent.pageY,
+                        panX: pan.x,
+                        panY: pan.y,
+                      };
+                    },
+                    onResponderMove: (event: { nativeEvent: { pageX: number; pageY: number } }) => {
+                      if (!drag.current || !canPanPreview(viewRef.current.scale, viewRef.current.rotation)) {
+                        return;
+                      }
+                      if (!showImage && !pdfViewOwned) return;
+                      schedulePan(
+                        clampPreviewPan(
+                          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+                          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
+                          viewRef.current.scale,
+                          frame.width,
+                          frame.height,
+                          viewRef.current.rotation,
+                        ),
+                      );
+                    },
+                    onResponderRelease: () => {
+                      drag.current = null;
+                    },
+                  }
+                : null)}
             >
-              {isPdf ? (
-                <TripVaultFilePreview
-                  uri={uri}
-                  isPdf
-                  showToolbar={false}
-                  sizing="fit"
-                  zoom={1}
-                  page={page}
-                  style={styles.screenFile}
-                  accessibilityLabel={title}
+              {showTyped && typedLines ? (
+                <TypedDetailsPreview
+                  title={title}
+                  lines={typedLines}
+                  insetForSideNav={sideNavEnabled}
+                  darkCanvas={fullPage}
                 />
+              ) : showPdf && uri ? (
+                <View
+                  style={[
+                    styles.screenPage,
+                    {
+                      transform: previewViewTransform(pan, 1, rotation),
+                    },
+                  ]}
+                  // Rotated: stage owns wheel/drag. Upright: iframe keeps native scroll.
+                  pointerEvents={pdfViewOwned ? "box-none" : "auto"}
+                >
+                  <TripVaultFilePreview
+                    uri={uri}
+                    isPdf
+                    // Hide Chrome PDF chrome — its built-in rotate breaks smooth scroll.
+                    // Use the header Rotate control instead.
+                    showToolbar={false}
+                    sizing="original"
+                    zoom={scale}
+                    page={page}
+                    interactive={!pdfViewOwned}
+                    style={styles.screenFile}
+                    accessibilityLabel={title}
+                  />
+                </View>
+              ) : showImage && uri ? (
+                <>
+                  {(imageLoading || busyResolving) && !imageFailed ? (
+                    <View style={styles.screenLoading} pointerEvents="none">
+                      <ActivityIndicator size="large" color={Theme.textOnDark} />
+                      <Text style={styles.screenLoadingText}>Loading document…</Text>
+                    </View>
+                  ) : null}
+                  {imageFailed ? (
+                    <View style={styles.screenLoading}>
+                      <Text style={styles.screenLoadingText}>Couldn’t load this file. Try Next or close and reopen.</Text>
+                    </View>
+                  ) : (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.screenPage,
+                        {
+                          opacity: imageLoading ? 0.15 : 1,
+                          transform: previewViewTransform(pan, scale, rotation),
+                        },
+                      ]}
+                    >
+                      <ExpoImage
+                        source={{ uri }}
+                        style={styles.screenFile}
+                        contentFit="contain"
+                        cachePolicy="memory-disk"
+                        recyclingKey={uri}
+                        accessibilityLabel={title}
+                        onLoadStart={() => {
+                          setImageFailed(false);
+                          setImageLoading(true);
+                        }}
+                        onLoad={() => setImageLoading(false)}
+                        onError={() => {
+                          setImageLoading(false);
+                          setImageFailed(true);
+                        }}
+                      />
+                    </View>
+                  )}
+                </>
+              ) : busyResolving ? (
+                <View style={styles.screenLoading}>
+                  <ActivityIndicator size="large" color={Theme.textOnDark} />
+                  <Text style={styles.screenLoadingText}>Loading document…</Text>
+                </View>
               ) : (
-                <Image source={{ uri }} style={styles.screenFile} resizeMode="contain" accessibilityLabel={title} />
+                <View style={styles.screenLoading}>
+                  <Text style={styles.screenLoadingText}>No preview available for this document.</Text>
+                </View>
               )}
             </View>
+            {/* Inside the stage row so arrows stay above the rotated media hit-target. */}
+            {sideNavEnabled ? (
+              <>
+                <View style={[styles.docSideNavOverlayLeft, styles.docSideNavOverlayScreen]} pointerEvents="box-none">
+                  <DocSideNavButton
+                    direction="prev"
+                    onPress={() => onPrev?.()}
+                    tone={fullPage ? "dark" : "light"}
+                  />
+                </View>
+                <View style={[styles.docSideNavOverlayRight, styles.docSideNavOverlayScreen]} pointerEvents="box-none">
+                  <DocSideNavButton
+                    direction="next"
+                    onPress={() => onNext?.()}
+                    tone={fullPage ? "dark" : "light"}
+                  />
+                </View>
+              </>
+            ) : null}
           </View>
         </View>
       </View>
@@ -726,12 +1379,15 @@ export function ComplianceDocumentWorkspace({
   stacked = false,
   style,
   canManageFinance = false,
+  /** False on Compliance Pending queue chip only — hide Finance tab for every trip in that stage. */
+  showFinanceTab = true,
   canManagePod = false,
   showHardCopyPodLog = false,
   compliancePendingQueue = false,
   showPodClientValidation = false,
   chargesReview = false,
   onChargesSaved,
+  showHardcopyPodButton = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
   onPay,
@@ -762,6 +1418,11 @@ export function ComplianceDocumentWorkspace({
   stacked?: boolean;
   style?: StyleProp<ViewStyle>;
   canManageFinance?: boolean;
+  /**
+   * Finance documents tab. Off only while the page filter is Compliance Pending
+   * (includes Declined-by-finance trips that still have verified_at).
+   */
+  showFinanceTab?: boolean;
   /** Log hard-copy POD — Compliance role (and owner/admin) only. */
   canManagePod?: boolean;
   /** True only while the Compliance queue filter is Awaiting POD. */
@@ -774,6 +1435,11 @@ export function ComplianceDocumentWorkspace({
   chargesReview?: boolean;
   /** POD Received save: parent moves the trip to the next stage. */
   onChargesSaved?: (tripId: string) => void;
+  /**
+   * PREVIEW-row Hardcopy POD control — Awaiting POD / POD Received /
+   * Balance Pending / Settled only (not Verified → Payment Pending).
+   */
+  showHardcopyPodButton?: boolean;
   /**
    * Increments when the page bar asks to create a hard-copy POD log
    * for the selected Awaiting POD trip.
@@ -963,8 +1629,17 @@ export function ComplianceDocumentWorkspace({
     return mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
   }, [summary, supplierBankProof]);
   const isFinanceMode =
-    checklistPreviewMode === "finance" && summary?.stage !== "compliance_pending" && !compliancePendingQueue;
+    showFinanceTab &&
+    checklistPreviewMode === "finance" &&
+    summary?.stage !== "compliance_pending" &&
+    !compliancePendingQueue;
   const listRows = isFinanceMode ? financeRows : checklistRows;
+
+  useEffect(() => {
+    if (!showFinanceTab && checklistPreviewMode === "finance") {
+      setChecklistPreviewMode("document");
+    }
+  }, [showFinanceTab, checklistPreviewMode]);
   const reviewScope: DocTab = isFinanceMode ? "trip" : tab;
   const displayListRows = useMemo(
     () =>
@@ -1559,8 +2234,7 @@ export function ComplianceDocumentWorkspace({
     canManageFinance && readiness?.paymentReady && summary && (onConfirmPayment || onPay),
   );
   const readyPaymentCategory = readiness?.readyCategory ?? null;
-  // Hide Reject once any advance is on file — including a pre-verify advance that
-  // blocks Pay (Finance must reverse it; Reject is the wrong action here).
+  // Hide Reject once any advance is on file (Finance-posted, including before verify).
   const showReject = Boolean(
     summary?.complianceVerifiedAt &&
       !isComplianceVerifiedRejected(summary) &&
@@ -2145,7 +2819,7 @@ export function ComplianceDocumentWorkspace({
               <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
                 <View style={styles.checklistPanelToolbar}>
                   <View style={styles.checklistPanelTabs}>
-                    {compliancePendingView ? null : (
+                    {showFinanceTab && !compliancePendingView ? (
                     <Pressable
                       onPress={() => {
                         setTab("trip");
@@ -2192,7 +2866,7 @@ export function ComplianceDocumentWorkspace({
                         </View>
                       ) : null}
                     </Pressable>
-                    )}
+                    ) : null}
                     {TABS.map((item) => {
                       const active = tab === item.key && checklistPreviewMode !== "finance";
                       const missingCount = tabMissingCounts[item.key];
@@ -2328,10 +3002,31 @@ export function ComplianceDocumentWorkspace({
                             );
                           })
                         : listRows.map(renderChecklistRow)}
+                      <View
+                        style={styles.checklistListGapArt}
+                        pointerEvents="none"
+                        accessibilityElementsHidden
+                        importantForAccessibility="no-hide-descendants"
+                      >
+                        <HubPromoHeroLottie
+                          source={EMPTY_STATE_LOTTIE.documents}
+                          width={240}
+                          height={152}
+                          renderScale={1.06}
+                        />
+                      </View>
                     </ScrollView>
                     <View style={styles.checklistPreviewActionsSection}>
-                      <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
-                      <View style={styles.checklistPreviewActionsRow}>
+                      <View style={styles.checklistPreviewActionsHeader}>
+                        <Text style={styles.checklistPreviewActionsLabel}>PREVIEW</Text>
+                        <Text style={styles.checklistFooterVaultText} numberOfLines={1}>
+                          {isFinanceMode ? "Asset Vault · Trip Details" : vaultCopy.vaultLabel} ·{" "}
+                          {listMissingRows.length > 0
+                            ? `${listMissingRows.length} remaining`
+                            : `${uploadedCount} on file`}
+                        </Text>
+                      </View>
+                      <View style={styles.checklistPreviewActionsGrid}>
                         <TouchableOpacity
                           style={[
                             styles.checklistModeBtn,
@@ -2353,30 +3048,33 @@ export function ComplianceDocumentWorkspace({
                             Trip Detail
                           </Text>
                         </TouchableOpacity>
-                        {compliancePendingView ? null : (
-                        <TouchableOpacity
-                          style={[
-                            styles.checklistModeBtn,
-                            checklistPreviewMode === "advance" && styles.checklistModeBtnActive,
-                          ]}
-                          activeOpacity={0.8}
-                          onPress={() => setChecklistPreviewMode("advance")}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: checklistPreviewMode === "advance" }}
-                          accessibilityLabel="Show advance payment details"
-                        >
-                          <Text
+                        {showFinanceTab && !compliancePendingView ? (
+                          <TouchableOpacity
                             style={[
-                              styles.checklistModeBtnText,
-                              checklistPreviewMode === "advance" && styles.checklistModeBtnTextActive,
+                              styles.checklistModeBtn,
+                              checklistPreviewMode === "advance" && styles.checklistModeBtnActive,
                             ]}
-                            numberOfLines={1}
+                            activeOpacity={0.8}
+                            onPress={() => setChecklistPreviewMode("advance")}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: checklistPreviewMode === "advance" }}
+                            accessibilityLabel="Show advance payment details"
                           >
-                            Advance Payment
-                          </Text>
-                        </TouchableOpacity>
-                        )}
-                        {canManagePod && !isPendingDocsTrip && !compliancePendingView ? (
+                            <Text
+                              style={[
+                                styles.checklistModeBtnText,
+                                checklistPreviewMode === "advance" && styles.checklistModeBtnTextActive,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              Advance Payment
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {canManagePod &&
+                        showHardcopyPodButton &&
+                        !isPendingDocsTrip &&
+                        !compliancePendingView ? (
                           <TouchableOpacity
                             style={styles.checklistModeBtn}
                             activeOpacity={0.8}
@@ -2412,9 +3110,11 @@ export function ComplianceDocumentWorkspace({
                             </Text>
                           </TouchableOpacity>
                         ) : null}
-                        {(showPendingTripActions || showFinanceDeclineReVerify) &&
-                        onMarkComplianceVerified &&
-                        summary ? (
+                      </View>
+                      {(showPendingTripActions || showFinanceDeclineReVerify) &&
+                      onMarkComplianceVerified &&
+                      summary ? (
+                        <View style={styles.checklistPreviewTripActions}>
                           <TouchableOpacity
                             style={[styles.verifyTripBtn, markingVerified && styles.btnDisabled]}
                             activeOpacity={0.85}
@@ -2455,27 +3155,19 @@ export function ComplianceDocumentWorkspace({
                               <Text style={styles.verifyTripBtnText}>Verify</Text>
                             )}
                           </TouchableOpacity>
-                        ) : null}
-                        {showPendingTripActions && onDeclineCompliance && summary ? (
-                          <TouchableOpacity
-                            style={styles.declineTripBtn}
-                            activeOpacity={0.85}
-                            onPress={() => setTripDeclineOpen(true)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Decline trip compliance"
-                          >
-                            <Text style={styles.declineTripBtnText}>Decline</Text>
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
-                    </View>
-                    <View style={styles.checklistListFooter}>
-                      <Text style={styles.checklistFooterVaultText} numberOfLines={1}>
-                        {isFinanceMode ? "Asset Vault · Trip Details" : vaultCopy.vaultLabel} ·{" "}
-                        {listMissingRows.length > 0
-                          ? `${listMissingRows.length} remaining`
-                          : `${uploadedCount} on file`}
-                      </Text>
+                          {showPendingTripActions && onDeclineCompliance ? (
+                            <TouchableOpacity
+                              style={styles.declineTripBtn}
+                              activeOpacity={0.85}
+                              onPress={() => setTripDeclineOpen(true)}
+                              accessibilityRole="button"
+                              accessibilityLabel="Decline trip compliance"
+                            >
+                              <Text style={styles.declineTripBtnText}>Decline</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </View>
                   </>
                 )}
@@ -2486,10 +3178,15 @@ export function ComplianceDocumentWorkspace({
                   const previewingDocument =
                     checklistPreviewMode === "document" || checklistPreviewMode === "finance";
                   const toolsEnabled = Boolean(previewUrl);
+                  const canExpand = Boolean(previewUrl || typedLines);
+                  const expandColor = canExpand ? Theme.textPrimaryDark : Theme.textMuted;
                   const toolColor = toolsEnabled ? Theme.textPrimaryDark : Theme.textMuted;
                   const previewPos = previewable.findIndex((row) => row.key === checklistKey);
                   const previewOrdinal = previewPos >= 0 ? previewPos + 1 : previewable.length > 0 ? 1 : 0;
-                  const canStepDocs = previewable.length > 0;
+                  const showSideNav =
+                    previewingDocument &&
+                    previewable.length > 1 &&
+                    (Boolean(previewUrl) || Boolean(typedLines) || loadingPreview);
                   return (
                     <>
                 {previewingDocument ? (
@@ -2498,6 +3195,17 @@ export function ComplianceDocumentWorkspace({
                       {docTitle}
                     </Text>
                     <View style={styles.previewToolbarActions}>
+                      <Pressable
+                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        onPress={() => setRotation((value) => (value + 90) % 360)}
+                        disabled={!toolsEnabled}
+                        accessibilityRole="button"
+                        accessibilityLabel="Rotate document"
+                        accessibilityState={{ disabled: !toolsEnabled }}
+                        {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
+                      >
+                        <RotateCcw size={14} color={toolColor} />
+                      </Pressable>
                       <Pressable
                         style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
                         onPress={() => setZoom((value) => clampPreviewZoom(value - 0.25))}
@@ -2523,33 +3231,25 @@ export function ComplianceDocumentWorkspace({
                       </Pressable>
                       <Pressable
                         style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
-                        onPress={() => setRotation((value) => (value + 90) % 360)}
-                        disabled={!toolsEnabled}
-                        accessibilityRole="button"
-                        accessibilityLabel="Rotate document"
-                        accessibilityState={{ disabled: !toolsEnabled }}
-                      >
-                        <RotateCw size={14} color={toolColor} />
-                      </Pressable>
-                      <Pressable
-                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
                         onPress={resetPreviewView}
                         disabled={!toolsEnabled}
                         accessibilityRole="button"
                         accessibilityLabel="Reset view"
                         accessibilityState={{ disabled: !toolsEnabled }}
+                        {...(Platform.OS === "web" ? { title: "Reset view" } : {})}
                       >
-                        <RotateCcw size={14} color={toolColor} />
+                        <RotateCw size={14} color={toolColor} />
                       </Pressable>
                       <Pressable
-                        style={[styles.previewToolBtn, !toolsEnabled && styles.previewToolBtnDisabled]}
+                        style={[styles.previewToolBtn, !canExpand && styles.previewToolBtnDisabled]}
                         onPress={() => setScreenOpen(true)}
-                        disabled={!toolsEnabled}
+                        disabled={!canExpand}
                         accessibilityRole="button"
-                        accessibilityLabel={`Open ${docTitle} larger`}
-                        accessibilityState={{ disabled: !toolsEnabled }}
+                        accessibilityLabel={`Open ${docTitle} full screen`}
+                        accessibilityState={{ disabled: !canExpand }}
+                        {...(Platform.OS === "web" ? { title: "Full screen" } : {})}
                       >
-                        <Maximize2 size={14} color={toolColor} />
+                        <Maximize2 size={14} color={expandColor} />
                       </Pressable>
                     </View>
                   </View>
@@ -2615,150 +3315,137 @@ export function ComplianceDocumentWorkspace({
                       <Text style={styles.checklistPreviewEmptyTitle}>{vaultCopy.unassignedTitle}</Text>
                       <Text style={styles.checklistPreviewEmptyHint}>{vaultCopy.unassignedHint}</Text>
                     </View>
-                  ) : loadingPreview ? (
-                    <View style={styles.checklistPreviewEmpty}>
-                      <ActivityIndicator color={Theme.textPrimaryDark} />
-                    </View>
-                  ) : typedLines && canViewDocuments ? (
-                    <ScrollView
-                      contentContainerStyle={styles.checklistTypedWrap}
-                      showsVerticalScrollIndicator={false}
-                    >
-                      <Text style={styles.typedTitle}>{docTitle} · entered details (no file)</Text>
-                      {typedLines.map((line, index) => (
-                        <View key={`${line.label}-${index}`} style={styles.typedRow}>
-                          <Text style={styles.typedLabel}>{line.label}</Text>
-                          <Text style={styles.typedValue}>{line.value}</Text>
+                  ) : (
+                    <View style={styles.previewStageRow}>
+                      {loadingPreview ? (
+                        <View style={styles.checklistPreviewEmpty}>
+                          <ActivityIndicator color={Theme.textPrimaryDark} />
+                          <Text style={styles.checklistPreviewLoadingText}>Loading document…</Text>
                         </View>
-                      ))}
-                    </ScrollView>
-                  ) : previewUrl || showSupplierBankPanel ? (
-                    <View style={styles.checklistBankPreviewWrap}>
-                      {previewUrl ? (
-                        <View style={styles.checklistBankPreviewDoc}>
-                          <OriginalDocumentPreview
-                            uri={previewUrl}
-                            isPdf={isPdf}
-                            zoom={zoom}
-                            rotation={rotation}
-                            label={docTitle}
-                          />
-                        </View>
-                      ) : null}
-                      {showSupplierBankPanel ? (
-                        <ScrollView
-                          style={
-                            previewUrl
-                              ? styles.checklistBankDetailsScroll
-                              : styles.checklistBankDetailsScrollSolo
-                          }
-                          contentContainerStyle={styles.checklistBankDetailsContent}
-                          showsVerticalScrollIndicator={false}
-                        >
-                          <View style={styles.bankCardHeader}>
-                            <View style={styles.bankCardHeaderCopy}>
-                              <Text style={styles.checklistBankDetailsTitle}>Bank account</Text>
-                              <Text style={styles.checklistBankDetailsHint} numberOfLines={1}>
-                                Payout account from {supplierLabelForBank}
-                              </Text>
+                      ) : typedLines && canViewDocuments ? (
+                        <TypedDetailsPreview
+                          title={docTitle}
+                          lines={typedLines}
+                          insetForSideNav={showSideNav}
+                        />
+                      ) : previewUrl || showSupplierBankPanel ? (
+                        <View style={styles.checklistBankPreviewWrap}>
+                          {previewUrl ? (
+                            <View style={styles.checklistBankPreviewDoc}>
+                              <OriginalDocumentPreview
+                                uri={previewUrl}
+                                isPdf={isPdf}
+                                zoom={zoom}
+                                rotation={rotation}
+                                label={docTitle}
+                                onZoomChange={setZoom}
+                              />
                             </View>
-                            {supplierBankProof?.detailLine ? (
-                              <Text style={styles.bankCardMeta} numberOfLines={2}>
-                                {supplierBankProof.detailLine}
-                              </Text>
-                            ) : null}
-                          </View>
-                          {supplierBankLoading && supplierBankAccountRows.length === 0 ? (
-                            <ActivityIndicator color={Theme.textPrimaryDark} style={{ marginVertical: 12 }} />
-                          ) : (
-                            <View style={styles.bankFieldsGrid}>
-                              {supplierBankAccountRows.map((row) => (
-                                <View key={row.label} style={styles.bankFieldCell}>
-                                  <Text style={styles.bankFieldLabel}>{row.label}</Text>
-                                  <Text style={styles.bankFieldValue} numberOfLines={1}>
-                                    {row.value}
+                          ) : null}
+                          {showSupplierBankPanel ? (
+                            <ScrollView
+                              style={
+                                previewUrl
+                                  ? styles.checklistBankDetailsScroll
+                                  : styles.checklistBankDetailsScrollSolo
+                              }
+                              contentContainerStyle={styles.checklistBankDetailsContent}
+                              showsVerticalScrollIndicator={false}
+                            >
+                              <View style={styles.bankCardHeader}>
+                                <View style={styles.bankCardHeaderCopy}>
+                                  <Text style={styles.checklistBankDetailsTitle}>Bank account</Text>
+                                  <Text style={styles.checklistBankDetailsHint} numberOfLines={1}>
+                                    Payout account from {supplierLabelForBank}
                                   </Text>
                                 </View>
-                              ))}
-                              {supplierBankAccountRows.length === 0 ? (
-                                <Text style={styles.checklistBankDetailsHint}>
-                                  No payout account on file yet. Save bank details on the supplier profile.
-                                </Text>
-                              ) : null}
-                            </View>
-                          )}
-                          <View style={styles.bankProofSection}>
-                            <Text style={styles.bankProofLabel}>Proof document</Text>
-                            <View style={styles.bankProofRow}>
-                              <View style={styles.bankProofCopy}>
-                                <Text style={styles.bankProofTitle} numberOfLines={1}>
-                                  {supplierBankProof?.fileName?.trim() ||
-                                    (previewUrl ? "Bank proof" : "No proof uploaded")}
-                                </Text>
-                                {supplierBankVerified ? (
-                                  <View style={styles.bankVerifiedChip}>
-                                    <Text style={styles.bankVerifiedChipText}>Verified</Text>
-                                  </View>
-                                ) : supplierBankProof?.previewPath ? (
-                                  <View style={styles.bankPendingChip}>
-                                    <Text style={styles.bankPendingChipText}>On file</Text>
-                                  </View>
+                                {supplierBankProof?.detailLine ? (
+                                  <Text style={styles.bankCardMeta} numberOfLines={2}>
+                                    {supplierBankProof.detailLine}
+                                  </Text>
                                 ) : null}
                               </View>
-                              <Text style={styles.bankProofHint} numberOfLines={1}>
-                                Synced from supplier Banking
-                              </Text>
-                            </View>
+                              {supplierBankLoading && supplierBankAccountRows.length === 0 ? (
+                                <ActivityIndicator color={Theme.textPrimaryDark} style={{ marginVertical: 12 }} />
+                              ) : (
+                                <View style={styles.bankFieldsGrid}>
+                                  {supplierBankAccountRows.map((row) => (
+                                    <View key={row.label} style={styles.bankFieldCell}>
+                                      <Text style={styles.bankFieldLabel}>{row.label}</Text>
+                                      <Text style={styles.bankFieldValue} numberOfLines={1}>
+                                        {row.value}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                  {supplierBankAccountRows.length === 0 ? (
+                                    <Text style={styles.checklistBankDetailsHint}>
+                                      No payout account on file yet. Save bank details on the supplier profile.
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              )}
+                              <View style={styles.bankProofSection}>
+                                <Text style={styles.bankProofLabel}>Proof document</Text>
+                                <View style={styles.bankProofRow}>
+                                  <View style={styles.bankProofCopy}>
+                                    <Text style={styles.bankProofTitle} numberOfLines={1}>
+                                      {supplierBankProof?.fileName?.trim() ||
+                                        (previewUrl ? "Bank proof" : "No proof uploaded")}
+                                    </Text>
+                                    {supplierBankVerified ? (
+                                      <View style={styles.bankVerifiedChip}>
+                                        <Text style={styles.bankVerifiedChipText}>Verified</Text>
+                                      </View>
+                                    ) : supplierBankProof?.previewPath ? (
+                                      <View style={styles.bankPendingChip}>
+                                        <Text style={styles.bankPendingChipText}>On file</Text>
+                                      </View>
+                                    ) : null}
+                                  </View>
+                                  <Text style={styles.bankProofHint} numberOfLines={1}>
+                                    Synced from supplier Banking
+                                  </Text>
+                                </View>
+                              </View>
+                            </ScrollView>
+                          ) : null}
+                        </View>
+                      ) : (
+                        <View style={styles.checklistPreviewEmpty}>
+                          <Text style={styles.checklistPreviewEmptyTitle}>
+                            {checklistSelectedRow
+                              ? `${
+                                  isFinanceMode
+                                    ? labelForFinanceDocType(checklistSelectedRow.type)
+                                    : labelForDocType(checklistSelectedRow.type)
+                                } has no file to preview`
+                              : "Select a document to preview"}
+                          </Text>
+                          <Text style={styles.checklistPreviewEmptyHint}>
+                            Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment.
+                          </Text>
+                        </View>
+                      )}
+                      {showSideNav ? (
+                        <>
+                          <View style={styles.docSideNavOverlayLeft} pointerEvents="box-none">
+                            <DocSideNavButton direction="prev" onPress={goPrev} tone="light" />
                           </View>
-                        </ScrollView>
+                          <View style={styles.docSideNavOverlayRight} pointerEvents="box-none">
+                            <DocSideNavButton direction="next" onPress={goNext} tone="light" />
+                          </View>
+                        </>
                       ) : null}
-                    </View>
-                  ) : (
-                    <View style={styles.checklistPreviewEmpty}>
-                      <Text style={styles.checklistPreviewEmptyTitle}>
-                        {checklistSelectedRow
-                          ? `${
-                              isFinanceMode
-                                ? labelForFinanceDocType(checklistSelectedRow.type)
-                                : labelForDocType(checklistSelectedRow.type)
-                            } has no file to preview`
-                          : "Select a document to preview"}
-                      </Text>
-                      <Text style={styles.checklistPreviewEmptyHint}>
-                        Tap the eye icon on an uploaded document, or use Trip Detail / Advance Payment.
-                      </Text>
                     </View>
                   )}
                 </View>
                 {previewingDocument ? (
                   <View style={styles.previewFooter}>
                     <Text style={styles.previewFooterMeta} numberOfLines={1}>
-                      {canStepDocs
+                      {previewable.length > 0
                         ? `${previewOrdinal} of ${previewable.length}`
                         : "No file on this row"}
                     </Text>
-                    <View style={styles.previewFooterNav}>
-                      <TouchableOpacity
-                        style={[styles.previewToolBtn, !canStepDocs && styles.previewToolBtnDisabled]}
-                        onPress={goPrev}
-                        disabled={!canStepDocs}
-                        accessibilityRole="button"
-                        accessibilityLabel="Previous document"
-                        accessibilityState={{ disabled: !canStepDocs }}
-                      >
-                        <ChevronLeft size={16} color={canStepDocs ? Theme.textPrimaryDark : Theme.textMuted} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.previewToolBtn, !canStepDocs && styles.previewToolBtnDisabled]}
-                        onPress={goNext}
-                        disabled={!canStepDocs}
-                        accessibilityRole="button"
-                        accessibilityLabel="Next document"
-                        accessibilityState={{ disabled: !canStepDocs }}
-                      >
-                        <ChevronRight size={16} color={canStepDocs ? Theme.textPrimaryDark : Theme.textMuted} />
-                      </TouchableOpacity>
-                    </View>
                   </View>
                 ) : null}
                     </>
@@ -2788,15 +3475,27 @@ export function ComplianceDocumentWorkspace({
         ) : null}
       </View>
       )}
-      {previewUrl ? (
-        <DocumentScreen
-          visible={screenOpen}
-          uri={previewUrl}
-          isPdf={isPdf}
-          title={docTitle}
-          onClose={() => setScreenOpen(false)}
-        />
-      ) : null}
+      <DocumentScreen
+        visible={screenOpen}
+        uri={previewUrl}
+        isPdf={isPdf}
+        title={docTitle}
+        presentation="page"
+        onClose={() => setScreenOpen(false)}
+        onPrev={goPrev}
+        onNext={goNext}
+        canNavigate={previewable.length > 1}
+        typedLines={typedLines}
+        resolving={loadingPreview}
+        navLabel={
+          previewable.length > 0
+            ? `${Math.max(
+                1,
+                previewable.findIndex((row) => row.key === checklistKey) + 1,
+              )} of ${previewable.length}`
+            : null
+        }
+      />
       <ComplianceInputModal
         visible={declineOpen}
         title={declineTarget === "required" ? "Decline required documents" : "Decline optional documents"}
@@ -2915,7 +3614,7 @@ function TripDetailFact({
       </Text>
       <Text
         style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
-        numberOfLines={wide ? 3 : 2}
+        numberOfLines={1}
       >
         {value}
       </Text>
@@ -2927,13 +3626,15 @@ function TripDetailSection({
   title,
   children,
   columns,
+  style,
 }: {
   title: string;
   children: React.ReactNode;
   columns: 2 | 3;
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <View style={styles.tripDetailSection}>
+    <View style={[styles.tripDetailSection, style]}>
       <View style={styles.tripDetailSectionHeader}>
         <Text style={styles.tripDetailSectionTitle}>{title}</Text>
       </View>
@@ -3126,57 +3827,84 @@ function ChecklistTripDetailsPanel({
     bankDetails?.beneficiaryName ?? (supplierLabel !== "—" ? supplierLabel : "—");
   const supplierRate = formatTripInr(supplierCostTotal(commercial) ?? commercial.supplier_rate);
   const clientRate = formatTripInr(commercial.client_price);
-  const { width: panelWidth } = useWindowDimensions();
-  const columns: 2 | 3 = panelWidth >= 720 ? 3 : 2;
+  const [paneWidth, setPaneWidth] = useState(0);
+  /** Side-by-side card pairs when the preview pane is wide enough. */
+  const pairCards = paneWidth >= 400;
+  const tripColumns: 2 | 3 = paneWidth >= 520 ? 3 : 2;
 
   return (
-    <ScrollView
-      style={styles.checklistInfoScroll}
-      contentContainerStyle={styles.checklistInfoContent}
-      showsVerticalScrollIndicator={false}
+    <View
+      style={styles.tripDetailsPanel}
+      onLayout={(event) => {
+        const next = event.nativeEvent.layout.width;
+        setPaneWidth((prev) => (prev === next ? prev : next));
+      }}
     >
-      <Text style={styles.checklistInfoTitle}>Trip details</Text>
-      <Text style={styles.checklistInfoHint}>Selected trip facts from the compliance queue</Text>
+      <View style={styles.tripDetailsHeader}>
+        <Text style={styles.checklistInfoTitle}>Trip details</Text>
+        <Text style={styles.checklistInfoHint} numberOfLines={1}>
+          Selected trip facts from the compliance queue
+        </Text>
+      </View>
 
-      <TripDetailSection title="Trip" columns={columns}>
-        <TripDetailFact label="Trip ID" value={tripId} wide />
-        <TripDetailFact label="Route" value={routeLine} wide />
+      <TripDetailSection title="Trip" columns={tripColumns} style={styles.tripDetailSectionPrimary}>
+        <TripDetailFact label="Trip ID" value={tripId} />
         <TripDetailFact label="Vehicle" value={vehicle} />
-        <TripDetailFact label="Truck type" value={truckLabel} />
+        {tripColumns === 3 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
+        <TripDetailFact label="Route" value={routeLine} wide />
+        {tripColumns === 2 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
         <TripDetailFact label="Model" value={isAsset ? "Asset" : "Aggregate"} />
         <TripDetailFact label="In-transit" value={inTransitAt} />
         <TripDetailFact label="Loaded weight" value={formatLoadedWeight(commercial.load_tons)} />
       </TripDetailSection>
 
-      <TripDetailSection title="Parties" columns={2}>
-        <TripDetailFact label="Customer" value={customerName} />
-        <TripDetailFact label="Supplier" value={supplierLabel} />
-      </TripDetailSection>
+      <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
+        <TripDetailSection
+          title="Parties"
+          columns={2}
+          style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
+        >
+          <TripDetailFact label="Customer" value={customerName} />
+          <TripDetailFact label="Supplier" value={supplierLabel} />
+        </TripDetailSection>
+        <TripDetailSection
+          title="Documents"
+          columns={2}
+          style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
+        >
+          <TripDetailFact label="LR no" value={lrNo} />
+          <TripDetailFact label="Client sales invoice" value={salesInvoice} />
+        </TripDetailSection>
+      </View>
 
-      <TripDetailSection title="Documents" columns={2}>
-        <TripDetailFact label="LR no" value={lrNo} />
-        <TripDetailFact label="Client sales invoice" value={salesInvoice} />
-      </TripDetailSection>
-
-      <TripDetailSection title="Rates" columns={columns}>
-        <TripDetailFact label="Supplier rate" value={supplierRate} />
-        <TripDetailFact label="Supplier rate / MT" value={supplierRatePerMtLabel(commercial)} />
-        <TripDetailFact label="Client rate" value={clientRate} />
-        <TripDetailFact label="Client rate / MT" value={clientRatePerMtLabel(commercial)} />
-        <TripDetailFact label="Profit" value={profit} emphasize />
-        <TripDetailFact label="Profit %" value={profitPercent} emphasize />
-      </TripDetailSection>
-
-      <TripDetailSection title="Banking" columns={columns}>
-        <TripDetailFact label="Beneficiary" value={beneficiary} wide />
-        <TripDetailFact label="Account number" value={bankDetails?.accountNumber ?? "—"} />
-        <TripDetailFact label="IFSC" value={bankDetails?.ifsc ?? "—"} />
-        {payeeDetails ? (
-          <TripDetailFact label="Bank name" value={bankDetails?.bankName ?? "—"} />
-        ) : null}
-        <TripDetailFact label="Branch" value={bankDetails?.branchName ?? "—"} />
-      </TripDetailSection>
-    </ScrollView>
+      <View style={[styles.tripDetailPairRow, !pairCards && styles.tripDetailPairRowStack]}>
+        <TripDetailSection
+          title="Rates"
+          columns={2}
+          style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
+        >
+          <TripDetailFact label="Supplier rate" value={supplierRate} />
+          <TripDetailFact label="Supplier / MT" value={supplierRatePerMtLabel(commercial)} />
+          <TripDetailFact label="Client rate" value={clientRate} />
+          <TripDetailFact label="Client / MT" value={clientRatePerMtLabel(commercial)} />
+          <TripDetailFact label="Profit" value={profit} emphasize />
+          <TripDetailFact label="Profit %" value={profitPercent} emphasize />
+        </TripDetailSection>
+        <TripDetailSection
+          title="Banking"
+          columns={2}
+          style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
+        >
+          <TripDetailFact label="Beneficiary" value={beneficiary} wide />
+          <TripDetailFact label="Account number" value={bankDetails?.accountNumber ?? "—"} />
+          <TripDetailFact label="IFSC" value={bankDetails?.ifsc ?? "—"} />
+          {payeeDetails ? (
+            <TripDetailFact label="Bank name" value={bankDetails?.bankName ?? "—"} />
+          ) : null}
+          <TripDetailFact label="Branch" value={bankDetails?.branchName ?? "—"} />
+        </TripDetailSection>
+      </View>
+    </View>
   );
 }
 
@@ -3252,7 +3980,7 @@ function ChecklistAdvancePaymentPanel({
           // Balance-only messaging is noise on the advance panel.
           if (lower.includes("before the balance")) return false;
           // Amount / log are shown in ComplianceAdvanceCreditCard instead.
-          if (advanceBeforeVerification && lower.includes("posted before compliance")) return false;
+          if (advanceBeforeVerification && lower.includes("finance has posted")) return false;
           return true;
         })
       : [];
@@ -3341,7 +4069,7 @@ function ChecklistAdvancePaymentPanel({
           tone="blocked"
           footer={
             <Text style={styles.checklistAdvanceCreditFooter}>
-              Ask Finance to reverse this advance, then post it again from Verified.
+              Finance has posted this advance. Mark the trip verified to continue — Compliance does not post payments.
             </Text>
           }
         />
@@ -3941,6 +4669,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: Theme.overlayBackdrop,
   },
+  screenRootPage: {
+    backgroundColor: Theme.darkSurface,
+  },
   screenBackdrop: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -3952,6 +4683,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
   },
+  screenSheetPage: {
+    borderRadius: 0,
+    borderWidth: 0,
+    maxWidth: "100%",
+    overflow: "visible",
+  },
   screenBar: {
     minHeight: 48,
     height: 48,
@@ -3962,6 +4699,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
+    zIndex: 6,
   },
   screenBarCompact: {
     height: "auto",
@@ -3977,6 +4715,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
+  },
+  screenNavLabel: {
+    flexShrink: 0,
+    minWidth: 56,
+    paddingHorizontal: 8,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textMuted,
+    textAlign: "center",
   },
   screenTools: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto" },
   screenPercent: { minWidth: 48, textAlign: "center", fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
@@ -4001,6 +4748,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
   },
+  screenStageRow: {
+    flex: 1,
+    minHeight: 0,
+    position: "relative",
+    backgroundColor: Theme.compliancePageBg,
+  },
+  screenStageRowPage: {
+    backgroundColor: Theme.darkSurface,
+  },
   screenStage: {
     flex: 1,
     minHeight: 0,
@@ -4009,8 +4765,170 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: Theme.compliancePageBg,
   },
+  screenStagePage: {
+    backgroundColor: Theme.darkBackground,
+  },
   screenPage: { width: "100%", height: "100%" },
   screenFile: { width: "100%", height: "100%" },
+  screenLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    zIndex: 2,
+  },
+  screenLoadingText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.textOnDarkMuted,
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
+  typedPreviewScroll: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    backgroundColor: Theme.compliancePreviewCanvas,
+  },
+  typedPreviewScrollDark: {
+    backgroundColor: Theme.darkSurface,
+  },
+  typedPreviewContent: {
+    flexGrow: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    alignItems: "center",
+  },
+  typedPreviewContentWithNav: {
+    paddingHorizontal: 64,
+  },
+  typedPreviewPanel: {
+    width: "100%",
+    maxWidth: 560,
+    gap: 12,
+  },
+  typedPreviewHeader: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  typedPreviewKicker: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  typedPreviewTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  typedPreviewMeta: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    marginTop: 2,
+  },
+  typedPreviewGroups: {
+    gap: 10,
+  },
+  typedEntryCard: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.complianceCardBorder,
+    overflow: "hidden",
+  },
+  typedEntryHeading: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  typedEntryFields: {
+    paddingVertical: 2,
+  },
+  typedFieldRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    minHeight: 44,
+  },
+  typedFieldRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+  },
+  typedFieldLabel: {
+    flexGrow: 0,
+    flexShrink: 1,
+    flexBasis: "38%",
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 18,
+    color: Theme.textMuted,
+  },
+  typedFieldValue: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "58%",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+    color: Theme.textPrimaryDark,
+    textAlign: "right",
+  },
+  docSideNavOverlayLeft: {
+    position: "absolute",
+    left: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    zIndex: 40,
+    elevation: 40,
+  },
+  docSideNavOverlayRight: {
+    position: "absolute",
+    right: 10,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    zIndex: 40,
+    elevation: 40,
+  },
+  docSideNavOverlayScreen: {
+    bottom: 0,
+  },
+  docSideNavBtn: {
+    width: 44,
+    minWidth: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    // Ensure the control receives clicks even when a rotated image paints underneath.
+    zIndex: 41,
+    elevation: 41,
+  },
+  docSideNavBtnDark: {
+    backgroundColor: Theme.darkInputBg,
+    borderColor: Theme.borderOnDark,
+  },
+  docSideNavBtnDisabled: {
+    opacity: 0.4,
+  },
   previewTools: { flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
   podBtn: {
     flexShrink: 0,
@@ -4066,10 +4984,6 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
   },
-  typedTitle: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark, marginBottom: 4 },
-  typedRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  typedLabel: { fontSize: 12, color: Theme.textMuted },
-  typedValue: { fontSize: 12, fontWeight: "600", color: Theme.textPrimaryDark },
   emptyStage: {
     flex: 1,
     minHeight: 0,
@@ -4171,36 +5085,64 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   checklistListContent: {
+    flexGrow: 1,
     paddingVertical: 2,
   },
-  checklistListFooter: {
-    flexShrink: 0,
-    minHeight: 28,
-    paddingHorizontal: 10,
+  /** Fills leftover height between document rows and the sticky PREVIEW card. */
+  checklistListGapArt: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 120,
+    maxHeight: 200,
+    width: "100%",
+    maxWidth: "100%",
+    alignItems: "center",
     justifyContent: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.compliancePageBg,
+    alignSelf: "stretch",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    overflow: "hidden",
   },
   checklistPreviewActionsSection: {
     flexShrink: 0,
-    gap: 6,
+    gap: 8,
+    marginHorizontal: 8,
+    marginBottom: 8,
     paddingHorizontal: 10,
     paddingTop: 8,
-    paddingBottom: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.complianceTripCardBg,
+    paddingBottom: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
   },
-  checklistPreviewActionsLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-    color: Theme.textMuted,
-  },
-  checklistPreviewActionsRow: {
+  checklistPreviewActionsHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    minWidth: 0,
+  },
+  checklistPreviewActionsLabel: {
+    flexShrink: 0,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    color: Theme.textMuted,
+  },
+  checklistPreviewActionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "stretch",
+    alignSelf: "stretch",
+    width: "100%",
+    gap: 6,
+  },
+  checklistPreviewTripActions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    alignSelf: "stretch",
+    width: "100%",
     gap: 6,
   },
   tabApprovedBadge: {
@@ -4214,60 +5156,71 @@ const styles = StyleSheet.create({
   },
   verifyTripBtn: {
     flex: 1,
-    height: 36,
+    minWidth: 0,
+    minHeight: 34,
     borderRadius: 8,
     backgroundColor: Theme.positive,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 8,
   },
   verifyTripBtnText: {
     color: Theme.cardWhite,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
   declineTripBtn: {
     flex: 1,
-    height: 36,
+    minWidth: 0,
+    minHeight: 34,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.negative,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 8,
   },
   declineTripBtnText: {
     color: Theme.negative,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
   },
   checklistModeBtn: {
-    flex: 1,
-    minWidth: 0,
-    height: 28,
-    borderRadius: 6,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: "47%",
+    minWidth: 120,
+    minHeight: 32,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: Theme.compliancePageBg,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   checklistModeBtnActive: {
     backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
   },
   checklistModeBtnText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
+    textAlign: "center",
   },
   checklistModeBtnTextActive: {
     color: Theme.buttonDarkText,
   },
   checklistFooterVaultText: {
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: 9,
-    fontWeight: "400",
+    fontWeight: "500",
     color: Theme.textMuted,
+    textAlign: "right",
   },
   checklistInfoScroll: {
     flex: 1,
@@ -4279,10 +5232,24 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     gap: 10,
   },
+  /** Trip Details preview — fills the pane; no vertical scroll. */
+  tripDetailsPanel: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  tripDetailsHeader: {
+    flexShrink: 0,
+    gap: 2,
+    paddingBottom: 2,
+  },
   checklistInfoTitle: {
     fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.3,
+    fontWeight: "700",
+    letterSpacing: 0.35,
     color: Theme.textPrimaryDark,
     textTransform: "uppercase",
   },
@@ -4290,39 +5257,70 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "400",
     color: Theme.textMuted,
-    marginTop: -6,
   },
   tripDetailSection: {
-    borderRadius: 10,
+    flexDirection: "column",
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
+    minWidth: 0,
+    minHeight: 0,
+  },
+  tripDetailSectionPrimary: {
+    flex: 1.15,
+    minHeight: 0,
+  },
+  tripDetailSectionPair: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 0,
+  },
+  tripDetailSectionPairFull: {
+    flex: 1,
+    width: "100%",
+    minHeight: 0,
+  },
+  tripDetailPairRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 6,
+    minHeight: 0,
+  },
+  tripDetailPairRowStack: {
+    flexDirection: "column",
   },
   tripDetailSectionHeader: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    flexShrink: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.compliancePageBg,
   },
   tripDetailSectionTitle: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "700",
-    letterSpacing: 0.6,
+    letterSpacing: 0.55,
     textTransform: "uppercase",
     color: Theme.textSecondary,
   },
   tripFactGrid: {
+    flex: 1,
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 6,
+    alignContent: "space-evenly",
+    paddingHorizontal: 4,
     paddingVertical: 4,
+    minHeight: 0,
   },
   tripFactCell: {
     paddingHorizontal: 6,
-    paddingVertical: 8,
+    paddingVertical: 6,
     minWidth: 0,
+    justifyContent: "center",
   },
   tripFactCellHalf: {
     width: "50%",
@@ -4334,18 +5332,18 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   tripFactLabel: {
-    fontSize: 8,
+    fontSize: 7.5,
     fontWeight: "600",
-    letterSpacing: 0.3,
+    letterSpacing: 0.25,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    marginBottom: 3,
+    marginBottom: 1,
   },
   tripFactValue: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
-    lineHeight: 16,
+    lineHeight: 14,
   },
   tripFactValueEmphasize: {
     fontWeight: "700",
@@ -4505,26 +5503,48 @@ const styles = StyleSheet.create({
   },
   checklistBankPreviewDoc: {
     flex: 1,
+    minWidth: 0,
     minHeight: 120,
     backgroundColor: Theme.compliancePreviewCanvas,
     overflow: "hidden",
+    borderRadius: 8,
+  },
+  previewStageRow: {
+    flex: 1,
+    minHeight: 0,
+    position: "relative",
+    overflow: "visible",
+  },
+  previewStageContent: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
   },
   previewCanvas: {
     flex: 1,
     minHeight: 0,
     width: "100%",
     backgroundColor: Theme.compliancePreviewCanvas,
+    overflow: "hidden",
+    borderRadius: 8,
   },
-  previewScroll: {
-    flex: 1,
-    width: "100%",
+  previewCanvasHovered: {
+    backgroundColor: Theme.compliancePageBg,
   },
-  previewAlign: {
-    flexGrow: 1,
-    width: "100%",
+  previewLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    padding: 12,
+    zIndex: 2,
+  },
+  previewAlign: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: PREVIEW_CANVAS_PAD,
+    overflow: "hidden",
   },
   previewToolbar: {
     flexShrink: 0,
@@ -4578,28 +5598,21 @@ const styles = StyleSheet.create({
   },
   previewFooter: {
     flexShrink: 0,
-    height: 48,
+    height: 44,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    justifyContent: "center",
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
   previewFooterMeta: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 12,
-    fontWeight: "500",
-    color: Theme.textMuted,
-  },
-  previewFooterNav: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
     flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textMuted,
+    textAlign: "center",
   },
   checklistBankDetailsScroll: {
     flexGrow: 0,
@@ -4942,7 +5955,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
-    gap: 4,
+    gap: 8,
   },
   checklistPreviewEmptyTitle: {
     fontSize: 11,
@@ -4957,9 +5970,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     maxWidth: 240,
   },
-  checklistTypedWrap: {
-    padding: 12,
-    gap: 8,
+  checklistPreviewLoadingText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    textAlign: "center",
   },
   missingNavPill: {
     flexShrink: 0,

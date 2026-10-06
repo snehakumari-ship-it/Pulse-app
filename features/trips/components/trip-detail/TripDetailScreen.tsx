@@ -44,6 +44,8 @@ import { TripPodStatusSection } from "@/features/trips/components/trip-detail/Tr
 import { LogHardCopyPodModal } from "@/features/trips/components/trip-detail/LogHardCopyPodModal";
 import { HardCopyPodStatusCard } from "@/features/trips/components/trip-detail/HardCopyPodStatusCard";
 import { ComplianceSection } from "@/features/tripCompliance/components/ComplianceSection";
+import { ComplianceAdvanceFinanceCard } from "@/features/tripCompliance/components/ComplianceAdvanceFinanceCard";
+import { fetchComplianceAdvanceFinanceBreakdown } from "@/features/tripCompliance/services/complianceAdvanceFinanceBreakdown.service";
 import {
   fetchSupplierBankProofBundle,
   type SupplierBankProofBundle,
@@ -842,6 +844,39 @@ export default function TripDetailScreen({
     tripOperationsSummaryQuery.data?.costEvents,
     assignedDriverCompQuery.data,
   ]);
+
+  const complianceFinanceOrgId = (
+    tripForAssetFinance?.organization_id ??
+    currentOrganization?.id ??
+    ""
+  ).trim();
+  const complianceAdvanceFinanceQuery = useQuery({
+    queryKey: queryKeys.tripCompliance.advanceFinance(
+      complianceFinanceOrgId || "_",
+      tripForAssetFinance?.id ?? tripId ?? "_",
+    ),
+    enabled:
+      activeTab === "finance" &&
+      financeSubTab === "summary" &&
+      Boolean(complianceFinanceOrgId) &&
+      Boolean(tripForAssetFinance?.id) &&
+      Boolean((tripForAssetFinance?.supplier_id ?? "").trim()) &&
+      !!tripForAssetFinance &&
+      !isAssetExecutionTrip(tripForAssetFinance) &&
+      !isDcoOperatingTrip(tripForAssetFinance),
+    staleTime: 30_000,
+    queryFn: () =>
+      fetchComplianceAdvanceFinanceBreakdown({
+        orgId: complianceFinanceOrgId,
+        tripId: tripForAssetFinance!.id,
+        supplierId: tripForAssetFinance!.supplier_id,
+        supplierRate: tripForAssetFinance!.supplier_rate,
+        supplierRateBasis:
+          (tripForAssetFinance as { supplier_rate_basis?: string | null } | null)
+            ?.supplier_rate_basis ?? null,
+        loadTons: tripForAssetFinance!.load_tons ?? null,
+      }),
+  });
 
   useEffect(() => {
     if (!detail.trip || !isAssetExecutionTrip(detail.trip)) return;
@@ -3601,6 +3636,12 @@ export default function TripDetailScreen({
   const supplierPartyIntegrated = detail.supplierPartyRes?.integrated ?? false;
   const hasLinkedClient = Boolean((clientIdFromContext ?? trip.client_id)?.trim());
   const hasLinkedSupplier = Boolean((trip.supplier_id ?? "").trim());
+  const showComplianceAdvanceFinance =
+    activeTab === "finance" &&
+    financeSubTab === "summary" &&
+    !isAssetTripFinance &&
+    !isDcoTrip &&
+    hasLinkedSupplier;
   const tripLedgerType = resolveTripLedgerTripType(trip);
   const hasNamedSupplierParty =
     hasLinkedSupplier ||
@@ -3874,80 +3915,89 @@ export default function TripDetailScreen({
       : undefined;
 
   const financeAdjustmentSummaryWrappedEl = (
-    <TripFinanceAdjustmentsPanel
-      layout={financeLayout}
-      canAddAdjustment={canVoidAdjustments}
-      adjustments={detail.adjustments}
-      sales={sales}
-      adjSales={adjSales}
-      revenueSideDelta={revenueSideDelta}
-      cost={cost}
-      adjCost={adjCost}
-      costSideDelta={costSideDelta}
-      clientName={clientNameForParty}
-      clientAvatarUrl={detail.clientPartyAvatarFields?.avatarUrl}
-      clientAvatarSeed={
-        detail.clientPartyAvatarFields?.avatarSeed ??
-        clientIdFromContext ??
-        trip.client_id ??
-        null
-      }
-      clientOrganizationImageUrl={
-        detail.clientPartyAvatarFields?.organizationImageUrl
-      }
-      clientOrganizationAvatarSeed={
-        detail.clientPartyAvatarFields?.organizationAvatarSeed
-      }
-      clientIntegrated={clientPartyIntegrated}
-      supplierName={provisionCostPartyName}
-      supplierAvatarUrl={
-        isAssetTripFinance
-          ? detail.driverAvatarUri
-          : detail.supplierPartyAvatarFields?.avatarUrl
-      }
-      supplierAvatarSeed={
-        isAssetTripFinance
-          ? (trip.driver_id ?? null)
-          : (detail.supplierPartyAvatarFields?.avatarSeed ??
-            trip.supplier_id ??
-            null)
-      }
-      supplierOrganizationImageUrl={
-        isAssetTripFinance
-          ? undefined
-          : detail.supplierPartyAvatarFields?.organizationImageUrl
-      }
-      supplierOrganizationAvatarSeed={
-        isAssetTripFinance
-          ? undefined
-          : detail.supplierPartyAvatarFields?.organizationAvatarSeed
-      }
-      supplierIntegrated={
-        isAssetTripFinance ? undefined : supplierPartyIntegrated
-      }
-      isAssetExecution={isAssetTripFinance}
-      costLaneLabel={isAssetTripFinance ? "Revised trip cost" : undefined}
-      costBreakdownLines={assetCostBreakdownLines}
-      costUnset={supplierCostRateUnset}
-      lineMetaLabel={provisionLineMetaLabel}
-      onOpenProvision={setShowFinanceProvisionPanel}
-      onRequestDeduction={handleRequestCostDeduction}
-      onViewNotePdf={(adj) => {
-        const isSale = adj.type === "revenue";
-        setProvisionNotePdfContext({
-          adjustment: adj,
-          tripCode: getTripDisplayNumber(trip, currentOrganization?.id),
-          companyName: currentOrganization?.name?.trim() || "PULSE",
-          partyName: isSale ? clientNameForParty : provisionCostPartyName,
-          laneLabel: isSale ? "Sale" : "Cost",
-          partyRole: isSale ? "Client" : isDcoTrip ? "DCO" : isAssetTripFinance ? "Driver" : "Supplier",
-          baseLaneAmount: isSale ? sales : cost,
-          revisedLaneAmount: isSale ? adjSales : adjCost,
-        });
-      }}
-      onEditAdjustment={openProvisionEdit}
-      capturePaymentSlot={financeCapturePaymentSlot}
-    />
+    <>
+      <TripFinanceAdjustmentsPanel
+        layout={financeLayout}
+        canAddAdjustment={canVoidAdjustments}
+        adjustments={detail.adjustments}
+        sales={sales}
+        adjSales={adjSales}
+        revenueSideDelta={revenueSideDelta}
+        cost={cost}
+        adjCost={adjCost}
+        costSideDelta={costSideDelta}
+        clientName={clientNameForParty}
+        clientAvatarUrl={detail.clientPartyAvatarFields?.avatarUrl}
+        clientAvatarSeed={
+          detail.clientPartyAvatarFields?.avatarSeed ??
+          clientIdFromContext ??
+          trip.client_id ??
+          null
+        }
+        clientOrganizationImageUrl={
+          detail.clientPartyAvatarFields?.organizationImageUrl
+        }
+        clientOrganizationAvatarSeed={
+          detail.clientPartyAvatarFields?.organizationAvatarSeed
+        }
+        clientIntegrated={clientPartyIntegrated}
+        supplierName={provisionCostPartyName}
+        supplierAvatarUrl={
+          isAssetTripFinance
+            ? detail.driverAvatarUri
+            : detail.supplierPartyAvatarFields?.avatarUrl
+        }
+        supplierAvatarSeed={
+          isAssetTripFinance
+            ? (trip.driver_id ?? null)
+            : (detail.supplierPartyAvatarFields?.avatarSeed ??
+              trip.supplier_id ??
+              null)
+        }
+        supplierOrganizationImageUrl={
+          isAssetTripFinance
+            ? undefined
+            : detail.supplierPartyAvatarFields?.organizationImageUrl
+        }
+        supplierOrganizationAvatarSeed={
+          isAssetTripFinance
+            ? undefined
+            : detail.supplierPartyAvatarFields?.organizationAvatarSeed
+        }
+        supplierIntegrated={
+          isAssetTripFinance ? undefined : supplierPartyIntegrated
+        }
+        isAssetExecution={isAssetTripFinance}
+        costLaneLabel={isAssetTripFinance ? "Revised trip cost" : undefined}
+        costBreakdownLines={assetCostBreakdownLines}
+        costUnset={supplierCostRateUnset}
+        lineMetaLabel={provisionLineMetaLabel}
+        onOpenProvision={setShowFinanceProvisionPanel}
+        onRequestDeduction={handleRequestCostDeduction}
+        onViewNotePdf={(adj) => {
+          const isSale = adj.type === "revenue";
+          setProvisionNotePdfContext({
+            adjustment: adj,
+            tripCode: getTripDisplayNumber(trip, currentOrganization?.id),
+            companyName: currentOrganization?.name?.trim() || "PULSE",
+            partyName: isSale ? clientNameForParty : provisionCostPartyName,
+            laneLabel: isSale ? "Sale" : "Cost",
+            partyRole: isSale ? "Client" : isDcoTrip ? "DCO" : isAssetTripFinance ? "Driver" : "Supplier",
+            baseLaneAmount: isSale ? sales : cost,
+            revisedLaneAmount: isSale ? adjSales : adjCost,
+          });
+        }}
+        onEditAdjustment={openProvisionEdit}
+        capturePaymentSlot={financeCapturePaymentSlot}
+      />
+      {showComplianceAdvanceFinance ? (
+        <ComplianceAdvanceFinanceCard
+          breakdown={complianceAdvanceFinanceQuery.data}
+          loading={complianceAdvanceFinanceQuery.isLoading}
+          supplierName={provisionCostPartyName}
+        />
+      ) : null}
+    </>
   );
 
   const showOdometerVerification =

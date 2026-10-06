@@ -19,8 +19,10 @@ import { deriveComplianceQueueReadiness } from "@/features/tripCompliance/utils/
 import { formatMarkComplianceVerifiedError } from "@/features/tripCompliance/utils/complianceMarkVerifiedError.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { useLayoutInsets } from "@/lib/layoutInsets";
+import { syncFinanceComplianceCaches } from "@/lib/queries/syncFinanceComplianceCaches";
 import { ROUTES } from "@/lib/routes";
 import { useMemberAccess } from "@/lib/useMemberAccess";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
@@ -37,6 +39,7 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
   const { user } = useAuth();
   const orgCtx = useOptionalOrganization();
   const currentOrganization = orgCtx?.currentOrganization ?? null;
+  const queryClient = useQueryClient();
   const { data: summary, isLoading, isError, error, refetch, isFetching } = useComplianceTripQuery(tripId);
   const invalidate = useInvalidateComplianceTrips();
   const markTripVerified = useCallback(async () => {
@@ -188,6 +191,14 @@ export function ComplianceDetailsScreen({ tripId }: { tripId: string }) {
           }
           setPay(null);
           invalidate(trip.id);
+          if (currentOrganization?.id) {
+            syncFinanceComplianceCaches({
+              queryClient,
+              organizationId: currentOrganization.id,
+              tripId: trip.id,
+              includeCompliance: false, // invalidate() already refreshed Settlement
+            });
+          }
           void refetch();
         }}
       />

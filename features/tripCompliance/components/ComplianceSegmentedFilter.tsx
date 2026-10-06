@@ -12,8 +12,9 @@ export type ComplianceSegmentOption<T extends string> = {
 };
 
 /**
- * Compact segmented control (All / Verified / Rejected style) used above
- * Compliance card lists and under stage chips for Pending Docs / CP slices.
+ * Segmented control for Compliance queues. Chips share the panel width evenly
+ * (no horizontal scroll). Use `cardDense` for the card-list header only —
+ * table toolbar keeps the default compact sizing.
  */
 export function ComplianceSegmentedFilter<T extends string>({
   value,
@@ -21,6 +22,8 @@ export function ComplianceSegmentedFilter<T extends string>({
   options,
   onChange,
   embedded = false,
+  compact = false,
+  cardDense = false,
 }: {
   value: T;
   counts: Record<T, number>;
@@ -28,10 +31,24 @@ export function ComplianceSegmentedFilter<T extends string>({
   onChange: (next: T) => void;
   /** When true, omit outer bar padding (toolbar / nested placement). */
   embedded?: boolean;
+  /** Slightly denser padding for stacked Pending Docs filters. */
+  compact?: boolean;
+  /**
+   * Card-list header only: denser chips; full label + count stay readable
+   * (label may wrap to 2 lines). Leave false for table view.
+   */
+  cardDense?: boolean;
 }) {
   return (
-    <View style={[styles.bar, embedded && styles.barEmbedded]}>
-      <View style={styles.track} accessibilityRole="tablist">
+    <View style={[styles.bar, embedded && styles.barEmbedded, cardDense && styles.barCardDense]}>
+      <View
+        style={[
+          styles.track,
+          compact && styles.trackCompact,
+          cardDense && styles.trackCardDense,
+        ]}
+        accessibilityRole="tablist"
+      >
         {options.map((option) => {
           const active = option.id === value;
           const count = counts[option.id] ?? 0;
@@ -42,20 +59,41 @@ export function ComplianceSegmentedFilter<T extends string>({
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
               accessibilityLabel={`${option.a11yLabel ?? option.label}, ${count} trips`}
-              hitSlop={{ top: 8, bottom: 8 }}
+              hitSlop={{ top: 6, bottom: 6 }}
               style={({ pressed }) => [
                 styles.segment,
+                compact && styles.segmentCompact,
+                cardDense && styles.segmentCardDense,
                 active && styles.segmentActive,
                 pressed && !active && styles.segmentPressed,
               ]}
             >
-              <View style={styles.segmentInner}>
-                {option.dot ? <View style={[styles.dot, { backgroundColor: option.dot }]} /> : null}
-                <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
-                  {option.label}
-                </Text>
-                <Text style={[styles.count, active && styles.countActive]}>{count}</Text>
-              </View>
+              {cardDense ? (
+                <View style={styles.segmentInnerCardDense}>
+                  {option.dot ? (
+                    <View style={[styles.dotCardDense, { backgroundColor: option.dot }]} />
+                  ) : (
+                    <View style={styles.dotCardDenseSpacer} />
+                  )}
+                  <Text
+                    style={[styles.cardDenseCopy, active && styles.labelActive]}
+                    numberOfLines={2}
+                  >
+                    {option.label}{" "}
+                    <Text style={[styles.cardDenseCount, active && styles.countActive]}>{count}</Text>
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.segmentInner}>
+                  {option.dot ? <View style={[styles.dot, { backgroundColor: option.dot }]} /> : null}
+                  <Text style={[styles.label, active && styles.labelActive]} numberOfLines={2}>
+                    {option.label}
+                  </Text>
+                  <Text style={[styles.count, active && styles.countActive]} numberOfLines={1}>
+                    {count}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           );
         })}
@@ -81,28 +119,59 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     alignSelf: "stretch",
     width: "100%",
-    maxWidth: 560,
+    minWidth: "100%",
+  },
+  barCardDense: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   track: {
     flexDirection: "row",
-    alignItems: "center",
-    padding: 2,
-    gap: 2,
+    alignItems: "stretch",
+    alignSelf: "stretch",
+    width: "100%",
+    minWidth: "100%",
+    padding: 3,
+    gap: 3,
     borderRadius: 10,
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.compliancePageBg,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
+  },
+  trackCompact: {
+    borderRadius: 8,
+    padding: 2,
+    gap: 2,
+  },
+  trackCardDense: {
+    borderRadius: 7,
+    padding: 2,
+    gap: 2,
   },
   segment: {
     flex: 1,
     minWidth: 0,
-    height: 28,
+    minHeight: 32,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "transparent",
+  },
+  segmentCompact: {
+    minHeight: 34,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  segmentCardDense: {
+    minHeight: 30,
+    paddingHorizontal: 3,
+    paddingVertical: 3,
+    borderRadius: 5,
   },
   segmentActive: {
     backgroundColor: Theme.cardWhite,
@@ -118,9 +187,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    maxWidth: "100%",
+    flexWrap: "wrap",
+    gap: 5,
+    width: "100%",
     minWidth: 0,
+  },
+  /** Dot + wrapping “Label count” so full words fit inside equal-width chips. */
+  segmentInnerCardDense: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "center",
+    gap: 3,
+    width: "100%",
+    minWidth: 0,
+    paddingHorizontal: 1,
   },
   dot: {
     width: 5,
@@ -128,24 +208,60 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
     flexShrink: 0,
   },
+  dotCardDense: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    flexShrink: 0,
+    marginTop: 3,
+  },
+  dotCardDenseSpacer: {
+    width: 0,
+    height: 4,
+    flexShrink: 0,
+  },
   label: {
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "500",
     color: Theme.textSecondary,
     includeFontPadding: false,
+    textAlign: "center",
   },
-  labelActive: { color: Theme.textPrimaryDark, fontWeight: "700" },
+  cardDenseCopy: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    includeFontPadding: false,
+    textAlign: "left",
+  },
+  labelActive: {
+    color: Theme.textPrimaryDark,
+    fontWeight: "700",
+  },
   count: {
     flexShrink: 0,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
     color: Theme.textMuted,
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
   },
-  countActive: { color: Theme.textPrimaryDark, fontWeight: "700" },
+  cardDenseCount: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "700",
+    color: Theme.textMuted,
+    fontVariant: ["tabular-nums"],
+  },
+  countActive: {
+    color: Theme.textPrimaryDark,
+    fontWeight: "700",
+  },
 });
