@@ -1,0 +1,11 @@
+# Pulse Exchange historical repair: SAT812-TRP-191 (GOGOVAN) + DEV766-TRP-003
+# (DEVANATHAN), the one real Marketplace award with an execution trip.
+# Data only: points the two trips at the orgs' existing linked party rows
+# (supplier a438f4c0, client f4d02e47) and enrolls the award in Exchange.
+# Keyed to fixed ids, re-runnable, aborts on any drift from the reviewed state.
+# Supersedes the draft 20271006163527, which must never be pushed.
+# Requires pulse-exchange-canonical (20271006184500) applied first.
+# Out of scope by decision (2026-10-06): TRP-141, TRP-147 (QA fixtures),
+# GOD684-TRP-037, legacy DCO/FLEET trips, defect-12, amount_paid recompute.
+# Apply only after explicit production authorization.
+20271006185000
