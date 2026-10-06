@@ -27,7 +27,6 @@ import {
   validateComplianceRequestId,
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
-import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
