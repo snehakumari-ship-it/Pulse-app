@@ -2,11 +2,6 @@ name: Architecture Check
 
 on:
   pull_request:
-    paths:
-      - '**/*.ts'
-      - '**/*.tsx'
-      - 'eslint.config.cjs'
-      - 'tsconfig.json'
 
 jobs:
   boundaries:
