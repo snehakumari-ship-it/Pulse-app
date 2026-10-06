@@ -7,7 +7,6 @@ import Theme from "@/constants/Theme";
 import { useAdvanceProcessedTable } from "@/features/tripCompliance/hooks/useAdvanceProcessedTable";
 import type { AdvanceProcessedEnrichment } from "@/features/tripCompliance/services/complianceAdvanceProcessed.service";
 import {
-  revertComplianceAdvanceToVerified,
   updateCompliancePaymentReference,
   updateCompliancePaymentRequestId,
   updateCompliancePaymentTransactionDate,
@@ -28,13 +27,13 @@ import {
   validateComplianceRequestId,
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
-import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
+import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Calendar, Check, Pencil, X } from "lucide-react-native";
+import { Calendar, Check, Pencil } from "lucide-react-native";
 import React, { createElement, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -179,39 +178,6 @@ function Checkbox({ checked, onPress, label }: { checked: boolean; onPress: () =
       <View style={[styles.checkbox, checked && styles.checkboxOn]}>
         {checked ? <Check size={10} color={Theme.cardWhite} strokeWidth={3} /> : null}
       </View>
-    </TouchableOpacity>
-  );
-}
-
-/** Moves a trip from Advance Processed back to Verified (undo advance posting). */
-function RevertToVerifiedButton({
-  disabled,
-  busy,
-  onPress,
-  label,
-}: {
-  disabled?: boolean;
-  busy?: boolean;
-  onPress: () => void;
-  label: string;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      disabled={disabled || busy}
-      style={[styles.revertCell, (disabled || busy) && styles.revertCellDisabled]}
-      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: Boolean(disabled || busy) }}
-    >
-      {busy ? (
-        <ActivityIndicator size="small" color={Theme.destructive} />
-      ) : (
-        <View style={styles.revertBtn}>
-          <X size={12} color={Theme.destructive} strokeWidth={2.8} />
-        </View>
-      )}
     </TouchableOpacity>
   );
 }
@@ -525,17 +491,12 @@ export function ComplianceAdvanceProcessedTable({
   organizationId,
   onOpenTrip,
   onUtrSaved,
-  onRevertedToVerified,
-  canManageFinance = false,
 }: {
   summaries: ComplianceTripSummary[];
   organizationId: string;
   onOpenTrip: (tripId: string) => void;
   /** After a UTR / Request ID is saved — refresh that trip's payment inputs. */
   onUtrSaved?: (tripId: string) => void;
-  /** After advance is undone — trip leaves Advance Processed for Verified. */
-  onRevertedToVerified?: (tripId: string) => void;
-  canManageFinance?: boolean;
 }) {
   const queryClient = useQueryClient();
   const rows = useMemo(() => summaries.filter((s) => s.advance), [summaries]);
@@ -545,7 +506,6 @@ export function ComplianceAdvanceProcessedTable({
   /** Saved values shown until refetched data catches up. */
   const [savedLocal, setSavedLocal] = useState<Record<string, string>>({});
   const [bulkSaving, setBulkSaving] = useState(false);
-  const [revertingId, setRevertingId] = useState<string | null>(null);
 
   const editKey = (tripId: string, field: EditField) => `${tripId}:${field}`;
 
@@ -614,55 +574,6 @@ export function ComplianceAdvanceProcessedTable({
       return true;
     },
     [edits, enrichment, onUtrSaved, organizationId, queryClient],
-  );
-
-  const revertToVerified = useCallback(
-    async (summary: ComplianceTripSummary) => {
-      const tripId = summary.trip.id;
-      if (!canManageFinance || revertingId) return;
-      const info = enrichment?.[tripId];
-      const transactionId = info?.transactionId ?? summary.advance?.transactionId;
-      if (!transactionId || transactionId.startsWith("amount-paid:")) {
-        alertMessage(
-          "Can't move back",
-          "This advance isn't editable from Compliance. Refresh and try again.",
-        );
-        return;
-      }
-      const tripNumber = getTripDisplayNumber(summary.trip, summary.trip.organization_id ?? null);
-      const ok = await confirmAction(
-        "Move back to Verified?",
-        `${tripNumber} will leave Advance Processed. The Compliance advance posting is removed so you can confirm payment again from Verified.`,
-        "Move to Verified",
-      );
-      if (!ok) return;
-      setRevertingId(tripId);
-      const { error } = await revertComplianceAdvanceToVerified({ tripId, transactionId });
-      setRevertingId(null);
-      if (error) {
-        alertMessage("Couldn't move trip", error.message);
-        return;
-      }
-      setSelected((cur) => {
-        if (!cur.has(tripId)) return cur;
-        const next = new Set(cur);
-        next.delete(tripId);
-        return next;
-      });
-      void queryClient.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
-      {
-        const { syncFinanceComplianceCaches } = await import(
-          "@/lib/queries/syncFinanceComplianceCaches"
-        );
-        syncFinanceComplianceCaches({
-          queryClient,
-          organizationId,
-          tripId,
-        });
-      }
-      onRevertedToVerified?.(tripId);
-    },
-    [canManageFinance, enrichment, onRevertedToVerified, organizationId, queryClient, revertingId],
   );
 
   const pendingSelected = rows.flatMap((summary) => {
@@ -747,7 +658,6 @@ export function ComplianceAdvanceProcessedTable({
       </View>
 
       <View style={[styles.row, styles.headerRow]}>
-        {canManageFinance ? <View style={styles.revertHeaderSpacer} /> : null}
         <Checkbox checked={allSelected} onPress={toggleAll} label="Select all trips" />
         <HeaderCell label="Trip ID" style={COL.trip} />
         <HeaderCell label="LR No." style={COL.lr} />
@@ -803,14 +713,6 @@ export function ComplianceAdvanceProcessedTable({
             key={trip.id}
             style={[styles.row, index % 2 === 1 && styles.rowAlt, isSelected && styles.rowSelected]}
           >
-            {canManageFinance ? (
-              <RevertToVerifiedButton
-                busy={revertingId === trip.id}
-                disabled={Boolean(revertingId) || loading || noEntry || info?.utrCategory === "finance_receipt"}
-                onPress={() => void revertToVerified(summary)}
-                label={`Move ${tripNumber} back to Verified`}
-              />
-            ) : null}
             <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
             <View style={[styles.cell, COL.trip]}>
               <TouchableOpacity onPress={() => onOpenTrip(trip.id)} hitSlop={{ top: 8, bottom: 8 }} accessibilityRole="link">
@@ -964,24 +866,6 @@ const styles = StyleSheet.create({
   alignRight: { textAlign: "right" },
   tripLink: { fontWeight: "700", color: Theme.complianceBulk },
   selectCell: { width: 30, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
-  revertHeaderSpacer: { width: 30, alignSelf: "stretch" },
-  revertCell: {
-    width: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "stretch",
-  },
-  revertCellDisabled: { opacity: 0.35 },
-  revertBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Theme.destructive,
-    backgroundColor: Theme.negativeMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   checkbox: {
     width: 15,
     height: 15,

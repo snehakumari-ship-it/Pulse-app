@@ -454,36 +454,6 @@ export async function updateCompliancePaymentTransactionDate(
 }
 
 /**
- * Undo a posted Compliance advance so the trip returns to Verified.
- * Removes only the `compliance_advance` ledger row — Ops can Confirm payment
- * again from Verified to move it back to Advance Processed. No schema change.
- */
-export async function revertComplianceAdvanceToVerified(params: {
-  tripId: string;
-  transactionId: string;
-}): Promise<{ error: Error | null }> {
-  const { row, error } = await readCompliancePaymentRow({
-    tripId: params.tripId,
-    transactionId: params.transactionId,
-    category: "compliance_advance",
-  });
-  if (!row) return { error };
-  const { data, error: deleteError } = await supabase()
-    .from("transactions")
-    .delete()
-    .eq("id", params.transactionId)
-    .eq("trip_id", params.tripId)
-    .eq("ledger_category", "compliance_advance")
-    .select("id")
-    .maybeSingle();
-  if (deleteError) return { error: new Error(deleteError.message) };
-  if (!data) {
-    return { error: new Error("You don't have permission to move this trip back to Verified.") };
-  }
-  return { error: null };
-}
-
-/**
  * Edit only the UTR of a posted compliance payment. Amount, mode, date, party and
  * notes are left untouched, so the ledger's double entry does not change.
  * `updateLedgerEntry` is not used because it truncates `transaction_date` to a

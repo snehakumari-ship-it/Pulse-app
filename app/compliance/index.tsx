@@ -1137,14 +1137,7 @@ export default function ComplianceScreen() {
             summaries={visible}
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
-            canManageFinance={canManageFinance}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
-            onRevertedToVerified={(tripId) => {
-              void syncChange({ type: "payment", tripId }).then(() => {
-                setStage("compliance_verified");
-                setCardTripId(tripId);
-              });
-            }}
           />
         </ScrollView>
       ) : viewMode === "table" ? (
