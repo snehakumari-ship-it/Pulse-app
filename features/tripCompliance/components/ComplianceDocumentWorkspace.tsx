@@ -1025,7 +1025,9 @@ export function ComplianceDocumentWorkspace({
   }, [summary?.trip.id]);
 
   useEffect(() => {
-    if (compliancePendingQueue) setChecklistPreviewMode((mode) => (mode === "finance" ? "document" : mode));
+    if (compliancePendingQueue) {
+      setChecklistPreviewMode((mode) => (mode === "finance" || mode === "advance" ? "document" : mode));
+    }
   }, [compliancePendingQueue]);
 
   useEffect(() => {
@@ -1544,6 +1546,8 @@ export function ComplianceDocumentWorkspace({
       canVerify,
   );
   const isCompliancePendingStage = summary?.stage === "compliance_pending";
+  /** Compliance Pending look (no Finance / Advance / POD) — trip stage or the page filter. */
+  const compliancePendingView = isCompliancePendingStage || compliancePendingQueue;
   const tabMarkedApproved = useMemo(() => {
     const none = { finance: false, trip: false, vehicle: false, driver: false };
     if (!summary || !isCompliancePendingStage || summary.complianceVerifiedAt) return none;
@@ -2032,7 +2036,7 @@ export function ComplianceDocumentWorkspace({
               <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
                 <View style={styles.checklistPanelToolbar}>
                   <View style={styles.checklistPanelTabs}>
-                    {isCompliancePendingStage || compliancePendingQueue ? null : (
+                    {compliancePendingView ? null : (
                     <Pressable
                       onPress={() => {
                         setTab("trip");
@@ -2240,7 +2244,7 @@ export function ComplianceDocumentWorkspace({
                             Trip Detail
                           </Text>
                         </TouchableOpacity>
-                        {isCompliancePendingStage ? null : (
+                        {compliancePendingView ? null : (
                         <TouchableOpacity
                           style={[
                             styles.checklistModeBtn,
@@ -2263,7 +2267,7 @@ export function ComplianceDocumentWorkspace({
                           </Text>
                         </TouchableOpacity>
                         )}
-                        {canManagePod && !isPendingDocsTrip && !isCompliancePendingStage ? (
+                        {canManagePod && !isPendingDocsTrip && !compliancePendingView ? (
                           <TouchableOpacity
                             style={styles.checklistModeBtn}
                             activeOpacity={0.8}
@@ -2452,7 +2456,7 @@ export function ComplianceDocumentWorkspace({
                       }
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
                     />
-                  ) : checklistPreviewMode === "advance" && summary && !isCompliancePendingStage ? (
+                  ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
                     <ChecklistAdvancePaymentPanel
                       summary={summary}
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}

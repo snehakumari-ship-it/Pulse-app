@@ -2,6 +2,7 @@
 
 ## nihas/V1.0.18 — 2026-10-06
 - **What:** The Finance tab in the Compliance document panel is hidden for every trip listed under the **Compliance Pending** filter, not only trips whose own stage is Compliance Pending.
+  - Same for the **Advance Payment** button/panel and the hard-copy POD button.
 - **Why:** Since Sneha V1.0.4, Compliance Pending also lists finance-declined (Verified-stage) and hold trips, and those showed the Finance tab again.
 - **Files/areas:** `ComplianceDocumentWorkspace` (new `compliancePendingQueue` prop), `app/compliance/index.tsx`
 - **Migrations:** none
