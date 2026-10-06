@@ -44,12 +44,14 @@ export function HardCopyPodDateField({
   onChange,
   required,
   error,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (iso: string) => void;
   required?: boolean;
   error?: string | null;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const fieldId = useId();
@@ -74,6 +76,7 @@ export function HardCopyPodDateField({
             id: fieldId,
             type: "date",
             value: isoValue,
+            disabled,
             required: Boolean(required),
             "aria-label": label,
             "aria-required": required ? true : undefined,
@@ -104,7 +107,10 @@ export function HardCopyPodDateField({
       ) : (
         <>
           <Pressable
-            onPress={() => setOpen(true)}
+            onPress={() => {
+              if (!disabled) setOpen(true);
+            }}
+            disabled={disabled}
             style={({ pressed }) => [
               styles.shell,
               hasError ? styles.shellError : null,

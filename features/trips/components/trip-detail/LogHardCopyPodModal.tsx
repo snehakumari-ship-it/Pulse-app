@@ -14,11 +14,17 @@ import {
   logTripHardCopyPodCourier,
   markTripHardCopyPodReceived,
   normalizeTripPodId,
+  saveTripIbondReceipt,
   type HardCopyPodReceiptMethod,
   type HardCopyPodStatus,
   type TripHardCopyPodState,
 } from "@/features/trips/services/tripDocumentLrPod.service";
-import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
+import { showAppAlert } from "@/lib/appAlert";
+import { queryKeys } from "@/lib/queryKeys";
+import {
+  publishHardCopyPodState,
+  syncHardCopyPodRecord,
+} from "@/lib/queries/invalidateHardCopyPodCaches";
 import {
   hardCopyPodLrKey,
   selectedHardCopyPodTripIds,
@@ -60,6 +66,18 @@ const HARD_COPY_POD_COURIERS = [
   "India Post",
 ] as const;
 
+function todayIsoDate(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function dateOrToday(value: string | null | undefined): string {
+  const trimmed = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : todayIsoDate();
+}
+
 function courierNameOptions(current: string): string[] {
   const saved = current.trim();
   const base: string[] = [...HARD_COPY_POD_COURIERS];
@@ -76,6 +94,8 @@ export type HardCopyPodManifestSummary = {
   delivery: string;
   driverName: string;
   vehicleLabel: string;
+  vehicleType?: string | null;
+  vendorName?: string | null;
 };
 
 type Mode = "create" | "view" | "mark_received";
@@ -115,8 +135,11 @@ export function LogHardCopyPodModal({
   initialMode = "create",
   onUpdated,
   lrOptions = [],
+  inline = false,
 }: {
   visible: boolean;
+  /** Render the panel in place (no modal, overlay, or close button). `onClose` fires after save. */
+  inline?: boolean;
   onClose: () => void;
   tripId: string;
   organizationId?: string | null;
@@ -124,7 +147,7 @@ export function LogHardCopyPodModal({
   summary: HardCopyPodManifestSummary;
   initialMode?: Mode;
   /** Called with every trip the courier docket was saved for. */
-  onUpdated?: (tripIds?: string[]) => void;
+  onUpdated?: (tripIds?: string[]) => void | Promise<void>;
   /**
    * LRs that can share this docket. Trip ID is taken from each LR.
    * The opened trip's own LRs are merged in when this list omits them.
@@ -139,16 +162,19 @@ export function LogHardCopyPodModal({
   const [mode, setMode] = useState<Mode>(initialMode);
   const [loadingState, setLoadingState] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [ibondOn, setIbondOn] = useState(false);
+  const ibondOnRef = useRef(false);
+  const methodBeforeIbond = useRef<HardCopyPodReceiptMethod | null>(null);
   const [podState, setPodState] = useState<TripHardCopyPodState | null>(null);
 
   const [method, setMethod] = useState<HardCopyPodReceiptMethod | null>(null);
   const [receivedBy, setReceivedBy] = useState("");
-  const [receivedDate, setReceivedDate] = useState("");
+  const [receivedDate, setReceivedDate] = useState(todayIsoDate);
   const [receivedTime, setReceivedTime] = useState("");
   const [courierName, setCourierName] = useState("");
   const [awbNumber, setAwbNumber] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(todayIsoDate);
   const [remarks, setRemarks] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lrNumber, setLrNumber] = useState("—");
@@ -179,10 +205,21 @@ export function LogHardCopyPodModal({
     setErrors({});
     void refreshState().then((state) => {
       if (!state) return;
+      if (state.status === "RECEIVED") {
+        publishHardCopyPodState(queryClient, tripId, state);
+      }
       const decodedRemarks = decodeCourierLrRemarks(state.remarks);
+      const applyMethod = (next: HardCopyPodReceiptMethod | null) => {
+        if (ibondOnRef.current) {
+          methodBeforeIbond.current = next;
+          setMethod(null);
+          return;
+        }
+        setMethod(next);
+      };
       if (state.status === "RECEIVED" || (state.status === "IN_TRANSIT" && initialMode !== "create")) {
         setMode(initialMode === "mark_received" ? "mark_received" : "view");
-        setMethod(state.receiptMethod);
+        applyMethod(state.receiptMethod);
         setReceivedBy(state.receivedBy ?? "");
         setReceivedDate(state.receivedDate ?? "");
         setReceivedTime(state.receivedTime ?? "");
@@ -194,31 +231,31 @@ export function LogHardCopyPodModal({
         setStoredReceivedLrs(decodedRemarks.receivedLrs);
       } else if (state.status === "IN_TRANSIT") {
         setMode("create");
-        setMethod(state.receiptMethod === "person" ? "person" : "courier");
+        applyMethod(state.receiptMethod === "person" ? "person" : "courier");
         setReceivedBy(state.receivedBy ?? "");
-        setReceivedDate(state.receivedDate ?? "");
+        setReceivedDate(dateOrToday(state.receivedDate));
         setReceivedTime(state.receivedTime ?? "");
         setCourierName(state.courier ?? "");
         setAwbNumber(state.awbNumber ?? "");
         setDispatchDate(state.dispatchDate ?? "");
-        setExpectedDeliveryDate(state.expectedDeliveryDate ?? "");
+        setExpectedDeliveryDate(dateOrToday(state.expectedDeliveryDate));
         setRemarks(decodedRemarks.text ?? "");
         setStoredReceivedLrs(decodedRemarks.receivedLrs);
       } else {
         setMode("create");
-        setMethod(null);
+        applyMethod(null);
         setReceivedBy("");
-        setReceivedDate("");
+        setReceivedDate(todayIsoDate());
         setReceivedTime("");
         setCourierName("");
         setAwbNumber("");
         setDispatchDate("");
-        setExpectedDeliveryDate("");
+        setExpectedDeliveryDate(todayIsoDate());
         setRemarks("");
         setStoredReceivedLrs([]);
       }
     });
-  }, [visible, initialMode, refreshState]);
+  }, [visible, initialMode, queryClient, refreshState, tripId]);
 
   useEffect(() => {
     if (!visible || !tripId.trim()) {
@@ -334,8 +371,28 @@ export function LogHardCopyPodModal({
         }),
       ),
     );
-    onUpdated?.(ids);
+    await onUpdated?.(ids);
   }, [onUpdated, organizationId, queryClient, tripId]);
+
+  const toggleIbond = useCallback(() => {
+    if (!canManage || saving || podState?.status === "RECEIVED") return;
+    if (ibondOn) {
+      ibondOnRef.current = false;
+      setIbondOn(false);
+      setMethod(methodBeforeIbond.current);
+      methodBeforeIbond.current = null;
+      return;
+    }
+    methodBeforeIbond.current = method;
+    setMethod(null);
+    ibondOnRef.current = true;
+    setErrors((current) => {
+      if (!current.method) return current;
+      const { method: _method, ...rest } = current;
+      return rest;
+    });
+    setIbondOn(true);
+  }, [canManage, ibondOn, method, podState?.status, saving]);
 
   const validateCreate = useCallback((): boolean => {
     const next: Record<string, string> = {};
@@ -350,7 +407,6 @@ export function LogHardCopyPodModal({
       }
       if (!courierName.trim()) next.courierName = "Courier name is required.";
       if (!awbNumber.trim()) next.awbNumber = "Tracking / AWB number is required.";
-      if (!dispatchDate.trim()) next.dispatchDate = "Dispatch date is required.";
       if (!expectedDeliveryDate.trim()) {
         next.expectedDeliveryDate = "Received delivery date is required.";
       }
@@ -360,7 +416,6 @@ export function LogHardCopyPodModal({
   }, [
     awbNumber,
     courierName,
-    dispatchDate,
     expectedDeliveryDate,
     lrChoices.length,
     method,
@@ -379,6 +434,34 @@ export function LogHardCopyPodModal({
 
   const handleSaveCreate = useCallback(async () => {
     if (!canManage || saving) return;
+    if (ibondOn) {
+      setSaving(true);
+      try {
+        const savedIbond = await saveTripIbondReceipt(tripId);
+        if (savedIbond.error) {
+          showAppAlert("Hard Copy POD", savedIbond.error.message);
+          return;
+        }
+        await invalidate();
+        const saved = queryClient.getQueryData<TripHardCopyPodState>(
+          queryKeys.trips.hardCopyPod(tripId),
+        );
+        if (!(saved?.status === "RECEIVED" && saved.ibond)) {
+          publishHardCopyPodState(
+            queryClient,
+            tripId,
+            ibondReceivedState(saved ?? podState, savedIbond),
+          );
+        }
+        onClose();
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "Couldn't save IBond.";
+        showAppAlert("Hard Copy POD", message);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!validateCreate() || !method) {
       Alert.alert(
         "Hard Copy POD",
@@ -496,10 +579,13 @@ export function LogHardCopyPodModal({
     courierName,
     dispatchDate,
     expectedDeliveryDate,
+    ibondOn,
     invalidate,
     lrChoices,
     method,
     onClose,
+    podState,
+    queryClient,
     receivedBy,
     receivedDate,
     receivedTime,
@@ -573,53 +659,75 @@ export function LogHardCopyPodModal({
   const readOnly = mode === "view";
   const showCreateForm = mode === "create";
   const showMarkReceived = mode === "mark_received";
+  const compact = inline;
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType={isNarrow ? "slide" : "fade"}
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+  const panel = (
         <View
           style={[
             styles.panel,
-            {
-              width: isNarrow ? "100%" : panelWidth,
-              maxWidth: isNarrow ? "100%" : 480,
-              paddingTop: isNarrow ? insets.top + 12 : 20,
-              paddingBottom: Math.max(insets.bottom, 16),
-              alignSelf: isNarrow ? "stretch" : "flex-end",
-              height: isNarrow ? "100%" : "100%",
-              borderTopLeftRadius: isNarrow ? 0 : 16,
-              borderBottomLeftRadius: isNarrow ? 0 : 16,
-            },
+            inline
+              ? styles.panelInline
+              : {
+                  width: isNarrow ? "100%" : panelWidth,
+                  maxWidth: isNarrow ? "100%" : 480,
+                  paddingTop: isNarrow ? insets.top + 12 : 20,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                  alignSelf: isNarrow ? "stretch" : "flex-end",
+                  height: isNarrow ? "100%" : "100%",
+                  borderTopLeftRadius: isNarrow ? 0 : 16,
+                  borderBottomLeftRadius: isNarrow ? 0 : 16,
+                },
+            compact && styles.panelSplit,
+            compact && isNarrow && styles.panelSplitStacked,
           ]}
         >
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.title}>{title}</Text>
-              <Text style={styles.subtitle}>{subtitle}</Text>
+          <View
+            style={[
+              compact ? styles.splitForm : styles.splitFill,
+              compact && isNarrow && styles.splitFormStacked,
+            ]}
+          >
+          <View style={[styles.headerRow, compact && styles.headerRowCompact]}>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+              <Text style={[styles.subtitle, compact && styles.subtitleCompact]} numberOfLines={2}>
+                {subtitle}
+              </Text>
             </View>
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              style={styles.closeBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Close hard copy POD"
-            >
-              <Feather name="x" size={18} color={Theme.textMuted} />
-            </Pressable>
+            {inline ? null : (
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={styles.closeBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close hard copy POD"
+              >
+                <Feather name="x" size={18} color={Theme.textMuted} />
+              </Pressable>
+            )}
           </View>
+          {showCreateForm && canManage && podState?.status !== "RECEIVED" ? (
+            <Pressable
+              style={[styles.ibondRow, compact && styles.ibondRowCompact]}
+              onPress={toggleIbond}
+              disabled={saving}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: ibondOn, disabled: saving }}
+              accessibilityLabel="IBond"
+            >
+              <View style={[styles.ibondBox, ibondOn && styles.ibondBoxOn]}>
+                {ibondOn ? <Feather name="check" size={12} color={Theme.cardWhite} /> : null}
+              </View>
+              <Text style={styles.ibondLabel}>IBond</Text>
+            </Pressable>
+          ) : null}
 
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={styles.scrollBody}
+            contentContainerStyle={[styles.scrollBody, compact && styles.scrollBodyCompact]}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.summaryCard}>
+            <View style={[styles.summaryCard, compact && styles.summaryCardCompact]}>
               <SummaryRow label="Manifest ID" value={summary.manifestId} />
               <SummaryRow label="LR Number" value={cardLrNumber} />
               {openedLrReceipt.received.length + openedLrReceipt.pending.length > 0 ? (
@@ -639,6 +747,8 @@ export function LogHardCopyPodModal({
               <SummaryRow label="Delivery" value={summary.delivery} />
               <SummaryRow label="Driver" value={summary.driverName} />
               <SummaryRow label="Vehicle" value={summary.vehicleLabel} />
+              <SummaryRow label="Vehicle Type" value={summary.vehicleType?.trim() || "—"} />
+              <SummaryRow label="Vendor Name" value={summary.vendorName?.trim() || "—"} />
             </View>
 
             {loadingState ? (
@@ -725,7 +835,9 @@ export function LogHardCopyPodModal({
                   <DetailRow label="Remarks" value={podState.remarks} />
                 ) : null}
 
-                <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                {compact ? null : (
+                  <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                )}
 
                 {canManage && podState.status === "IN_TRANSIT" ? (
                   <Pressable
@@ -762,8 +874,8 @@ export function LogHardCopyPodModal({
             ) : null}
 
             {showCreateForm ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
+              <View style={[styles.section, compact && styles.sectionCompact]}>
+                <Text style={[styles.sectionTitle, compact && styles.sectionTitleCompact]}>
                   How was the hard copy POD received?
                 </Text>
                 {errors.method ? (
@@ -773,9 +885,13 @@ export function LogHardCopyPodModal({
                   <Pressable
                     style={[
                       styles.segmentCard,
+                      compact && styles.segmentCardCompact,
                       method === "person" && styles.segmentCardActive,
+                      ibondOn && styles.segmentCardDisabled,
                     ]}
+                    disabled={ibondOn}
                     onPress={() => {
+                      if (ibondOn) return;
                       setMethod("person");
                       setErrors((e) => {
                         const { method: _m, ...rest } = e;
@@ -783,7 +899,7 @@ export function LogHardCopyPodModal({
                       });
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: method === "person" }}
+                    accessibilityState={{ selected: method === "person", disabled: ibondOn }}
                   >
                     <View
                       style={[
@@ -797,20 +913,27 @@ export function LogHardCopyPodModal({
                       <Text
                         style={[
                           styles.segmentTitle,
+                          compact && styles.segmentTitleCompact,
                           method === "person" && styles.segmentTitleActive,
                         ]}
                       >
                         Received by Person
                       </Text>
-                      <Text style={styles.segmentHint}>Handed over in person</Text>
+                      <Text style={[styles.segmentHint, compact && styles.segmentHintCompact]}>
+                        Handed over in person
+                      </Text>
                     </View>
                   </Pressable>
                   <Pressable
                     style={[
                       styles.segmentCard,
+                      compact && styles.segmentCardCompact,
                       method === "courier" && styles.segmentCardActive,
+                      ibondOn && styles.segmentCardDisabled,
                     ]}
+                    disabled={ibondOn}
                     onPress={() => {
+                      if (ibondOn) return;
                       setMethod("courier");
                       setErrors((e) => {
                         const { method: _m, ...rest } = e;
@@ -818,7 +941,7 @@ export function LogHardCopyPodModal({
                       });
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: method === "courier" }}
+                    accessibilityState={{ selected: method === "courier", disabled: ibondOn }}
                   >
                     <View
                       style={[
@@ -832,18 +955,21 @@ export function LogHardCopyPodModal({
                       <Text
                         style={[
                           styles.segmentTitle,
+                          compact && styles.segmentTitleCompact,
                           method === "courier" && styles.segmentTitleActive,
                         ]}
                       >
                         Received by Courier
                       </Text>
-                      <Text style={styles.segmentHint}>Dispatched via courier</Text>
+                      <Text style={[styles.segmentHint, compact && styles.segmentHintCompact]}>
+                        Dispatched via courier
+                      </Text>
                     </View>
                   </Pressable>
                 </View>
 
                 {method === "person" ? (
-                  <View style={styles.fields}>
+                  <View style={[styles.fields, compact && styles.fieldsCompact]}>
                     <Field
                       label="Received by"
                       required
@@ -881,15 +1007,17 @@ export function LogHardCopyPodModal({
                           multiline
                         />
                       </View>
-                      <View style={styles.dateTimeCol}>
-                        <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                      </View>
+                      {compact ? null : (
+                        <View style={styles.dateTimeCol}>
+                          <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                        </View>
+                      )}
                     </View>
                   </View>
                 ) : null}
 
                 {method === "courier" ? (
-                  <View style={styles.fields}>
+                  <View style={[styles.fields, compact && styles.fieldsCompact]}>
                     <CourierLrPicker
                       options={lrChoices}
                       selectedKeys={selectedLrKeys}
@@ -943,7 +1071,6 @@ export function LogHardCopyPodModal({
                       <View style={styles.dateTimeCol}>
                         <HardCopyPodDateField
                           label="Dispatch Date"
-                          required
                           value={dispatchDate}
                           onChange={setDispatchDate}
                           error={errors.dispatchDate}
@@ -976,9 +1103,11 @@ export function LogHardCopyPodModal({
                           multiline
                         />
                       </View>
-                      <View style={styles.dateTimeCol}>
-                        <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                      </View>
+                      {compact ? null : (
+                        <View style={styles.dateTimeCol}>
+                          <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                        </View>
+                      )}
                     </View>
                   </View>
                 ) : null}
@@ -988,7 +1117,7 @@ export function LogHardCopyPodModal({
             {showMarkReceived ? (
               <View style={styles.section}>
                 {podState?.courier || podState?.awbNumber ? (
-                  <View style={styles.summaryCard}>
+                  <View style={[styles.summaryCard, compact && styles.summaryCardCompact]}>
                     <SummaryRow label="Courier" value={podState.courier ?? "—"} />
                     <SummaryRow
                       label="Tracking"
@@ -996,7 +1125,7 @@ export function LogHardCopyPodModal({
                     />
                   </View>
                 ) : null}
-                <View style={styles.fields}>
+                <View style={[styles.fields, compact && styles.fieldsCompact]}>
                   <HardCopyPodDateField
                     label="Received Date"
                     required
@@ -1022,29 +1151,36 @@ export function LogHardCopyPodModal({
                         multiline
                       />
                     </View>
-                    <View style={styles.dateTimeCol}>
-                      <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                    </View>
+                    {compact ? null : (
+                      <View style={styles.dateTimeCol}>
+                        <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
             ) : null}
           </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, compact && styles.footerCompact]}>
             {showCreateForm && canManage ? (
               <>
-                <Pressable style={styles.secondaryBtn} onPress={onClose} disabled={saving}>
+                <Pressable
+                  style={[styles.secondaryBtn, compact && styles.btnCompact]}
+                  onPress={onClose}
+                  disabled={saving}
+                >
                   <Text style={styles.secondaryBtnText}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   style={[
                     styles.primaryBtn,
                     styles.footerPrimary,
-                    (!method || saving) && styles.btnDisabled,
+                    compact && styles.btnCompact,
+                    (!(ibondOn || method) || saving) && styles.btnDisabled,
                   ]}
                   onPress={() => void handleSaveCreate()}
-                  disabled={!method || saving}
+                  disabled={!(ibondOn || method) || saving}
                   accessibilityRole="button"
                   accessibilityLabel="Save hard copy POD"
                 >
@@ -1059,7 +1195,7 @@ export function LogHardCopyPodModal({
             {showMarkReceived && canManage ? (
               <>
                 <Pressable
-                  style={styles.secondaryBtn}
+                  style={[styles.secondaryBtn, compact && styles.btnCompact]}
                   onPress={() => setMode("view")}
                   disabled={saving}
                 >
@@ -1069,6 +1205,7 @@ export function LogHardCopyPodModal({
                   style={[
                     styles.primaryBtn,
                     styles.footerPrimary,
+                    compact && styles.btnCompact,
                     saving && styles.btnDisabled,
                   ]}
                   onPress={() => void handleConfirmReceived()}
@@ -1090,10 +1227,60 @@ export function LogHardCopyPodModal({
               </Pressable>
             ) : null}
           </View>
+          </View>
+          {compact ? (
+            <View style={[styles.splitPreview, isNarrow && styles.splitPreviewStacked]}>
+              <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} variant="pane" />
+            </View>
+          ) : null}
         </View>
+  );
+
+  if (inline) return panel;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType={isNarrow ? "slide" : "fade"}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        {panel}
       </View>
     </Modal>
   );
+}
+
+function ibondReceivedState(
+  previous: TripHardCopyPodState | null | undefined,
+  saved?: {
+    receivedAt: string | null;
+    deductibleCost: number | null;
+    vendorCostBefore: number | null;
+    vendorCostAfter: number | null;
+  },
+): TripHardCopyPodState {
+  return {
+    status: "RECEIVED",
+    receiptMethod: null,
+    receivedAt: saved?.receivedAt ?? (previous?.status === "RECEIVED" ? previous.receivedAt : new Date().toISOString()),
+    receivedBy: previous?.receivedBy ?? null,
+    courier: previous?.courier ?? null,
+    awbNumber: previous?.awbNumber ?? null,
+    dispatchDate: previous?.dispatchDate ?? null,
+    expectedDeliveryDate: previous?.expectedDeliveryDate ?? null,
+    courierContact: previous?.courierContact ?? null,
+    remarks: previous?.remarks ?? null,
+    receivedDate: previous?.receivedDate ?? null,
+    receivedTime: previous?.receivedTime ?? null,
+    actorId: previous?.actorId ?? null,
+    ibond: true,
+    ibondDeductibleCost: saved?.deductibleCost ?? previous?.ibondDeductibleCost ?? null,
+    ibondVendorCostBefore: saved?.vendorCostBefore ?? previous?.ibondVendorCostBefore ?? null,
+    ibondVendorCostAfter: saved?.vendorCostAfter ?? previous?.ibondVendorCostAfter ?? null,
+  };
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -1465,6 +1652,51 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  panelSplit: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  panelSplitStacked: { flexDirection: "column" },
+  splitFill: { flex: 1, minWidth: 0, minHeight: 0 },
+  splitForm: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: "46%",
+    minHeight: 0,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.complianceTripCardBg,
+    overflow: "hidden",
+  },
+  splitFormStacked: { maxWidth: "100%" },
+  splitPreview: {
+    flex: 1.2,
+    minWidth: 0,
+    minHeight: 0,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    padding: 8,
+  },
+  splitPreviewStacked: { flex: 1, maxWidth: "100%", minWidth: 0, minHeight: 220 },
+  panelInline: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderRadius: 12,
+    borderLeftWidth: 0,
+    ...Platform.select({
+      web: { boxShadow: "none" } as object,
+      default: { shadowOpacity: 0, elevation: 0 },
+    }),
+  },
   headerRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1472,17 +1704,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 8,
   },
+  headerRowCompact: { paddingHorizontal: 10, marginBottom: 4 },
+  headerCopy: { flex: 1, minWidth: 0, overflow: "hidden" },
   title: {
     fontSize: 18,
     fontWeight: "800",
     color: Theme.analyticsHeroBg,
     letterSpacing: 0.2,
   },
+  titleCompact: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textPrimaryDark,
+  },
   subtitle: {
     marginTop: 4,
     fontSize: 13,
     color: Theme.textSecondary,
     lineHeight: 18,
+  },
+  subtitleCompact: { marginTop: 2, fontSize: 10, lineHeight: 13 },
+  ibondBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderColor: Theme.analyticsHeroBg,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ibondBoxOn: { backgroundColor: Theme.analyticsHeroBg },
+  ibondLabel: { fontSize: 13, fontWeight: "700", color: Theme.analyticsHeroBg },
+  ibondRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    gap: 8,
+    minHeight: 44,
+    marginRight: 20,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Theme.analyticsHeroBg,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+    ...Platform.select({ web: { cursor: "pointer" } as object, default: {} }),
+  },
+  ibondRowCompact: {
+    alignSelf: "stretch",
+    minHeight: 36,
+    marginHorizontal: 10,
+    marginRight: 10,
+    marginBottom: 6,
+    borderRadius: 10,
+    borderColor: Theme.complianceTripCardBorder,
   },
   closeBtn: {
     width: 36,
@@ -1497,6 +1775,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     gap: 16,
   },
+  scrollBodyCompact: { paddingHorizontal: 10, paddingBottom: 8, gap: 8 },
   summaryCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -1505,6 +1784,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
+  summaryCardCompact: { padding: 8, gap: 4, borderRadius: 10 },
   summaryRow: {
     flexDirection: "row",
     gap: 12,
@@ -1527,6 +1807,7 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   section: { gap: 12 },
+  sectionCompact: { gap: 8 },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "800",
@@ -1534,6 +1815,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
+  sectionTitleCompact: { fontSize: 11, fontWeight: "600" },
   statusPillRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1562,10 +1844,12 @@ const styles = StyleSheet.create({
     padding: 14,
     minHeight: Layout.minTouchTargetSize,
   },
+  segmentCardCompact: { padding: 8, minHeight: 40, borderRadius: 10, gap: 8 },
   segmentCardActive: {
     borderColor: Theme.analyticsHeroBg,
     backgroundColor: "rgba(43,49,113,0.06)",
   },
+  segmentCardDisabled: { opacity: 0.45 },
   radioOuter: {
     width: 20,
     height: 20,
@@ -1587,6 +1871,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
+  segmentTitleCompact: { fontSize: 12 },
+  segmentHintCompact: { fontSize: 10, marginTop: 1 },
   segmentTitleActive: { color: Theme.analyticsHeroBg },
   segmentHint: {
     marginTop: 2,
@@ -1594,6 +1880,7 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   fields: { gap: 12 },
+  fieldsCompact: { gap: 8 },
   dateTimeRow: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -1823,6 +2110,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.borderLight,
   },
+  footerCompact: { gap: 8, paddingHorizontal: 10, paddingTop: 8 },
+  btnCompact: { minHeight: 36 },
   primaryBtn: {
     minHeight: Layout.minTouchTargetSize,
     borderRadius: Theme.buttonPrimaryRadius,

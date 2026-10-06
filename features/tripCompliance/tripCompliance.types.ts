@@ -162,6 +162,10 @@ export type ComplianceTripSummary = {
     courier: string | null;
     awbNumber: string | null;
     receivedBy: string | null;
+    /** Hard copy was marked IBond. Absent on older cached summaries. */
+    ibond?: boolean;
+    /** POD charges were saved. The trip then leaves the POD Received list. */
+    chargesSaved?: boolean;
     /** Every LR number on this trip. */
     lrNumbers?: string[];
     /** Subset of `lrNumbers` whose hard copy has been received. */
@@ -184,6 +188,10 @@ export type ComplianceTripFlags = {
   pod_hard_copy_received_by: string | null;
   /** The hard-copy-POD-received gate (courier/AWB/received-by are display metadata). */
   pod_received_at: string | null;
+  /** Set when the hard-copy receipt event was saved as IBond. */
+  pod_ibond?: boolean;
+  /** Set when POD client/vendor charges have been saved. */
+  pod_charges_saved?: boolean;
   /**
    * LR numbers already logged as hard-copy received.
    * Read from the courier workflow event, not a trips column.

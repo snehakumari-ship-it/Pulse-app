@@ -92,6 +92,7 @@ it("POD logged outside Compliance → pipeline row derives received=true and Bal
     courier: "BlueDart",
     awbNumber: "AWB1",
     receivedBy: "Ravi",
+    ibond: false,
     lrNumbers: [],
     receivedLrNumbers: [],
   });

@@ -3163,6 +3163,7 @@ export function TripsHubTableView({
           delivery: hardCopyPodTrip?.drop_location?.trim() || "—",
           driverName: hardCopyPodTrip?.driver_display_name?.trim() || "Unassigned",
           vehicleLabel: hardCopyPodTrip?.vehicle_display_number?.trim() || "Pending",
+          vendorName: hardCopyPodTrip?.supplier_name?.trim() || "—",
         }}
       />
     </View>

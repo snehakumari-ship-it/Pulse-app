@@ -7568,6 +7568,11 @@ export default function TripDetailScreen({
           delivery: trip.drop_location?.trim() || "—",
           driverName: allocatedDriverName,
           vehicleLabel: allocatedVehicleLabel,
+          vehicleType: vehicleTypeLabel || "—",
+          vendorName:
+            supplierNameForParty && supplierNameForParty !== awaitingDataLabel
+              ? supplierNameForParty
+              : "—",
         }}
         onUpdated={() => {
           void detail.load();
