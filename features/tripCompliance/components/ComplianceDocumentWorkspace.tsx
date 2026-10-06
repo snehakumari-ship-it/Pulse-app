@@ -563,7 +563,7 @@ function OriginalDocumentPreview({
     Platform.OS === "web"
       ? ({
           cursor: dragging ? "grabbing" : pannable ? "grab" : hovered ? "zoom-in" : "default",
-        } as ViewStyle)
+        } as unknown as ViewStyle)
       : null;
 
   return (
