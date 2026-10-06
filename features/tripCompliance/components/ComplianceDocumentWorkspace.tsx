@@ -2070,6 +2070,11 @@ export function ComplianceDocumentWorkspace({
                 .join(" → ")}
               clientPrice={Number(summary.trip.client_price) || 0}
               supplierRate={Number(summary.trip.supplier_rate) || 0}
+              supplierRateBasis={
+                (summary.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null
+              }
+              loadTons={summary.trip.load_tons ?? null}
+              tripOrganizationId={summary.trip.organization_id}
               ibond={summary.hardCopyPod.ibond === true}
               reviewMode={chargesReview}
               onSaved={() => {

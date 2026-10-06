@@ -694,6 +694,21 @@ export function LogHardCopyPodModal({
                 {subtitle}
               </Text>
             </View>
+            {showCreateForm && canManage && podState?.status !== "RECEIVED" ? (
+              <Pressable
+                style={[styles.ibondRow, styles.ibondRowHeader, compact && styles.ibondRowCompact]}
+                onPress={toggleIbond}
+                disabled={saving}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: ibondOn, disabled: saving }}
+                accessibilityLabel="IBond"
+              >
+                <View style={[styles.ibondBox, ibondOn && styles.ibondBoxOn]}>
+                  {ibondOn ? <Feather name="check" size={12} color={Theme.cardWhite} /> : null}
+                </View>
+                <Text style={styles.ibondLabel}>IBond</Text>
+              </Pressable>
+            ) : null}
             {inline ? null : (
               <Pressable
                 onPress={onClose}
@@ -706,21 +721,6 @@ export function LogHardCopyPodModal({
               </Pressable>
             )}
           </View>
-          {showCreateForm && canManage && podState?.status !== "RECEIVED" ? (
-            <Pressable
-              style={[styles.ibondRow, compact && styles.ibondRowCompact]}
-              onPress={toggleIbond}
-              disabled={saving}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: ibondOn, disabled: saving }}
-              accessibilityLabel="IBond"
-            >
-              <View style={[styles.ibondBox, ibondOn && styles.ibondBoxOn]}>
-                {ibondOn ? <Feather name="check" size={12} color={Theme.cardWhite} /> : null}
-              </View>
-              <Text style={styles.ibondLabel}>IBond</Text>
-            </Pressable>
-          ) : null}
 
           <ScrollView
             style={{ flex: 1 }}
@@ -1704,7 +1704,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 8,
   },
-  headerRowCompact: { paddingHorizontal: 10, marginBottom: 4 },
+  headerRowCompact: { paddingHorizontal: 10, marginBottom: 4, alignItems: "center" },
   headerCopy: { flex: 1, minWidth: 0, overflow: "hidden" },
   title: {
     fontSize: 18,
@@ -1753,13 +1753,16 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.cardWhite,
     ...Platform.select({ web: { cursor: "pointer" } as object, default: {} }),
   },
+  ibondRowHeader: {
+    alignSelf: "center",
+    marginRight: 0,
+    marginBottom: 0,
+    flexShrink: 0,
+  },
   ibondRowCompact: {
-    alignSelf: "stretch",
-    minHeight: 36,
-    marginHorizontal: 10,
-    marginRight: 10,
-    marginBottom: 6,
-    borderRadius: 10,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderColor: Theme.complianceTripCardBorder,
   },
   closeBtn: {

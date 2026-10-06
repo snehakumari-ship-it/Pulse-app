@@ -13,13 +13,16 @@ import {
   loadLrPodIndexByTripIds,
   markTripHardCopyPodReceived,
   runWithConcurrencyLimit,
+  vendorFreightBeforeIbond,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import {
+  advanceDocumentCostAmount,
   netChargeTotal,
   readPodValidationPayload,
   resolveIndentType,
 } from "@/features/debit-control/utils/podChargeTotals.util";
 import {
+  ADVANCE_DOCUMENT_COST_EVENT,
   POD_VALIDATED_EVENT,
   podValidationIdempotencyKey,
   type DebitControlPendingTrip,
@@ -140,40 +143,102 @@ async function loadInvoiceNumberByTripId(
   return found;
 }
 
-/** Same base freight the advance payment uses for the documentation-charge slab. */
-function vendorBaseFreight(row: {
-  supplier_rate?: number | null;
-  supplier_rate_basis?: string | null;
-  load_tons?: number | null;
-}): number {
-  const rate = Number(row.supplier_rate);
-  if (!Number.isFinite(rate) || rate <= 0) return 0;
-  if (row.supplier_rate_basis === "per_mt") {
-    const tons = Number(row.load_tons);
-    if (!Number.isFinite(tons) || tons <= 0) return 0;
-    return Math.round(rate * tons * 100) / 100;
-  }
-  return rate;
+/** Freight facts already on screen, used when the trip row cannot be re-read. */
+export type AdvanceDocumentCostSource = {
+  organizationId?: string | null;
+  supplierRate?: number | null;
+  supplierRateBasis?: string | null;
+  loadTons?: number | null;
+};
+
+function documentCostPayloadAmount(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const amount = Number((payload as { amount?: unknown }).amount);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  return Math.round(amount * 100) / 100;
 }
 
-/** Document charge already taken off the vendor in Advance Payment. */
-async function loadVendorDocumentCost(orgId: string, tripId: string): Promise<number> {
+/** Amount frozen when the advance was posted. Null when that advance predates the snapshot. */
+async function loadStoredAdvanceDocumentCost(tripId: string): Promise<number | null> {
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("payload")
+    .eq("trip_id", tripId)
+    .eq("event_type", ADVANCE_DOCUMENT_COST_EVENT)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return documentCostPayloadAmount(data.payload);
+}
+
+/** Same slab Advance Payment deducts, from the trip's own org and vendor freight. */
+async function resolveLiveDocumentCost(
+  tripId: string,
+  fallback?: AdvanceDocumentCostSource,
+): Promise<number> {
+  let row: {
+    organization_id?: string | null;
+    supplier_rate?: number | null;
+    supplier_rate_basis?: string | null;
+    load_tons?: number | null;
+  } | null = null;
+  const { data, error } = await supabase()
+    .from("trips")
+    .select("organization_id, supplier_rate, supplier_rate_basis, load_tons")
+    .eq("id", tripId)
+    .maybeSingle();
+  if (!error && data) row = data;
+
+  const freightFromRow = row ? vendorFreightBeforeIbond(row) : 0;
+  const freight =
+    freightFromRow > 0
+      ? freightFromRow
+      : vendorFreightBeforeIbond({
+          supplier_rate: fallback?.supplierRate,
+          supplier_rate_basis: fallback?.supplierRateBasis,
+          load_tons: fallback?.loadTons,
+        });
+  if (freight <= 0) return 0;
+  const orgId = text(row?.organization_id) || text(fallback?.organizationId);
+  if (!orgId) return 0;
+  const config = await getDocumentChargeConfig(orgId);
+  if (config.error || !config.data) return 0;
+  return resolveComplianceDocumentationCharge(config.data, freight).amount;
+}
+
+/** Document charge recorded when this trip's advance was processed. Typed amounts are not used. */
+async function loadVendorDocumentCost(tripId: string): Promise<number> {
   try {
-    const { data, error } = await supabase()
-      .from("trips")
-      .select("supplier_rate, supplier_rate_basis, load_tons")
-      .eq("id", tripId)
-      .eq("organization_id", orgId)
-      .maybeSingle();
-    if (error || !data) return 0;
-    const freight = vendorBaseFreight(data);
-    if (freight <= 0) return 0;
-    const config = await getDocumentChargeConfig(orgId);
-    if (config.error || !config.data) return 0;
-    return resolveComplianceDocumentationCharge(config.data, freight).amount;
+    return advanceDocumentCostAmount(await loadStoredAdvanceDocumentCost(tripId));
   } catch {
     return 0;
   }
+}
+
+/** Freeze the advance deduction so a later slab change does not rewrite this trip. */
+export async function recordAdvanceDocumentCostSnapshot(
+  tripId: string,
+  fallback?: AdvanceDocumentCostSource,
+): Promise<void> {
+  const amount = await resolveLiveDocumentCost(tripId, fallback);
+  const { data } = await supabase()
+    .from("trips")
+    .select("organization_id")
+    .eq("id", tripId)
+    .maybeSingle();
+  const orgId = text(data?.organization_id) || text(fallback?.organizationId);
+  if (!orgId) return;
+  const { error } = await supabase()
+    .from("trip_workflow_events")
+    .insert({
+      trip_id: tripId,
+      org_id: orgId,
+      event_type: ADVANCE_DOCUMENT_COST_EVENT,
+      payload: { amount },
+      idempotency_key: `${tripId}:${ADVANCE_DOCUMENT_COST_EVENT}`,
+    });
+  if (error && error.code !== "23505") return;
 }
 
 /** Invoice number from Trips Ops, plus any client charges already validated. */
@@ -216,7 +281,7 @@ export async function fetchTripPodClientValidation(
       loadInvoiceNumberByTripId(orgId, [tripId]),
       loadValidationByTripId([tripId]),
       fetchTripHardCopyPodState(tripId),
-      loadVendorDocumentCost(orgId, tripId),
+      loadVendorDocumentCost(tripId),
     ]);
     const saved = validation.get(tripId);
     const parsed = saved ? readPodValidationPayload(saved.payload) : null;
@@ -225,7 +290,9 @@ export async function fetchTripPodClientValidation(
       invoiceNumber: invoices.get(tripId) ?? parsed?.clientInvoiceNumber ?? null,
       validatedAt: saved?.createdAt ?? null,
       clientCharges: parsed?.clientCharges ?? null,
-      vendorCharges: parsed?.vendorCharges ?? null,
+      vendorCharges: parsed?.vendorCharges
+        ? { ...parsed.vendorCharges, documentCost }
+        : null,
       tripStartDate: parsed?.tripStartDate ?? null,
       deliveryDate: parsed?.deliveryDate ?? null,
       dispatchDate: parsed?.dispatchDate ?? pod.state?.dispatchDate ?? null,
