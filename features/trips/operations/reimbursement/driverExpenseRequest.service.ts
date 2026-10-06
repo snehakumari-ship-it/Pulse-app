@@ -91,19 +91,10 @@ export async function cancelDriverExpenseRequest(input: {
     return { error: new Error("This request can no longer be cancelled") };
   }
 
-  const now = new Date().toISOString();
-  const { error } = await supabase()
-    .from(tableForKind(input.kind))
-    .update({
-      status: "voided",
-      approval_state: "rejected",
-      ledger_state: "void",
-      posting_state: "rejected",
-      reimbursement_state: "rejected",
-      updated_at: now,
-      reimbursement_updated_at: now,
-    })
-    .eq("id", input.entryId);
+  const { error } = await supabase().rpc("cancel_my_trip_expense", {
+    p_kind: input.kind,
+    p_id: input.entryId,
+  });
 
   if (error) return { error: new Error(error.message) };
 
@@ -146,10 +137,7 @@ export async function remindDriverExpenseRequest(input: {
   const now = new Date().toISOString();
   const { error } = await supabase()
     .from(tableForKind(input.kind))
-    .update({
-      entered_at: now,
-      updated_at: now,
-    })
+    .update({ updated_at: now })
     .eq("id", input.entryId);
 
   if (error) return { error: new Error(error.message) };

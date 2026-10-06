@@ -23,7 +23,7 @@ import {
   buildGeneralExpenseWhatsAppMessage,
   saveDriverGeneralExpense,
   type DriverGeneralExpenseCategory,
-} from "@/features/driver/services/driverGeneralExpense.util";
+} from "@/features/driver/services/driverPersonalExpense.service";
 
 async function openWhatsApp(message: string) {
   const encoded = encodeURIComponent(message);
@@ -42,7 +42,7 @@ async function openWhatsApp(message: string) {
 }
 
 /**
- * General (no active trip) expense — device-local note + optional WhatsApp share.
+ * General (no active trip) expense — a personal record on the driver's account, optionally shared.
  */
 export function DriverGeneralExpenseScreen() {
   const router = useRouter();
@@ -76,15 +76,14 @@ export function DriverGeneralExpenseScreen() {
             buildGeneralExpenseWhatsAppMessage({
               entry,
               driverName: profile?.full_name ?? null,
-              fleetName: "Fleet",
             }),
           );
         }
         Alert.alert(
           "Expense saved",
           share
-            ? "Saved on this device and opened WhatsApp to share with fleet."
-            : "Saved on this device. You can share it with fleet anytime.",
+            ? "Saved to your expenses and opened WhatsApp."
+            : "Saved to your expenses.",
           [{ text: "Done", onPress: () => router.back() }],
         );
       } finally {
@@ -129,7 +128,7 @@ export function DriverGeneralExpenseScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={[styles.kicker, { color: colors.textMuted }]}>
-          Offline note for fleet
+          Personal record
         </Text>
 
         <View>
@@ -199,8 +198,8 @@ export function DriverGeneralExpenseScreen() {
         </View>
 
         <Text style={[styles.hint, { color: colors.textMuted }]}>
-          Saved on this phone only. Share with fleet owner over WhatsApp to settle
-          offline — not synced as a trip reimbursement.
+          Saved to your account for your reference. It is not sent to any fleet and
+          is not a reimbursement claim.
         </Text>
       </ScrollView>
 

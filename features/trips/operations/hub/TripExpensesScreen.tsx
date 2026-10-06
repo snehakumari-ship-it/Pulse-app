@@ -22,7 +22,7 @@ import {
   useTripOperationsSummary,
 } from "../queries/useTripOperations";
 import { useTripOperationsSync } from "../hooks/useTripOperationsSync";
-import { isDriverReimbursementCostEvent } from "../shared/driverReimbursementEvents.util";
+import { isDriverVisibleCostEvent } from "../shared/driverReimbursementEvents.util";
 import { formatOtherExpenseCategoryLabel } from "../shared/tripOtherExpenseCategories";
 import { canEditTripCostEvent } from "../shared/expenseEntryEdit.util";
 import { ExpensePreviewSheet } from "./ExpensePreviewSheet";
@@ -160,12 +160,14 @@ function needsDriverPendingAction(event: TripCostEvent): boolean {
 }
 
 function isDriverReimbursementEvent(event: TripCostEvent): boolean {
-  return isDriverReimbursementCostEvent(event);
+  return isDriverVisibleCostEvent(event);
 }
 
 function driverEventStatusLabel(event: TripCostEvent): string {
+  if (event.expenseContext === "dco") return "Recorded · your trip cost";
+  if (event.expenseContext === "personal") return "Recorded · for your reference";
   if (event.approvalState === "pending") return "Awaiting fleet approval";
-  if (event.approvalState === "rejected") return "Cancelled";
+  if (event.approvalState === "rejected") return "Rejected by fleet";
   if (event.settlementState === "settled") return "Reimbursed";
   // settlementState is narrowed to non-"settled" here (guarded above)
   if (event.approvalState === "approved") {
@@ -175,10 +177,16 @@ function driverEventStatusLabel(event: TripCostEvent): string {
 }
 
 function driverReimbursementHint(event: TripCostEvent): string | null {
+  if (event.expenseContext === "dco") return "Counts in your trip earnings · no approval needed";
+  if (event.expenseContext === "personal") {
+    return "No employer on this trip · not sent to any fleet";
+  }
   if (event.approvalState === "pending") {
     return "Submitted for fleet reimbursement";
   }
-  if (event.approvalState === "rejected") return "Request cancelled";
+  if (event.approvalState === "rejected") {
+    return event.rejectionReason ? `Reason: ${event.rejectionReason}` : "Fleet rejected this request";
+  }
   if (event.settlementState === "settled") return "Fleet marked this reimbursed";
   // settlementState is narrowed to non-"settled" here (guarded above)
   if (event.approvalState === "approved") {
@@ -696,35 +704,43 @@ export function TripExpensesScreen({
   ]);
 
   const handleReject = useCallback(async (event: TripCostEvent) => {
+    if (!canApproveExpenses) return;
     const [kind, sourceId] = event.id.split(":");
     if (!sourceId) return;
-    if (kind === "fuel") {
-      await reviewFuel.mutateAsync({
-        tripId: trip.id,
-        fuelEntryId: sourceId,
-        approvalState: "rejected",
-        reviewerUserId: profile?.uid ?? null,
-      });
-      return;
+    try {
+      if (kind === "fuel") {
+        await reviewFuel.mutateAsync({
+          tripId: trip.id,
+          fuelEntryId: sourceId,
+          approvalState: "rejected",
+          reviewerUserId: profile?.uid ?? null,
+        });
+        return;
+      }
+      if (kind === "toll") {
+        await reviewToll.mutateAsync({
+          tripId: trip.id,
+          tollEntryId: sourceId,
+          approvalState: "rejected",
+          reviewerUserId: profile?.uid ?? null,
+        });
+        return;
+      }
+      if (kind === "other") {
+        await reviewOther.mutateAsync({
+          tripId: trip.id,
+          otherEntryId: sourceId,
+          approvalState: "rejected",
+          reviewerUserId: profile?.uid ?? null,
+        });
+      }
+    } catch (e) {
+      Alert.alert(
+        "Could not reject expense",
+        e instanceof Error ? e.message : "Unknown error",
+      );
     }
-    if (kind === "toll") {
-      await reviewToll.mutateAsync({
-        tripId: trip.id,
-        tollEntryId: sourceId,
-        approvalState: "rejected",
-        reviewerUserId: profile?.uid ?? null,
-      });
-      return;
-    }
-    if (kind === "other") {
-      await reviewOther.mutateAsync({
-        tripId: trip.id,
-        otherEntryId: sourceId,
-        approvalState: "rejected",
-        reviewerUserId: profile?.uid ?? null,
-      });
-    }
-  }, [profile?.uid, reviewFuel, reviewOther, reviewToll, trip.id]);
+  }, [canApproveExpenses, profile?.uid, reviewFuel, reviewOther, reviewToll, trip.id]);
 
   const handleMarkSettled = useCallback(async (event: TripCostEvent) => {
     const [kind, sourceId] = event.id.split(":");

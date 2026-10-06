@@ -35,7 +35,24 @@ export type ReimbursementState =
   | "reimbursed"
   | "rejected";
 
-export interface TripFuelEntry {
+/** Fixed by the server at insert (20271007190418). */
+export type TripExpenseContext = "employer" | "dco" | "personal";
+export type TripExpenseStatus =
+  | "personal"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "cancelled";
+
+export interface TripExpenseOwnership {
+  expense_context?: TripExpenseContext;
+  owner_user_id?: string | null;
+  employer_org_id?: string | null;
+  expense_status?: TripExpenseStatus;
+  rejection_reason?: string | null;
+}
+
+export interface TripFuelEntry extends TripExpenseOwnership {
   id: string;
   trip_id: string;
   amount_inr: number;
@@ -68,7 +85,7 @@ export interface TripFuelEntry {
   idempotency_key?: string | null;
 }
 
-export interface TripTollEntry {
+export interface TripTollEntry extends TripExpenseOwnership {
   id: string;
   trip_id: string;
   amount_inr: number;
@@ -153,7 +170,7 @@ export type TripOtherExpenseCategory =
   | "weighbridge"
   | "misc";
 
-export interface TripOtherExpenseEntry {
+export interface TripOtherExpenseEntry extends TripExpenseOwnership {
   id: string;
   trip_id: string;
   expense_category: TripOtherExpenseCategory;

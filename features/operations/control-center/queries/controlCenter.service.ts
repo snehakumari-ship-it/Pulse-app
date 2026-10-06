@@ -143,13 +143,15 @@ export async function getOperationsControlCenterPage(input: {
     supabase()
       .from("trip_fuel_entries")
       .select(selectFields)
-      .eq("trips.organization_id", input.organizationId)
+      .eq("expense_context", "employer")
+      .eq("employer_org_id", input.organizationId)
       .order("entered_at", { ascending: false })
       .range(offset, to),
     supabase()
       .from("trip_toll_entries")
       .select(selectFields)
-      .eq("trips.organization_id", input.organizationId)
+      .eq("expense_context", "employer")
+      .eq("employer_org_id", input.organizationId)
       .order("entered_at", { ascending: false })
       .range(offset, to),
     listOperationsOutbox(),

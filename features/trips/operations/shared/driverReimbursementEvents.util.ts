@@ -4,6 +4,15 @@ export function isDriverReimbursementCostEvent(event: TripCostEvent): boolean {
   return event.incurredBy === "driver" && event.reimbursable;
 }
 
+/** DCO trip costs and no-employer notes: the driver's own record, never reviewed. */
+export function isSelfRecordedCostEvent(event: TripCostEvent): boolean {
+  return event.expenseContext === "dco" || event.expenseContext === "personal";
+}
+
+export function isDriverVisibleCostEvent(event: TripCostEvent): boolean {
+  return isSelfRecordedCostEvent(event) || isDriverReimbursementCostEvent(event);
+}
+
 export function isDriverSubmittedOperationalExpense(row: {
   payment_owner?: string | null;
   approval_state?: string | null;

@@ -9,17 +9,19 @@ export interface PostingHealthSnapshot {
 export async function getPostingHealthSnapshot(input: {
   organizationId: string;
 }): Promise<{ error: Error | null; snapshot: PostingHealthSnapshot | null }> {
-  const selectFields = "posting_state,retry_count,posting_error,trips!inner(organization_id)";
+  const selectFields = "posting_state,retry_count,posting_error";
   const [fuelRes, tollRes] = await Promise.all([
     supabase()
       .from("trip_fuel_entries")
       .select(selectFields)
-      .eq("trips.organization_id", input.organizationId)
+      .eq("expense_context", "employer")
+      .eq("employer_org_id", input.organizationId)
       .limit(500),
     supabase()
       .from("trip_toll_entries")
       .select(selectFields)
-      .eq("trips.organization_id", input.organizationId)
+      .eq("expense_context", "employer")
+      .eq("employer_org_id", input.organizationId)
       .limit(500),
   ]);
   if (fuelRes.error) return { error: new Error(fuelRes.error.message), snapshot: null };

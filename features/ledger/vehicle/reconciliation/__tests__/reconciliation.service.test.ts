@@ -79,6 +79,8 @@ function fuelEntry(id: string, tripId: string, opts: Partial<Row> = {}): Row {
     payment_owner: "organization",
     posting_state: "pending",
     ledger_state: "not_posted",
+    expense_context: "employer",
+    employer_org_id: "org-1",
     ...opts,
   };
 }
@@ -91,6 +93,8 @@ function tollEntry(id: string, tripId: string, opts: Partial<Row> = {}): Row {
     payment_owner: "organization",
     posting_state: "pending",
     ledger_state: "not_posted",
+    expense_context: "employer",
+    employer_org_id: "org-1",
     ...opts,
   };
 }
@@ -210,6 +214,23 @@ describe("reconcileVehicleLedgerStatesBatch", () => {
     expect(bySourceId["should-post-failed"]).toMatchObject({ hasLedgerEntry: true, postingState: "failed" });
     expect(bySourceId["no-post-clean"]).toBeUndefined();
     expect(t1.chip).toBe("retry_needed"); // one mismatch has postingState 'failed'
+  });
+
+  it("never marks DCO, personal or another employer's rows as needing to post", async () => {
+    mockTables({
+      trips: [trip("t1")],
+      fuelEntries: [
+        fuelEntry("dco", "t1", { expense_context: "dco", employer_org_id: null }),
+        fuelEntry("personal", "t1", { expense_context: "personal", employer_org_id: null }),
+        fuelEntry("other-employer", "t1", { employer_org_id: "org-2" }),
+      ],
+      tollEntries: [],
+      existingLedgerEntries: { fuel: [] },
+    });
+
+    const result = await reconcileVehicleLedgerStatesBatch(["t1"]);
+    expect(result.get("t1")!.mismatches).toEqual([]);
+    expect(result.get("t1")!.chip).toBe("posted");
   });
 
   it("batches to a constant number of Supabase calls regardless of trip count (the actual fix)", async () => {

@@ -1,0 +1,10 @@
+# Trip expense ownership: dco / employer / personal context fixed at insert,
+# owner + employer RLS on fuel / toll / other expenses, review and cancel RPCs,
+# trip_expenses view, Finance guard on vehicle ledgers, receipt restriction,
+# driver_personal_expenses (no-trip notes). Backfills existing rows.
+# Ships with the app build that reads expense_context / expense_status and
+# approves before posting (older clients post first and would be refused).
+# Before apply: read-only counts of rows per backfilled context, and a check
+# that no live policy on the three tables is missing from this migration's
+# drop-all loop. Apply only after explicit production authorization.
+20271007190418

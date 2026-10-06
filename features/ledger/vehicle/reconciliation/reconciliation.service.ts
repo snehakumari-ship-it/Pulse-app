@@ -10,6 +10,8 @@ import {
   updateTripTollApprovalState,
 } from "@/features/trips/operations/toll/toll.service";
 import { getTripOperationalCapabilities } from "@/features/trips/capabilities";
+import { isEmployerExpenseOf } from "@/features/trips/operations/shared/expenseEntryEdit.util";
+import type { TripExpenseOwnership } from "@/features/trips/operations/types";
 import { supabase } from "@/lib/supabase";
 import { executeVehiclePostingRuntime } from "../runtime";
 
@@ -35,8 +37,11 @@ function shouldEntryPost(input: {
   approvalState: string | null | undefined;
   paymentOwner: string | null | undefined;
   isAssetTrip: boolean;
+  ownership: TripExpenseOwnership;
+  organizationId: string;
 }): boolean {
   if (!input.isAssetTrip) return false;
+  if (!isEmployerExpenseOf(input.ownership, input.organizationId)) return false;
   if (String(input.approvalState ?? "") !== "approved") return false;
   const owner = String(input.paymentOwner ?? "").toLowerCase();
   return owner === "organization" || owner === "fleet_card";
@@ -79,6 +84,7 @@ export async function reconcileVehicleLedgerState(input: {
   if (fuelRes.error) return { error: fuelRes.error, mismatches: [], chip: "blocked" };
   if (tollRes.error) return { error: tollRes.error, mismatches: [], chip: "blocked" };
   const capabilities = getTripOperationalCapabilities(tripRes.trip);
+  const organizationId = tripRes.trip.organization_id;
   const candidates = [
     ...fuelRes.entries.map((entry) => ({
       sourceType: "fuel" as const,
@@ -89,6 +95,8 @@ export async function reconcileVehicleLedgerState(input: {
         approvalState: entry.approval_state,
         paymentOwner: entry.payment_owner,
         isAssetTrip: capabilities.isAssetTrip,
+        ownership: entry,
+        organizationId,
       }),
     })),
     ...tollRes.entries.map((entry) => ({
@@ -100,6 +108,8 @@ export async function reconcileVehicleLedgerState(input: {
         approvalState: entry.approval_state,
         paymentOwner: entry.payment_owner,
         isAssetTrip: capabilities.isAssetTrip,
+        ownership: entry,
+        organizationId,
       }),
     })),
   ];
@@ -217,6 +227,8 @@ export async function reconcileVehicleLedgerStatesBatch(
           approvalState: entry.approval_state,
           paymentOwner: entry.payment_owner,
           isAssetTrip: capabilities.isAssetTrip,
+          ownership: entry,
+          organizationId: trip.organization_id,
         }),
       })),
       ...(tollRes.entriesByTripId[tripId] ?? []).map((entry) => ({
@@ -228,6 +240,8 @@ export async function reconcileVehicleLedgerStatesBatch(
           approvalState: entry.approval_state,
           paymentOwner: entry.payment_owner,
           isAssetTrip: capabilities.isAssetTrip,
+          ownership: entry,
+          organizationId: trip.organization_id,
         }),
       })),
     ];
@@ -276,6 +290,8 @@ export async function rebuildOperationalLedgerState(input: {
   if (recon.error) return { error: recon.error, updated: 0 };
   let updated = 0;
   for (const mismatch of recon.mismatches) {
+    // Only already-approved employer rows qualify; rebuilding must never approve an expense.
+    if (!mismatch.shouldPost) continue;
     if (mismatch.sourceType === "fuel") {
       const state = mismatch.hasLedgerEntry ? "posted" : mismatch.shouldPost ? "not_posted" : "void";
       const res = await updateTripFuelApprovalState({
@@ -318,6 +334,8 @@ export async function reconcileOperationalPosting(input: {
       approvalState: entry.approval_state,
       paymentOwner: entry.payment_owner,
       isAssetTrip: getTripOperationalCapabilities(tripRes.trip).isAssetTrip,
+      ownership: entry,
+      organizationId: tripRes.trip.organization_id,
     });
     if (!shouldPost) continue;
     const post = await executeVehiclePostingRuntime({
@@ -340,6 +358,8 @@ export async function reconcileOperationalPosting(input: {
       approvalState: entry.approval_state,
       paymentOwner: entry.payment_owner,
       isAssetTrip: getTripOperationalCapabilities(tripRes.trip).isAssetTrip,
+      ownership: entry,
+      organizationId: tripRes.trip.organization_id,
     });
     if (!shouldPost) continue;
     const post = await executeVehiclePostingRuntime({

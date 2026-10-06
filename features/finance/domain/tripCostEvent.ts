@@ -41,6 +41,12 @@ export interface TripCostEvent {
   reimbursedAt?: string;
   ledgerTransactionId?: string;
   pnlImpact: boolean;
+  /**
+   * Server-fixed owner of the expense. `dco` and `personal` are never
+   * reviewed, reimbursed or posted to an employer.
+   */
+  expenseContext?: "employer" | "dco" | "personal";
+  rejectionReason?: string;
   source: TripCostSource;
   createdAt: string;
   updatedAt: string;

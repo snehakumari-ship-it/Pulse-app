@@ -283,11 +283,15 @@ export function BusinessPulseScreen({ embedded = false, topInset }: BusinessPuls
         supabase()
           .from("trip_fuel_entries")
           .select("id,trip_id,amount_inr,approval_state,reimbursement_state,payment_owner,posting_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", orgId!)
           .order("created_at", { ascending: false })
           .limit(4000),
         supabase()
           .from("trip_toll_entries")
           .select("id,trip_id,amount_inr,approval_state,reimbursement_state,payment_owner,posting_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", orgId!)
           .order("created_at", { ascending: false })
           .limit(4000),
         supabase()

@@ -53,13 +53,14 @@ describe('deriveOperationalLedgerProjection', () => {
 });
 
 describe('deriveOperationalPayables', () => {
-  it('attributes driver payables only when reimbursement is in a pending/approved state', () => {
+  it('attributes driver payables only for approved rows awaiting reimbursement', () => {
     const result = deriveOperationalPayables({
       fuelEntries: [
-        fuel({ amount_inr: 100, payment_owner: 'driver', reimbursement_state: 'reported' }),
-        fuel({ amount_inr: 40, payment_owner: 'driver', reimbursement_state: 'reimbursed' }),
+        fuel({ amount_inr: 100, payment_owner: 'driver', approval_state: 'approved', reimbursement_state: 'approved' }),
+        fuel({ amount_inr: 40, payment_owner: 'driver', approval_state: 'approved', reimbursement_state: 'reimbursed' }),
+        fuel({ amount_inr: 70, payment_owner: 'driver', approval_state: 'review_pending', reimbursement_state: 'reported' }),
       ],
-      tollEntries: [toll({ amount_inr: 60, payment_owner: 'supplier' })],
+      tollEntries: [toll({ amount_inr: 60, payment_owner: 'supplier', approval_state: 'approved' })],
     });
     expect(result.driverReimbursementPayableInr).toBe(100);
     expect(result.supplierOperationalPayableInr).toBe(60);
@@ -67,10 +68,22 @@ describe('deriveOperationalPayables', () => {
 
   it('buckets unrecognized owners as unclassified', () => {
     const result = deriveOperationalPayables({
-      fuelEntries: [fuel({ amount_inr: 15, payment_owner: 'unknown_owner' })],
+      fuelEntries: [fuel({ amount_inr: 15, payment_owner: 'unknown_owner', approval_state: 'approved' })],
       tollEntries: [],
     });
     expect(result.unclassifiedOperationalPayableInr).toBe(15);
+  });
+
+  it('excludes DCO, personal and rejected rows', () => {
+    const result = deriveOperationalPayables({
+      fuelEntries: [
+        fuel({ amount_inr: 10, payment_owner: 'driver', approval_state: 'approved', reimbursement_state: 'approved', expense_context: 'dco' }),
+        fuel({ amount_inr: 20, payment_owner: 'driver', approval_state: 'approved', reimbursement_state: 'approved', expense_context: 'personal' }),
+        fuel({ amount_inr: 30, payment_owner: 'driver', approval_state: 'approved', reimbursement_state: 'approved', expense_status: 'rejected' }),
+      ],
+      tollEntries: [],
+    });
+    expect(result.driverReimbursementPayableInr).toBe(0);
   });
 });
 

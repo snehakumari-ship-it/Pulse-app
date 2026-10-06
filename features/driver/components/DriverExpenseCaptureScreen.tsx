@@ -15,7 +15,7 @@ import { ROUTES } from "@/lib/routes";
 /**
  * Expense mode chooser:
  * - Active trip card → trip other-expense entry (fleet reimbursement)
- * - General card → personal / offline expense (local + WhatsApp)
+ * - General card → personal reference expense (driver_personal_expenses)
  */
 export function DriverExpenseCaptureScreen() {
   const router = useRouter();
@@ -59,8 +59,8 @@ export function DriverExpenseCaptureScreen() {
         </View>
         <Text style={[styles.title, { color: colors.text }]}>Capture expense</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Active trip costs go to fleet review. General expenses stay with you and
-          can be shared offline.
+          Trip costs follow the trip: fleet review when you drive for a fleet, your
+          own record otherwise. General expenses are only for you.
         </Text>
       </View>
 
@@ -121,7 +121,7 @@ export function DriverExpenseCaptureScreen() {
               General expense
             </Text>
             <Text style={[styles.cardSub, { color: colors.textMuted }]} numberOfLines={2}>
-              Personal / out-of-pocket — save on device and share with fleet
+              Personal / out-of-pocket — saved for your reference only
             </Text>
           </View>
           <ChevronRight size={16} color={colors.textMuted} strokeWidth={2.2} />
@@ -129,8 +129,8 @@ export function DriverExpenseCaptureScreen() {
       </View>
 
       <Text style={[styles.footnote, { color: colors.textMuted }]}>
-        Trip expenses sync for reimbursement. General notes are device-local and
-        shared via WhatsApp.
+        Only trip expenses on a fleet trip are sent for approval. General
+        expenses never reach a fleet.
       </Text>
     </View>
   );

@@ -20,7 +20,10 @@ import {
   useCancelDriverExpenseRequest,
   useRemindDriverExpenseRequest,
 } from "@/features/trips/operations/queries/useTripOperations";
-import { isDriverReimbursementCostEvent } from "@/features/trips/operations/shared/driverReimbursementEvents.util";
+import {
+  isDriverVisibleCostEvent,
+  isSelfRecordedCostEvent,
+} from "@/features/trips/operations/shared/driverReimbursementEvents.util";
 import { formatOtherExpenseCategoryLabel } from "@/features/trips/operations/shared/tripOtherExpenseCategories";
 import { normalizeTripOtherExpenseCategory } from "@/features/trips/operations/shared/driverExpenseCategoryNav.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
@@ -59,16 +62,19 @@ function categoryVisual(category: TripCostCategory): CategoryVisual {
 }
 
 function isPendingExpense(event: TripCostEvent): boolean {
+  if (isSelfRecordedCostEvent(event)) return false;
   return event.approvalState === "pending" || event.approvalState === "rejected";
 }
 
 function isApprovedExpense(event: TripCostEvent): boolean {
-  return event.approvalState === "approved";
+  return isSelfRecordedCostEvent(event) || event.approvalState === "approved";
 }
 
 function statusLabel(event: TripCostEvent): string {
+  if (event.expenseContext === "dco") return "Trip cost";
+  if (event.expenseContext === "personal") return "Recorded";
   if (event.approvalState === "pending") return "Awaiting fleet";
-  if (event.approvalState === "rejected") return "Cancelled";
+  if (event.approvalState === "rejected") return "Rejected";
   if (event.settlementState === "settled") return "Reimbursed";
   if (event.approvalState === "approved") return "Approved";
   return "Submitted";
@@ -105,7 +111,7 @@ export function DriverTripExpenseLogSection({
   const events = useMemo(
     () =>
       allEvents
-        .filter(isDriverReimbursementCostEvent)
+        .filter(isDriverVisibleCostEvent)
         .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
     [allEvents],
   );
@@ -113,6 +119,11 @@ export function DriverTripExpenseLogSection({
   const pendingEvents = useMemo(() => events.filter(isPendingExpense), [events]);
   const approvedEvents = useMemo(() => events.filter(isApprovedExpense), [events]);
   const displayedEvents = filter === "pending" ? pendingEvents : approvedEvents;
+  const hasSelfRecorded = useMemo(() => events.some(isSelfRecordedCostEvent), [events]);
+
+  useEffect(() => {
+    if (events.length > 0 && events.every(isSelfRecordedCostEvent)) setFilter("approved");
+  }, [events]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -259,7 +270,7 @@ export function DriverTripExpenseLogSection({
               { color: filter === "approved" ? "#ffffff" : colors.textMuted },
             ]}
           >
-            Approved · {approvedEvents.length}
+            {hasSelfRecorded ? "Recorded" : "Approved"} · {approvedEvents.length}
           </Text>
         </Pressable>
       </View>

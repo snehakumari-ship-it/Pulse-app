@@ -583,6 +583,7 @@ export function useReviewTripFuelEntry() {
       fuelEntryId: string;
       approvalState: OperationalApprovalState;
       reviewerUserId: string | null;
+      rejectionReason?: string | null;
     }) => {
       const opKey = `fuel:${input.tripId}:${input.fuelEntryId}:${input.approvalState}`;
       if (reviewInFlightKeys.has(opKey)) return null;
@@ -595,6 +596,7 @@ export function useReviewTripFuelEntry() {
         approvalState: input.approvalState,
         approvedBy: input.reviewerUserId,
         ledgerState: nextLedgerState,
+        rejectionReason: input.rejectionReason,
       });
       if (approvalRes.error) throw approvalRes.error;
       if (input.approvalState === "approved") {
@@ -643,6 +645,7 @@ export function useReviewTripTollEntry() {
       tollEntryId: string;
       approvalState: OperationalApprovalState;
       reviewerUserId: string | null;
+      rejectionReason?: string | null;
     }) => {
       const opKey = `toll:${input.tripId}:${input.tollEntryId}:${input.approvalState}`;
       if (reviewInFlightKeys.has(opKey)) return null;
@@ -655,6 +658,7 @@ export function useReviewTripTollEntry() {
         approvalState: input.approvalState,
         approvedBy: input.reviewerUserId,
         ledgerState: nextLedgerState,
+        rejectionReason: input.rejectionReason,
       });
       if (approvalRes.error) throw approvalRes.error;
       if (input.approvalState === "approved") {
@@ -864,6 +868,7 @@ export function useReviewTripOtherExpenseEntry() {
       otherEntryId: string;
       approvalState: OperationalApprovalState;
       reviewerUserId: string | null;
+      rejectionReason?: string | null;
     }) => {
       const opKey = `other:${input.tripId}:${input.otherEntryId}:${input.approvalState}`;
       if (reviewInFlightKeys.has(opKey)) return null;
@@ -876,6 +881,7 @@ export function useReviewTripOtherExpenseEntry() {
           approvalState: input.approvalState,
           approvedBy: input.reviewerUserId,
           ledgerState: nextLedgerState,
+          rejectionReason: input.rejectionReason,
         });
         if (approvalRes.error) throw approvalRes.error;
         if (input.approvalState === "approved") {

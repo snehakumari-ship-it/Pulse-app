@@ -32,6 +32,12 @@ export async function evaluateAndPostFuelEntry(params: {
   const candidate = toFuelPostingCandidate(fuelEntry);
   const decision = decideFuelPostingRule({ trip: tripRes.trip, candidate });
   if (decision === "post_vehicle_expense") {
+    const approval = await updateTripFuelApprovalState({
+      entryId: fuelEntry.id,
+      approvalState: "approved",
+      approvedBy: params.approvedBy,
+    });
+    if (approval.error) return { error: approval.error, posted: false, reason: "post_failed" as const };
     const post = await executeVehiclePostingRuntime({
       orgId: tripRes.trip.organization_id,
       tripId: tripRes.trip.id,
@@ -131,6 +137,12 @@ export async function evaluateAndPostTollEntry(params: {
   if (!tollEntry) {
     return { error: new Error("Toll entry not found"), posted: false, reason: "toll_missing" as const };
   }
+  const approval = await updateTripTollApprovalState({
+    entryId: tollEntry.id,
+    approvalState: "approved",
+    approvedBy: params.approvedBy,
+  });
+  if (approval.error) return { error: approval.error, posted: false, reason: "post_failed" as const };
   const post = await executeVehiclePostingRuntime({
     orgId: tripRes.trip.organization_id,
     tripId: tripRes.trip.id,
@@ -193,6 +205,12 @@ export async function evaluateAndPostOtherExpenseEntry(params: {
   if (!otherEntry) {
     return { error: new Error("Expense entry not found"), posted: false, reason: "other_missing" as const };
   }
+  const approval = await updateTripOtherExpenseApprovalState({
+    entryId: otherEntry.id,
+    approvalState: "approved",
+    approvedBy: params.approvedBy,
+  });
+  if (approval.error) return { error: approval.error, posted: false, reason: "post_failed" as const };
   const post = await executeVehiclePostingRuntime({
     orgId: tripRes.trip.organization_id,
     tripId: tripRes.trip.id,

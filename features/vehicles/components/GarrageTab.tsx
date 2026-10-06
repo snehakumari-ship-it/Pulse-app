@@ -165,14 +165,20 @@ export function GarrageTab({
         supabase()
           .from("trip_fuel_entries")
           .select("trip_id,amount_inr,payment_owner,posting_state,reimbursement_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", organizationId!)
           .in("trip_id", periodTripIds),
         supabase()
           .from("trip_toll_entries")
           .select("trip_id,amount_inr,payment_owner,posting_state,reimbursement_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", organizationId!)
           .in("trip_id", periodTripIds),
         supabase()
           .from("trip_other_expenses")
           .select("trip_id,amount_inr,payment_owner,posting_state,reimbursement_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", organizationId!)
           .in("trip_id", periodTripIds),
       ]);
       if (fuelRes.error) throw new Error(fuelRes.error.message);

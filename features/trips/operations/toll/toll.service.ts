@@ -14,8 +14,7 @@ import {
   syncVehicleOperationLedgerDraftAmountFromSource,
 } from "../vehicle/vehicleOperationsLedger.service";
 import { appendTripOperationalTimelineEventSafe } from "../timeline/timelineEvents.service";
-import { buildExpenseEditApprovalReset } from "../shared/expenseEntryEdit.util";
-import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
+import { isEmployerExpenseOf } from "../shared/expenseEntryEdit.util";
 import { resolvePaymentOwnerForSave } from "../shared/operationsEntryOptions";
 import type { UpdateTollEntryInput } from "../types";
 
@@ -93,7 +92,6 @@ export async function updateTripTollEntry(
     is_estimated: input.isEstimated === true,
     payment_owner: paymentOwner,
     payment_mode: paymentMode,
-    ...buildExpenseEditApprovalReset(paymentOwner),
   };
   if (input.receiptStoragePath !== undefined) {
     payload.receipt_storage_path = toNullableText(input.receiptStoragePath);
@@ -108,14 +106,18 @@ export async function updateTripTollEntry(
     .select("*")
     .single();
   if (error) return { error: new Error(error.message), entry: null };
-  const sync = await syncVehicleOperationLedgerDraftAmountFromSource({
-    sourceType: "toll",
-    sourceId: input.entryId,
-    tripId: String(data.trip_id),
-    amount: Number(data.amount_inr ?? 0),
-  });
-  if (sync.error) return { error: sync.error, entry: null };
-  return { error: null, entry: data as TripTollEntry };
+  const entry = data as TripTollEntry;
+  if (isEmployerExpenseOf(entry, null)) {
+    const sync = await syncVehicleOperationLedgerDraftAmountFromSource({
+      sourceType: "toll",
+      sourceId: input.entryId,
+      tripId: String(data.trip_id),
+      amount: Number(data.amount_inr ?? 0),
+      expectedOrganizationId: entry.employer_org_id ?? null,
+    });
+    if (sync.error) return { error: sync.error, entry: null };
+  }
+  return { error: null, entry };
 }
 
 export async function createTripTollEntry(
@@ -127,7 +129,6 @@ export async function createTripTollEntry(
   },
 ): Promise<{ error: Error | null; entry: TripTollEntry | null; alreadyExists?: boolean }> {
   const paymentOwner = resolvePaymentOwnerForSave(input);
-  const dcoOwned = isDcoOperatingTrip({ operating_mode: input.operatingMode });
   const paymentMode: OperationalPaymentMode =
     input.paymentMode ?? (input.actorRole === "driver" ? "cash" : "unknown");
   const approvalState: OperationalApprovalState =
@@ -153,12 +154,7 @@ export async function createTripTollEntry(
     posting_error: null,
     retry_count: 0,
     last_retry_at: null,
-    reimbursement_state:
-      (dcoOwned
-        ? "approved"
-        : paymentOwner === "driver"
-          ? "reported"
-          : "approved") as ReimbursementState,
+    reimbursement_state: (paymentOwner === "driver" ? "reported" : "approved") as ReimbursementState,
     reimbursement_updated_at: new Date().toISOString(),
     reimbursed_at: null,
     reimbursed_by: null,
@@ -179,13 +175,15 @@ export async function createTripTollEntry(
     }
     return { error: new Error(error.message), entry: null };
   }
-  if (!dcoOwned) {
+  const entry = data as TripTollEntry;
+  if (isEmployerExpenseOf(entry, null)) {
     await createVehicleOperationLedgerDraftFromSource({
       sourceType: "toll",
       sourceId: String(data.id),
       tripId: String(data.trip_id),
       amount: Number(data.amount_inr ?? 0),
       entryType: "expense",
+      expectedOrganizationId: entry.employer_org_id ?? null,
     });
   }
   await appendTripOperationalTimelineEventSafe({
@@ -209,11 +207,15 @@ export async function updateTripTollApprovalState(input: {
   approvalState: OperationalApprovalState;
   approvedBy?: string | null;
   ledgerState?: OperationalLedgerState;
+  rejectionReason?: string | null;
 }): Promise<{ error: Error | null; entry: TripTollEntry | null }> {
   const payload: Record<string, unknown> = {
     approval_state: input.approvalState,
   };
   if (input.ledgerState) payload.ledger_state = input.ledgerState;
+  if (input.approvalState === "rejected") {
+    payload.rejection_reason = input.rejectionReason?.trim() || null;
+  }
   if (input.approvalState === "approved" || input.approvalState === "settled") {
     payload.posting_state = "approved";
     payload.posting_error = null;

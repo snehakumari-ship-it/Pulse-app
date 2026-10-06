@@ -1,0 +1,86 @@
+\set ON_ERROR_STOP on
+-- Actors and trips, plus legacy rows written before the migration.
+--
+-- Orgs: F fleet/shipper, S supplier org (linked from F's supplier row), X stranger.
+-- Users:
+--   a1 staff of F        a2 staff of S        a3 staff of X
+--   b1 driver employed by F (accepted invite, current roster)
+--   b2 driver employed by S (consumed invite, current roster)
+--   b3 driver with no employer (F tracking_only independent roster row, no invite)
+--   b4 driver who left F (accepted invite, roster left_at set)
+--   b5 DCO (dco_payees)
+--   b6 staff of S driving for S (no invite)
+
+INSERT INTO public.organizations (id, name) VALUES
+  ('f0000000-0000-0000-0000-00000000000f', 'Fleet F'),
+  ('f0000000-0000-0000-0000-00000000005a', 'Supplier S'),
+  ('f0000000-0000-0000-0000-00000000000a', 'Stranger X');
+
+INSERT INTO auth.users (id) VALUES
+  ('a1000000-0000-0000-0000-000000000000'), ('a2000000-0000-0000-0000-000000000000'),
+  ('a3000000-0000-0000-0000-000000000000'), ('b1000000-0000-0000-0000-000000000000'),
+  ('b2000000-0000-0000-0000-000000000000'), ('b3000000-0000-0000-0000-000000000000'),
+  ('b4000000-0000-0000-0000-000000000000'), ('b5000000-0000-0000-0000-000000000000'),
+  ('b6000000-0000-0000-0000-000000000000');
+
+INSERT INTO public.org_members (organization_id, user_id, staff) VALUES
+  ('f0000000-0000-0000-0000-00000000000f', 'a1000000-0000-0000-0000-000000000000', true),
+  ('f0000000-0000-0000-0000-00000000005a', 'a2000000-0000-0000-0000-000000000000', true),
+  ('f0000000-0000-0000-0000-00000000000a', 'a3000000-0000-0000-0000-000000000000', true),
+  ('f0000000-0000-0000-0000-00000000005a', 'b6000000-0000-0000-0000-000000000000', true),
+  -- driver memberships are not staff and never decide employment
+  ('f0000000-0000-0000-0000-00000000000f', 'b3000000-0000-0000-0000-000000000000', false);
+INSERT INTO public.organization_members (organization_id, user_id, role) VALUES
+  ('f0000000-0000-0000-0000-00000000000f', 'a1000000-0000-0000-0000-000000000000', 'admin'),
+  ('f0000000-0000-0000-0000-00000000005a', 'a2000000-0000-0000-0000-000000000000', 'admin'),
+  ('f0000000-0000-0000-0000-00000000005a', 'b6000000-0000-0000-0000-000000000000', 'owner'),
+  ('f0000000-0000-0000-0000-00000000000f', 'b3000000-0000-0000-0000-000000000000', 'driver');
+
+INSERT INTO public.suppliers (id, organization_id, linked_organization_id) VALUES
+  ('5e000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-00000000000f', 'f0000000-0000-0000-0000-00000000005a');
+
+INSERT INTO public.drivers (id, organization_id, user_id, left_at, tracking_only, relationship_status) VALUES
+  ('d1000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'b1000000-0000-0000-0000-000000000000', NULL, false, 'active_employee'),
+  ('d2000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000005a', 'b2000000-0000-0000-0000-000000000000', NULL, false, 'active_employee'),
+  ('d3000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'b3000000-0000-0000-0000-000000000000', NULL, true, 'independent'),
+  ('d4000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'b4000000-0000-0000-0000-000000000000', now() - interval '3 days', false, 'active_employee'),
+  ('d6000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000005a', 'b6000000-0000-0000-0000-000000000000', NULL, false, NULL);
+
+INSERT INTO public.driver_invites (from_organization_id, to_user_id, status) VALUES
+  ('f0000000-0000-0000-0000-00000000000f', 'b1000000-0000-0000-0000-000000000000', 'accepted'),
+  ('f0000000-0000-0000-0000-00000000005a', 'b2000000-0000-0000-0000-000000000000', 'consumed'),
+  ('f0000000-0000-0000-0000-00000000000f', 'b4000000-0000-0000-0000-000000000000', 'accepted'),
+  -- a pending or rejected invite is not employment
+  ('f0000000-0000-0000-0000-00000000000f', 'b3000000-0000-0000-0000-000000000000', 'rejected');
+
+INSERT INTO public.dco_payees (id, user_id) VALUES ('dc000000-0000-0000-0000-000000000000', 'b5000000-0000-0000-0000-000000000000');
+
+-- T1 F/b1 · T2 F via supplier S/b2 · T3 F/b3 · T4 DCO b5 · T5 F/b4 (left) · T6 F via S/b6
+INSERT INTO public.trips (id, organization_id, operating_mode, driver_id, supplier_id, dco_payee_id, vehicle_id) VALUES
+  ('71000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'FLEET', 'd1000000-0000-0000-0000-000000000000', NULL, NULL, 'e1000000-0000-0000-0000-000000000000'),
+  ('72000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'FLEET', 'd2000000-0000-0000-0000-000000000000', '5e000000-0000-0000-0000-000000000001', NULL, 'e2000000-0000-0000-0000-000000000000'),
+  ('73000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'FLEET', 'd3000000-0000-0000-0000-000000000000', NULL, NULL, 'e1000000-0000-0000-0000-000000000000'),
+  ('74000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'DCO', NULL, NULL, 'dc000000-0000-0000-0000-000000000000', NULL),
+  ('75000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'FLEET', 'd4000000-0000-0000-0000-000000000000', NULL, NULL, 'e1000000-0000-0000-0000-000000000000'),
+  ('76000000-0000-0000-0000-000000000000', 'f0000000-0000-0000-0000-00000000000f', 'FLEET', 'd6000000-0000-0000-0000-000000000000', '5e000000-0000-0000-0000-000000000001', NULL, 'e2000000-0000-0000-0000-000000000000');
+
+-- Legacy rows (pre-migration shapes, as the old client wrote them).
+INSERT INTO public.trip_fuel_entries (id, trip_id, amount_inr, entered_by, payment_owner, approval_state, reimbursement_state) VALUES
+  ('1f000000-0000-0000-0000-000000000001', '73000000-0000-0000-0000-000000000000', 500, 'b3000000-0000-0000-0000-000000000000', 'driver', 'reported', 'reported'),
+  ('1f000000-0000-0000-0000-000000000005', '71000000-0000-0000-0000-000000000000', 900, 'b1000000-0000-0000-0000-000000000000', 'driver', 'reported', 'reported');
+INSERT INTO public.trip_fuel_entries (id, trip_id, amount_inr, entered_by, payment_owner, approval_state, ledger_state, posting_state, reimbursement_state) VALUES
+  ('1f000000-0000-0000-0000-000000000002', '73000000-0000-0000-0000-000000000000', 700, 'b3000000-0000-0000-0000-000000000000', 'driver', 'settled', 'posted', 'posted', 'reimbursed');
+INSERT INTO public.trip_toll_entries (id, trip_id, amount_inr, entered_by, payment_owner, approval_state) VALUES
+  ('1f000000-0000-0000-0000-000000000003', '71000000-0000-0000-0000-000000000000', 120, 'a1000000-0000-0000-0000-000000000000', 'organization', 'review_pending');
+INSERT INTO public.trip_other_expenses (id, trip_id, expense_category, amount_inr, entered_by, payment_owner, reimbursement_state) VALUES
+  ('1f000000-0000-0000-0000-000000000004', '74000000-0000-0000-0000-000000000000', 'food', 300, 'b5000000-0000-0000-0000-000000000000', 'driver', 'approved'),
+  ('1f000000-0000-0000-0000-000000000007', '72000000-0000-0000-0000-000000000000', 'parking', 80, 'b2000000-0000-0000-0000-000000000000', 'driver', 'reported'),
+  ('1f000000-0000-0000-0000-000000000008', '76000000-0000-0000-0000-000000000000', 'misc', 60, 'b6000000-0000-0000-0000-000000000000', 'organization', 'reported');
+INSERT INTO public.trip_other_expenses (id, trip_id, expense_category, amount_inr, entered_by, status) VALUES
+  ('1f000000-0000-0000-0000-000000000009', '75000000-0000-0000-0000-000000000000', 'food', 40, 'b4000000-0000-0000-0000-000000000000', 'voided');
+
+-- The old DCO edit path mirrored a draft into the shipper's vehicle ledger.
+INSERT INTO public.vehicle_operation_ledger_entries (organization_id, vehicle_id, source_type, source_id, trip_id, amount, approval_state) VALUES
+  ('f0000000-0000-0000-0000-00000000000f', 'e1000000-0000-0000-0000-000000000000', 'fuel', '1f000000-0000-0000-0000-000000000001', '73000000-0000-0000-0000-000000000000', 500, 'draft'),
+  ('f0000000-0000-0000-0000-00000000000f', NULL, 'manual_adjustment', '1f000000-0000-0000-0000-000000000004', '74000000-0000-0000-0000-000000000000', 300, 'draft'),
+  ('f0000000-0000-0000-0000-00000000000f', 'e1000000-0000-0000-0000-000000000000', 'fuel', '1f000000-0000-0000-0000-000000000005', '71000000-0000-0000-0000-000000000000', 900, 'draft');

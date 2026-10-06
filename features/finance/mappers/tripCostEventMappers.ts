@@ -2,6 +2,7 @@ import {
   getTripOperationalDisplay,
 } from "@/features/operations/display";
 import type {
+  TripExpenseOwnership,
   TripFuelEntry,
   TripOtherExpenseEntry,
   TripTollEntry,
@@ -88,6 +89,19 @@ function toSource(value: string | null | undefined): TripCostSource {
   return "ops_entry";
 }
 
+function isEmployerRow(row: TripExpenseOwnership): boolean {
+  return (row.expense_context ?? "employer") === "employer";
+}
+
+function ownershipFields(
+  row: TripExpenseOwnership,
+): Pick<TripCostEvent, "expenseContext" | "rejectionReason"> {
+  return {
+    ...(row.expense_context ? { expenseContext: row.expense_context } : {}),
+    ...(row.rejection_reason ? { rejectionReason: row.rejection_reason } : {}),
+  };
+}
+
 function normalizeAmount(value: number | null | undefined): number {
   return Math.round(Math.max(0, Number(value ?? 0) || 0) * 100) / 100;
 }
@@ -118,7 +132,7 @@ export function mapFuelEntryToTripCostEvent(input: {
     currency: "INR",
     incurredBy: payer,
     payer,
-    reimbursable: payer === "driver",
+    reimbursable: payer === "driver" && isEmployerRow(input.row),
     approvalState,
     postingState,
     settlementState,
@@ -126,7 +140,8 @@ export function mapFuelEntryToTripCostEvent(input: {
     approvedBy: input.row.approved_by ?? undefined,
     reimbursedAt: input.row.reimbursed_at ?? undefined,
     ledgerTransactionId: input.ledgerTransactionId ?? undefined,
-    pnlImpact: approvalState === "approved",
+    pnlImpact: approvalState === "approved" || input.row.expense_context === "dco",
+    ...ownershipFields(input.row),
     source: toSource(input.row.source),
     createdAt: input.row.entered_at,
     updatedAt: input.row.updated_at,
@@ -159,7 +174,7 @@ export function mapTollEntryToTripCostEvent(input: {
     currency: "INR",
     incurredBy: payer,
     payer,
-    reimbursable: payer === "driver",
+    reimbursable: payer === "driver" && isEmployerRow(input.row),
     approvalState,
     postingState,
     settlementState,
@@ -167,7 +182,8 @@ export function mapTollEntryToTripCostEvent(input: {
     approvedBy: input.row.approved_by ?? undefined,
     reimbursedAt: input.row.reimbursed_at ?? undefined,
     ledgerTransactionId: input.ledgerTransactionId ?? undefined,
-    pnlImpact: approvalState === "approved",
+    pnlImpact: approvalState === "approved" || input.row.expense_context === "dco",
+    ...ownershipFields(input.row),
     source: toSource(input.row.source),
     createdAt: input.row.entered_at,
     updatedAt: input.row.updated_at,
@@ -200,7 +216,7 @@ export function mapOtherEntryToTripCostEvent(input: {
     currency: "INR",
     incurredBy: payer,
     payer,
-    reimbursable: payer === "driver",
+    reimbursable: payer === "driver" && isEmployerRow(input.row),
     approvalState,
     postingState,
     settlementState,
@@ -208,7 +224,8 @@ export function mapOtherEntryToTripCostEvent(input: {
     approvedBy: input.row.approved_by ?? undefined,
     reimbursedAt: input.row.reimbursed_at ?? undefined,
     ledgerTransactionId: input.ledgerTransactionId ?? undefined,
-    pnlImpact: approvalState === "approved",
+    pnlImpact: approvalState === "approved" || input.row.expense_context === "dco",
+    ...ownershipFields(input.row),
     source: toSource(input.row.source),
     createdAt: input.row.entered_at,
     updatedAt: input.row.updated_at,
@@ -271,6 +288,10 @@ export function deriveTripCostFinancialSnapshot(input: {
   let approvedOperationalCostInr = 0;
 
   for (const event of input.events) {
+    if (event.expenseContext === "dco" || event.expenseContext === "personal") {
+      if (event.expenseContext === "dco") approvedOperationalCostInr += event.amount;
+      continue;
+    }
     if (event.approvalState === "pending") approvalPendingCount += 1;
     if (event.approvalState === "approved") {
       approvedOperationalCostInr += event.amount;

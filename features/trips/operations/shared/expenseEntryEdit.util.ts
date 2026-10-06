@@ -1,5 +1,5 @@
 import type { TripCostEvent } from "@/features/finance";
-import type { OperationalPaymentOwner, ReimbursementState } from "../types";
+import type { TripExpenseOwnership } from "../types";
 
 export function canEditTripCostEvent(event: TripCostEvent): boolean {
   if (event.postingState === "posted") return false;
@@ -7,20 +7,19 @@ export function canEditTripCostEvent(event: TripCostEvent): boolean {
   return true;
 }
 
-export function buildExpenseEditApprovalReset(
-  paymentOwner: OperationalPaymentOwner,
-): Record<string, unknown> {
-  const reimbursementState: ReimbursementState =
-    paymentOwner === "driver" ? "reported" : "approved";
-  return {
-    approval_state: "review_pending",
-    posting_state: "pending",
-    posting_error: null,
-    ledger_state: "not_posted",
-    approved_by: null,
-    approved_at: null,
-    reimbursement_state: reimbursementState,
-    reimbursement_updated_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
+/**
+ * Only employer expenses of `organizationId` may be mirrored into that
+ * organization's vehicle ledgers; the server refuses anything else.
+ */
+export function isEmployerExpenseOf(
+  row: TripExpenseOwnership | null | undefined,
+  organizationId: string | null | undefined,
+): boolean {
+  if (!row || row.expense_context !== "employer") return false;
+  const org = String(organizationId ?? "").trim();
+  return !org || row.employer_org_id === org;
+}
+
+export function isAwaitingEmployerReview(row: TripExpenseOwnership | null | undefined): boolean {
+  return row?.expense_context === "employer" && row.expense_status === "pending_approval";
 }

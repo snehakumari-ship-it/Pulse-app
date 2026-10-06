@@ -17,6 +17,7 @@ import {
   loadExpensePreviewDetail,
   type ExpensePreviewDetail,
 } from "../shared/expensePreview.util";
+import { isSelfRecordedCostEvent } from "../shared/driverReimbursementEvents.util";
 
 type Props = {
   event: TripCostEvent;
@@ -77,7 +78,9 @@ export function ExpenseEntryDetailPanel({
   }, [event]);
 
   const showDriverActions =
-    event.approvalState === "pending" && event.postingState !== "posted";
+    !isSelfRecordedCostEvent(event) &&
+    event.approvalState === "pending" &&
+    event.postingState !== "posted";
 
   const displayAmount = detail?.amountInr ?? event.amount;
   const enteredAt = detail?.enteredAt ?? event.createdAt;

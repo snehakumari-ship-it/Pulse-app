@@ -62,10 +62,14 @@ export function useVehicleEconomics(input: {
         supabase()
           .from("trip_fuel_entries")
           .select("trip_id,amount_inr,approval_state,posting_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", orgId)
           .in("trip_id", tripIds),
         supabase()
           .from("trip_toll_entries")
           .select("trip_id,amount_inr,approval_state,posting_state,status")
+          .eq("expense_context", "employer")
+          .eq("employer_org_id", orgId)
           .in("trip_id", tripIds),
         supabase()
           .from("vehicle_maintenance_entries")

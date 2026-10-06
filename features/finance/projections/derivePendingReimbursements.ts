@@ -1,4 +1,5 @@
 import type { TripFuelEntry, TripTollEntry } from "@/features/trips/operations/types";
+import { isEmployerFinanceRow } from "./employerExpenseRows";
 
 export interface PendingReimbursementProjection {
   pendingCount: number;
@@ -12,7 +13,8 @@ export function derivePendingReimbursements(input: {
   tollEntries: TripTollEntry[];
 }): PendingReimbursementProjection {
   const rows = [...input.fuelEntries, ...input.tollEntries].filter(
-    (row) => String(row.payment_owner ?? "").toLowerCase() === "driver",
+    (row) =>
+      isEmployerFinanceRow(row) && String(row.payment_owner ?? "").toLowerCase() === "driver",
   );
   let pendingCount = 0;
   let pendingAmountInr = 0;

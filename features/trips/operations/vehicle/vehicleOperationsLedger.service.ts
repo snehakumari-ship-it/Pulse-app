@@ -74,6 +74,8 @@ export async function createVehicleOperationLedgerDraftFromSource(input: {
   tripId?: string | null;
   amount: number;
   entryType?: "expense" | "adjustment";
+  /** Employer of a trip expense: no draft unless the trip's organization is that employer. */
+  expectedOrganizationId?: string | null;
 }): Promise<{ error: Error | null; entry: VehicleOperationLedgerEntry | null }> {
   const tripId = String(input.tripId ?? "").trim();
   if (!tripId) {
@@ -82,6 +84,12 @@ export async function createVehicleOperationLedgerDraftFromSource(input: {
   const tripResolved = await resolveTripOrganizationVehicle({ tripId });
   if (tripResolved.error || !tripResolved.organizationId || !tripResolved.vehicleId) {
     return { error: tripResolved.error ?? new Error("Trip does not have a vehicle"), entry: null };
+  }
+  if (
+    input.expectedOrganizationId !== undefined &&
+    input.expectedOrganizationId !== tripResolved.organizationId
+  ) {
+    return { error: null, entry: null };
   }
   const payload = {
     organization_id: tripResolved.organizationId,
@@ -188,6 +196,7 @@ export async function syncVehicleOperationLedgerDraftAmountFromSource(input: {
   sourceId: string;
   tripId: string;
   amount: number;
+  expectedOrganizationId?: string | null;
 }): Promise<{ error: Error | null }> {
   const draft = await createVehicleOperationLedgerDraftFromSource({
     sourceType: input.sourceType,
@@ -195,6 +204,7 @@ export async function syncVehicleOperationLedgerDraftAmountFromSource(input: {
     tripId: input.tripId,
     amount: input.amount,
     entryType: "expense",
+    expectedOrganizationId: input.expectedOrganizationId,
   });
   if (draft.error) return { error: draft.error };
   const entryId = String(draft.entry?.id ?? "").trim();
@@ -297,11 +307,15 @@ export async function getVehicleOperationsLedger(params: {
       supabase()
         .from("trip_fuel_entries")
         .select("amount_inr,approval_state,reimbursement_state,payment_owner,status,posting_state")
-        .in("trip_id", tripIdsForPayables),
+        .in("trip_id", tripIdsForPayables)
+        .eq("expense_context", "employer")
+        .eq("employer_org_id", organizationId),
       supabase()
         .from("trip_toll_entries")
         .select("amount_inr,approval_state,reimbursement_state,payment_owner,status,posting_state")
-        .in("trip_id", tripIdsForPayables),
+        .in("trip_id", tripIdsForPayables)
+        .eq("expense_context", "employer")
+        .eq("employer_org_id", organizationId),
     ]);
     if (fuelPayableRes.error) return { error: new Error(fuelPayableRes.error.message), summary: null };
     if (tollPayableRes.error) return { error: new Error(tollPayableRes.error.message), summary: null };
