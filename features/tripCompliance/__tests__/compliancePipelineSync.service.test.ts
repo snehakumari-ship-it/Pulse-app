@@ -200,7 +200,12 @@ describe("payment", () => {
     expect(mockOps.map((op) => op.name).sort()).toEqual(["transactions", "trips"]);
     expect(mockOps.every((op) => op.filters.includes("trip_id in 1") || op.filters.includes("id in 1"))).toBe(true);
     expect(next[0].trip.amount_paid).toBe(5000);
-    expect(summarizeComplianceTrip(next[0]).advance?.amount).toBe(5000);
+    // trips.amount_paid is a raw Finance receipt field, not a tagged
+    // compliance_advance transaction — Change 1 removed the
+    // advanceFromTripReceipts fallback (it can never be proven to be
+    // posted at/after compliance_verified_at), so it must NOT count as the
+    // advance here, even though the raw field itself still flows through.
+    expect(summarizeComplianceTrip(next[0]).advance).toBeNull();
     expect(next[1]).toBe(loaded[1]);
   });
 });

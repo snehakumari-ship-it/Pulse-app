@@ -35,7 +35,7 @@ import { supabase } from "@/lib/supabase";
  * errors) so the rest of the app, and this feature's read-only surfaces,
  * keep working before that migration lands.
  */
-function isMissingColumnOrRelation(error: { code?: string; message?: string }): boolean {
+export function isMissingColumnOrRelation(error: { code?: string; message?: string }): boolean {
   const message = String(error.message ?? "").toLowerCase();
   return (
     error.code === "42703" || // undefined_column
@@ -193,6 +193,7 @@ type RawTxnRow = {
   transaction_date: string;
   created_by: string | null;
   ledger_category: string | null;
+  created_at: string | null;
 };
 
 export async function fetchComplianceTransactions(
@@ -203,7 +204,7 @@ export async function fetchComplianceTransactions(
 
   const { data, error } = await supabase()
     .from("transactions")
-    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category")
+    .select("id, trip_id, amount_in, amount_out, description, transaction_date, created_by, ledger_category, created_at")
     .in("trip_id", tripIds)
     .in("ledger_category", ["compliance_advance", "compliance_balance"]);
 
@@ -270,7 +271,27 @@ export function toPaymentSummary(rows: RawTxnRow[]): CompliancePaymentSummary | 
     paidAt: latest.transaction_date,
     actorId: latest.created_by,
     transactionId: latest.id,
+    postedAt: latest.created_at ?? null,
   };
+}
+
+/**
+ * An advance only counts as posted once compliance has actually been
+ * verified, and the advance transaction's own `postedAt` (`transactions.
+ * created_at`, not the editable `transaction_date`) is at/after that
+ * verification instant. A transaction created before verification must not
+ * retroactively count once verification eventually happens — its postedAt
+ * never moves, so a stray pre-verification advance (or client receipt
+ * collected before Compliance signed off) can't silently push a trip past
+ * Verified.
+ */
+export function isAdvancePostedAfterVerification(
+  advance: Pick<CompliancePaymentSummary, "postedAt"> | null,
+  complianceVerifiedAt: string | null,
+): boolean {
+  if (!advance || !complianceVerifiedAt) return false;
+  if (!advance.postedAt) return false;
+  return advance.postedAt >= complianceVerifiedAt;
 }
 
 /**
@@ -624,7 +645,16 @@ export async function fetchComplianceTripInputs(trips: TripRow[]): Promise<Compl
 /** Pure: one trip's summary from its inputs. No I/O. */
 export function summarizeComplianceTrip(inputs: ComplianceTripInputs): ComplianceTripSummary {
   const { trip, documents, flags, taggedAdvance, balance, vehicleDocuments, driverDocuments } = inputs;
-  const advance = taggedAdvance ?? advanceFromTripReceipts(trip);
+  const complianceVerifiedAt = flags?.compliance_verified_at ?? null;
+  // A Finance client receipt (trips.amount_paid) is not tied to a specific
+  // posting time, so it can never be proven to be at/after verification —
+  // advanceFromTripReceipts is intentionally not used as a fallback here.
+  // Only a tagged compliance_advance transaction, posted at/after
+  // compliance_verified_at, counts as the advance.
+  const advance =
+    taggedAdvance && isAdvancePostedAfterVerification(taggedAdvance, complianceVerifiedAt)
+      ? taggedAdvance
+      : null;
   // Phase 4: the gate is pod_received_at (the pre-existing, pervasively-used
   // signal), not the courier/AWB/received-by columns — those are display
   // metadata only. See ComplianceTripFlags.pod_received_at.
@@ -659,7 +689,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     documentCount: documentCounts.total,
     missingRequiredCount,
     hasExpiredRequiredVehicleDocs,
-    complianceVerifiedAt: flags?.compliance_verified_at ?? null,
+    complianceVerifiedAt,
     advance,
     tripStatus: trip.status,
     hardCopyReceived,
@@ -674,7 +704,7 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
     driverDocuments,
     documentCounts,
     checklist,
-    complianceVerifiedAt: flags?.compliance_verified_at ?? null,
+    complianceVerifiedAt,
     complianceVerifiedBy: flags?.compliance_verified_by ?? null,
     complianceDecision: flags?.compliance_decision ?? null,
     complianceExceptionReason: flags?.compliance_exception_reason ?? null,

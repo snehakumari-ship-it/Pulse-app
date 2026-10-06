@@ -38,7 +38,17 @@ function inputsFor(tripId: string): ComplianceTripInputs {
       pod_hard_copy_received_by: null,
       pod_received_at: null,
     },
-    taggedAdvance: { amount: 1000, paymentMode: null, utr: null, paidAt: "2026-09-20", actorId: null, transactionId: "tx1" },
+    // postedAt at/after compliance_verified_at ("2026-09-20") — a genuinely
+    // posted advance, per Change 1's postedAt gate.
+    taggedAdvance: {
+      amount: 1000,
+      paymentMode: null,
+      utr: null,
+      paidAt: "2026-09-20",
+      actorId: null,
+      transactionId: "tx1",
+      postedAt: "2026-09-20",
+    },
     balance: null,
     vehicleDocuments: [],
     driverDocuments: [],

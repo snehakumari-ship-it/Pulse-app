@@ -127,6 +127,13 @@ export type CompliancePaymentSummary = {
   paidAt: string;
   actorId: string | null;
   transactionId: string;
+  /**
+   * `transactions.created_at` — when this payment row was actually written,
+   * as opposed to `paidAt` (`transaction_date`), which is editable. Used to
+   * gate whether an advance counts as posted at/after compliance verification.
+   * Optional so existing object literals (tests, other call sites) stay valid.
+   */
+  postedAt?: string | null;
 };
 
 export type ComplianceTripSummary = {

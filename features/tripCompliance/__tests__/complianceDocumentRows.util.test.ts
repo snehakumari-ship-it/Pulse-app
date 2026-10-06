@@ -89,6 +89,19 @@ describe("deriveComplianceDocumentRows", () => {
     const rows = deriveComplianceDocumentRows([doc({ id: "rc-1", document_type: "rc", status: "pending" })]);
     expect(rows.find((r) => r.type === "rc")).toBeUndefined();
   });
+
+  it("additive multi-file upload: 3 LR files produce exactly ONE lr row, not 3 duplicates", () => {
+    const rows = deriveComplianceDocumentRows([
+      doc({ id: "lr-1", document_type: "lr", status: "verified", uploaded_at: "2026-09-20T18:00:00.000Z" }),
+      doc({ id: "lr-2", document_type: "lr", status: "pending", uploaded_at: "2026-09-20T19:00:00.000Z" }),
+      doc({ id: "lr-3", document_type: "lr", status: "pending", uploaded_at: "2026-09-20T20:00:00.000Z" }),
+    ]);
+    const lrRows = rows.filter((r) => r.type === "lr");
+    expect(lrRows).toHaveLength(1);
+    // The review sheet still shows the latest file for the type — existing
+    // single-file display behavior is unchanged even though 3 are on file.
+    expect(lrRows[0]?.doc?.id).toBe("lr-3");
+  });
 });
 
 describe("deriveFinanceDocumentRows", () => {

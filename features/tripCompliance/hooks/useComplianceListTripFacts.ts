@@ -3,6 +3,7 @@
  * Trip Detail / payment confirm do: owned vehicle first, then
  * `get_vehicle_for_trip_viewer` for partner trucks; supplier via id lookup.
  */
+import { useAuth } from "@/contexts/AuthContext";
 import { getSupplierById, getSupplierDetails } from "@/features/suppliers/services/suppliers.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
@@ -27,6 +28,7 @@ export function useComplianceListTripFacts(
   summaries: ComplianceTripSummary[],
   viewerOrgId: string,
 ): ComplianceListTripFacts {
+  const { sessionAttached } = useAuth();
   const [truckTypeByVehicleId, setTruckTypeByVehicleId] = useState<Record<string, string>>({});
   const [supplierNameByTripId, setSupplierNameByTripId] = useState<Record<string, string>>({});
 
@@ -46,7 +48,10 @@ export function useComplianceListTripFacts(
 
   useEffect(() => {
     let cancelled = false;
-    if (!viewerOrgId || summaries.length === 0) {
+    // These RPCs are signed-in only — firing them before the auth session has
+    // attached burst-fails as 42501 (insufficient_privilege) with no user
+    // token yet. Wait for sessionAttached; the effect re-runs once it flips.
+    if (!sessionAttached || !viewerOrgId || summaries.length === 0) {
       setTruckTypeByVehicleId({});
       setSupplierNameByTripId({});
       return;
@@ -142,7 +147,7 @@ export function useComplianceListTripFacts(
     };
     // signature captures the trip fields we care about
     // eslint-disable-next-line react-hooks/exhaustive-deps -- summaries keyed via signature
-  }, [signature, viewerOrgId]);
+  }, [signature, viewerOrgId, sessionAttached]);
 
   return { truckTypeByVehicleId, supplierNameByTripId };
 }

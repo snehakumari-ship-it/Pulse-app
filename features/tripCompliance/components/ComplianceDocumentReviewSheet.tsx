@@ -57,7 +57,8 @@ import {
     validateComplianceTripDocumentFile,
 } from "@/features/tripCompliance/utils/complianceTripDocumentFormat.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
-import { isTripDocumentsStoragePathConflict, uploadTripDocument, type TripDocumentType } from "@/features/trips/services/tripDocuments.service";
+import { isTripDocumentsStoragePathConflict, type TripDocumentType } from "@/features/trips/services/tripDocuments.service";
+import { uploadTripDocumentsAdditively } from "@/features/tripCompliance/services/complianceTripDocumentUpload.service";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { DocumentScreen } from "@/features/tripCompliance/components/ComplianceDocumentWorkspace";
 import {
@@ -646,8 +647,28 @@ export function ComplianceDocumentReviewSheet({
         const res = await DocumentPicker.getDocumentAsync({
           type: [...COMPLIANCE_TRIP_DOC_PICKER_TYPES],
           copyToCacheDirectory: true,
+          // Trip documents (LR / E-way Bill / Invoice) are additive — Compliance
+          // can have several of one type (e.g. LR · 2). Vehicle/driver vault
+          // uploads stay single-file: one current file per doc type there.
+          multiple: scope === "trip",
         });
-        if (res.canceled || !res.assets[0]) return;
+        if (res.canceled || res.assets.length === 0) return;
+
+        if (scope === "trip") {
+          // Each selected file becomes its own trip_documents row instead of
+          // overwriting the existing file of that type (previously
+          // replaceExistingOfType: true silently dropped extra LRs/invoices).
+          await uploadTripDocumentsAdditively({
+            tripId,
+            actorId,
+            documentType: type as TripDocumentType,
+            assets: res.assets,
+          });
+          onChanged();
+          setRetryType(null);
+          return;
+        }
+
         const asset = res.assets[0];
         const fileName = asset.name ?? `${type}.pdf`;
         if (typeof asset.size === "number") {
@@ -672,17 +693,7 @@ export function ComplianceDocumentReviewSheet({
           if (documentRequiresExpiry(type) && !expiryDate) return;
         }
 
-        if (scope === "trip") {
-          const { error } = await uploadTripDocument(
-            tripId,
-            actorId,
-            { arrayBuffer, fileName, mimeType: format.mimeType },
-            type as TripDocumentType,
-            undefined,
-            { replaceExistingOfType: true },
-          );
-          if (error) throw error;
-        } else if (scope === "vehicle" && VAULT_VEHICLE_TYPES.has(type) && vehicleId) {
+        if (scope === "vehicle" && VAULT_VEHICLE_TYPES.has(type) && vehicleId) {
           // Prefer the vehicle vault (vehicles.documents) when this org owns the
           // truck. Cross-org / RLS-blocked vault writes fall back to
           // entity_documents so Compliance can still collect mandatory RC/FC/etc.

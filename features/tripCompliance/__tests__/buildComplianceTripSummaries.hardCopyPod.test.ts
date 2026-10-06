@@ -104,7 +104,19 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       error: null,
     };
     mockTxnsResult = {
-      data: [{ id: "t1", trip_id: "trip-1", amount_in: 25000, amount_out: 0, ledger_category: "compliance_advance", transaction_date: "2026-09-05" }],
+      data: [
+        {
+          id: "t1",
+          trip_id: "trip-1",
+          amount_in: 25000,
+          amount_out: 0,
+          ledger_category: "compliance_advance",
+          transaction_date: "2026-09-05",
+          // Posted (created_at) after compliance_verified_at ("2026-09-01") —
+          // a genuinely-posted advance, per Change 1's postedAt gate.
+          created_at: "2026-09-05",
+        },
+      ],
       error: null,
     };
     const [summary] = await buildComplianceTripSummaries([makeTrip()]);
@@ -118,7 +130,19 @@ describe("buildComplianceTripSummaries — hard-copy POD signal", () => {
       error: null,
     };
     mockTxnsResult = {
-      data: [{ id: "t1", trip_id: "trip-1", amount_in: 25000, amount_out: 0, ledger_category: "compliance_advance", transaction_date: "2026-09-05" }],
+      data: [
+        {
+          id: "t1",
+          trip_id: "trip-1",
+          amount_in: 25000,
+          amount_out: 0,
+          ledger_category: "compliance_advance",
+          transaction_date: "2026-09-05",
+          // Posted (created_at) after compliance_verified_at ("2026-09-01") —
+          // a genuinely-posted advance, per Change 1's postedAt gate.
+          created_at: "2026-09-05",
+        },
+      ],
       error: null,
     };
     const [summary] = await buildComplianceTripSummaries([makeTrip({ pod_received_at: "2026-09-21T10:00:00Z" })]);

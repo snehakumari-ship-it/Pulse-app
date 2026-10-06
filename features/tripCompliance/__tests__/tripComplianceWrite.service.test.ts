@@ -30,26 +30,72 @@ function makeTrip(overrides: Partial<TripRow> = {}): TripRow {
   } as TripRow;
 }
 
-function mockMakeThenable<T>(result: { data: T; error: null }) {
+function mockMakeThenable<T>(result: { data: T; error: unknown }) {
   const builder: Record<string, unknown> = {};
   const chain = () => builder;
   builder.select = chain;
   builder.eq = chain;
   builder.in = chain;
+  builder.maybeSingle = () => Promise.resolve(result);
   builder.then = (resolve: (v: typeof result) => void) => resolve(result);
   return builder;
 }
 
+type MockTripFlagsRow = { compliance_verified_at: string | null; pod_received_at: string | null };
+
+/** A healthy, single-row `.maybeSingle()` result — matches readComplianceLedgerFlags' "live" case. */
+function liveFlagsResult(overrides: Partial<MockTripFlagsRow> = {}): {
+  data: MockTripFlagsRow;
+  error: null;
+} {
+  return {
+    data: {
+      compliance_verified_at: "2026-09-01T00:00:00Z",
+      pod_received_at: "2026-09-15T00:00:00Z",
+      ...overrides,
+    },
+    error: null,
+  };
+}
+
 let mockTxnsResult: { data: unknown[]; error: null };
+// Default: a healthy live row matching makeTrip()'s own defaults, so any test
+// that doesn't care about this gate gets an "eligible" live read exactly as
+// before. Tests covering the live-vs-cached/fail-closed behavior override
+// this per case.
+let mockTripsFlagsResult: { data: MockTripFlagsRow | null; error: { code?: string; message: string } | null } =
+  liveFlagsResult();
+// When set, the "trips" table's .maybeSingle() rejects with this instead of
+// resolving — simulates a genuine thrown failure (network/connection error),
+// as distinct from a resolved {error} response.
+let mockTripsFlagsThrows: Error | null = null;
 
 jest.mock("@/lib/supabase", () => ({
   supabase: () => ({
     from: (table: string) => {
       if (table === "transactions") return mockMakeThenable(mockTxnsResult);
+      if (table === "trips") {
+        if (mockTripsFlagsThrows) {
+          const err = mockTripsFlagsThrows;
+          const builder: Record<string, unknown> = {};
+          const chain = () => builder;
+          builder.select = chain;
+          builder.eq = chain;
+          builder.in = chain;
+          builder.maybeSingle = () => Promise.reject(err);
+          return builder;
+        }
+        return mockMakeThenable(mockTripsFlagsResult);
+      }
       throw new Error(`unexpected table ${table}`);
     },
   }),
 }));
+
+beforeEach(() => {
+  mockTripsFlagsResult = liveFlagsResult();
+  mockTripsFlagsThrows = null;
+});
 
 describe("checkCompliancePaymentAllowed — duplicate payment / already-settled protection", () => {
   beforeEach(() => {
@@ -196,6 +242,7 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
   });
 
   it("blocks an advance for a trip with no compliance approval, without calling createLedgerEntry", async () => {
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: null });
     const result = await postCompliancePayment({
       organizationId: "org-1",
       trip: makeTrip({ compliance_verified_at: null }),
@@ -210,6 +257,7 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
 
   it("allows an advance once compliance_verified_at is set — exception approval counts, no compliance_decision check needed", async () => {
     mockCreateLedgerEntry.mockResolvedValue({ error: null, row: {} });
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: "2026-09-01T00:00:00Z" });
     const result = await postCompliancePayment({
       organizationId: "org-1",
       // compliance_verified_at set by approve_trip_compliance_with_exception()
@@ -229,6 +277,7 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
       data: [{ trip_id: "trip-1", ledger_category: "compliance_advance", description: "Compliance Advance | Mode: CASH" }],
       error: null,
     };
+    mockTripsFlagsResult = liveFlagsResult({ pod_received_at: null });
     const result = await postCompliancePayment({
       organizationId: "org-1",
       trip: makeTrip({ pod_received_at: null }),
@@ -241,14 +290,17 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
     expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
   });
 
-  it('translates a 42501 RLS rejection (stale client state disagreeing with the DB) into a clear message, not a raw "row violates policy" error', async () => {
+  it('translates a 42501 RLS rejection (DB rejects even though live+cached state both looked eligible) into a clear message, not a raw "row violates policy" error', async () => {
     const rlsError = new Error('new row violates row-level security policy for table "transactions"');
     (rlsError as Error & { code?: string }).code = "42501";
     mockCreateLedgerEntry.mockResolvedValue({ error: rlsError, row: null });
 
     const result = await postCompliancePayment({
       organizationId: "org-1",
-      trip: makeTrip(), // client believes it's eligible; DB (mocked) disagrees
+      // Client and live read both believe it's eligible; the DB's own RLS
+      // policy on the write itself still rejects (e.g. a race right at the
+      // boundary) — isComplianceLedgerPrerequisiteRejection's message path.
+      trip: makeTrip(),
       category: "compliance_advance",
       amount: 25000,
       paymentModeId: "CASH",
@@ -256,5 +308,191 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
     });
     expect(result.error?.message).toMatch(/compliance must be approved/i);
     expect(result.error?.message).not.toMatch(/row-level security|policy/i);
+  });
+});
+
+describe("postCompliancePayment — live compliance ledger flags win over a stale cached trip", () => {
+  beforeEach(() => {
+    mockTxnsResult = { data: [], error: null };
+    mockCreateLedgerEntry.mockReset();
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: {} });
+  });
+
+  // A. live row exists + verified/POD state valid -> payment succeeds
+  it("A: live row exists and valid -> payment succeeds", async () => {
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: "2026-09-01T00:00:00Z" });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+
+  // B. live row exists + prerequisite missing -> payment blocked
+  it("B: live row exists but the prerequisite (verification) is missing -> payment blocked", async () => {
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: null });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error?.message).toMatch(/compliance must be approved/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  // C. cached says verified=true, live says false -> blocked
+  it("C: cached trip says verified, live DB says not verified -> payment blocked (live wins)", async () => {
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: null, pod_received_at: null });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      // Stale cached row: looks verified, but the live DB (mocked above) disagrees.
+      trip: makeTrip({ compliance_verified_at: "2026-09-01T00:00:00Z" }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error?.message).toMatch(/compliance must be approved/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  // D. cached says false, live says true -> live state used
+  it("D: cached trip says NOT verified, live DB says verified -> live state is used, payment allowed", async () => {
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: "2026-09-01T00:00:00Z", pod_received_at: null });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      // Stale cached row: looks unverified (e.g. right after an instant-verify
+      // UI patch that hasn't round-tripped), but the live DB is already verified.
+      trip: makeTrip({ compliance_verified_at: null }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("cached POD state is stale (says received) but live DB says not received -> live state blocks the balance payment", async () => {
+    mockTxnsResult = {
+      data: [{ trip_id: "trip-1", ledger_category: "compliance_advance", description: "Compliance Advance | Mode: CASH" }],
+      error: null,
+    };
+    mockTripsFlagsResult = liveFlagsResult({ compliance_verified_at: "2026-09-01T00:00:00Z", pod_received_at: null });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({ pod_received_at: "2026-09-15T00:00:00Z" }), // stale cached: says received
+      category: "compliance_balance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error?.message).toMatch(/hard-copy pod must be received/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  // E. known missing-column compatibility case -> cached fallback remains allowed
+  it("E: compliance columns not queryable yet (pre-migration) -> compatibility fallback to cached trip fields is still allowed", async () => {
+    mockTripsFlagsResult = { data: null, error: { code: "42703", message: "column does not exist" } };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({ compliance_verified_at: "2026-09-01T00:00:00Z" }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("E2: compliance columns not queryable yet, and the cached trip is itself unverified -> compatibility fallback still blocks correctly", async () => {
+    mockTripsFlagsResult = { data: null, error: { code: "42P01", message: "relation does not exist" } };
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({ compliance_verified_at: null }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error?.message).toMatch(/compliance must be approved/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  // F. authoritative query throws a genuine error -> payment blocked, cached state MUST NOT authorize
+  it("F: authoritative query throws a genuine DB/network error -> payment blocked, stale cached 'verified' does NOT authorize", async () => {
+    const dbError = new Error("connection terminated unexpectedly");
+    (dbError as Error & { code?: string }).code = "ECONNRESET";
+    mockTripsFlagsThrows = dbError;
+
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      // Cached trip looks fully eligible — must not be trusted on a genuine throw.
+      trip: makeTrip({ compliance_verified_at: "2026-09-01T00:00:00Z", pod_received_at: "2026-09-15T00:00:00Z" }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+
+    expect(result.error?.message).toMatch(/couldn't confirm compliance status/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it("F2: a 42501 thrown directly from the live-flags read (not the ledger write) still blocks, not just falls back", async () => {
+    const rlsError = new Error("insufficient privilege");
+    (rlsError as Error & { code?: string }).code = "42501";
+    mockTripsFlagsThrows = rlsError;
+
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({ compliance_verified_at: "2026-09-01T00:00:00Z" }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error?.message).toMatch(/couldn't confirm compliance status/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  // G. authoritative query succeeds but returns zero rows for the loaded trip -> blocked, cached MUST NOT authorize
+  it("G: authoritative query succeeds but finds no row for a trip the caller already has loaded -> payment blocked, cached 'verified' does NOT authorize", async () => {
+    mockTripsFlagsResult = { data: null, error: null }; // .maybeSingle() "not found" shape: no error, null data
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      // Cached trip looks fully eligible — must not be trusted when the
+      // authoritative query comes back empty for a trip we already loaded.
+      trip: makeTrip({ compliance_verified_at: "2026-09-01T00:00:00Z", pod_received_at: "2026-09-15T00:00:00Z" }),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error?.message).toMatch(/couldn't confirm compliance status/i);
+    expect(mockCreateLedgerEntry).not.toHaveBeenCalled();
+  });
+
+  it("a normal valid payment still succeeds when live and cached state agree", async () => {
+    mockTripsFlagsResult = liveFlagsResult();
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip(),
+      category: "compliance_advance",
+      amount: 25000,
+      paymentModeId: "CASH",
+      paymentModeLabel: "Cash",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
   });
 });

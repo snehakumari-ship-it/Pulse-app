@@ -39,6 +39,7 @@ import {
 import type { ComplianceChange } from "@/features/tripCompliance/services/compliancePipelineSync.service";
 import { classifyTripDocument, readTypedDetails } from "@/features/tripCompliance/utils/tripDocumentClassification.util";
 import { deriveComplianceQueueReadiness, paymentReadinessLabel } from "@/features/tripCompliance/utils/complianceReadiness.util";
+import { scopedDecisionKey } from "@/features/tripCompliance/utils/complianceOptimisticDecisionKey.util";
 import { alertMessage } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { markTripHardCopyPodReceived } from "@/features/trips/services/tripDocumentLrPod.service";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
@@ -770,8 +771,8 @@ export function ComplianceDocumentWorkspace({
       : previewable[docIndex] ?? rows[docIndex] ?? null;
   const effectiveActiveRow = useMemo(() => {
     if (!activeRow) return null;
-    return applyOptimisticDecision(activeRow, localDecisionByKey[activeRow.key]);
-  }, [activeRow, localDecisionByKey]);
+    return applyOptimisticDecision(activeRow, localDecisionByKey[scopedDecisionKey(tab, activeRow.key)]);
+  }, [activeRow, localDecisionByKey, tab]);
   const decisions = useMemo(() => {
     if (!effectiveActiveRow || !canModerateComplianceRow(effectiveActiveRow, tab)) {
       return { canApprove: false, canDecline: false };
@@ -795,12 +796,19 @@ export function ComplianceDocumentWorkspace({
     setZoom(1);
     setChecklistPreviewMode("document");
     setDeclineOpen(false);
-    setLocalDecisionByKey({});
     setExpiryPrompt((prev) => {
       prev?.resolve(null);
       return null;
     });
   }, [summary?.trip.id, tab]);
+
+  // Optimistic approve/decline state only goes stale when the selected TRIP
+  // changes — clearing it on every Trip/Vehicle/Driver tab switch discarded
+  // an in-flight decision before the pipeline refetch confirmed it, even
+  // though the user never left the trip (nihas V1.0.12).
+  useEffect(() => {
+    setLocalDecisionByKey({});
+  }, [summary?.trip.id]);
 
   useEffect(() => {
     if (!showVaultChecklist) {
@@ -927,7 +935,10 @@ export function ComplianceDocumentWorkspace({
   /** Local UI follow-up only — each approve/decline branch sends its own typed ComplianceChange. */
   const finishDecision = useCallback(
     (row: ComplianceDocRow, decision: OptimisticComplianceDecision["decision"]) => {
-      setLocalDecisionByKey((prev) => ({ ...prev, [row.key]: recordOptimisticDecision(row, decision) }));
+      setLocalDecisionByKey((prev) => ({
+        ...prev,
+        [scopedDecisionKey(tab, row.key)]: recordOptimisticDecision(row, decision),
+      }));
       setDeclineOpen(false);
       setBusy(false);
       if (previewable.length > 1) {
@@ -935,7 +946,7 @@ export function ComplianceDocumentWorkspace({
         setZoom(1);
       }
     },
-    [previewable.length],
+    [previewable.length, tab],
   );
 
   const promptExpiryDate = useCallback((docType: string) => {

@@ -3,7 +3,7 @@ import { createLedgerEntry, updateLedgerEntry, type CreateLedgerEntryData } from
 import { buildLedgerSyncDescriptionLine } from "@/features/finance/ledger/ledgerEntryModel";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
-import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import { fetchComplianceTransactions, isMissingColumnOrRelation } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
   COMPLIANCE_DECLINE_REASON_MAX,
   COMPLIANCE_DECLINE_REASON_MIN,
@@ -212,6 +212,98 @@ function checkComplianceLedgerPrerequisite(
   return { ok: true };
 }
 
+type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "pod_received_at">;
+
+/**
+ * Three distinct outcomes a live-flags read can have, so `postCompliancePayment`
+ * can tell "feature not deployed here yet" apart from "could not confirm
+ * current state" — the two used to collapse into the same cached fallback
+ * (2026-10-06 review), which let a stale cached `params.trip` authorize a
+ * payment whenever the live read failed for ANY reason, not just the
+ * intentionally-tolerated pre-migration one.
+ *
+ * - "live": the authoritative row was read successfully — use its flags.
+ * - "compat_fallback": the compliance columns don't exist on this environment
+ *   yet (migration 20260915162440 not applied) — the one legitimate,
+ *   accepted degradation; cached `params.trip` fields are used exactly as
+ *   before.
+ * - "unavailable": anything else — a genuine error (network, timeout, RLS,
+ *   5xx) or a healthy query finding no row for a trip the caller already has
+ *   loaded. Never falls back to cached state.
+ */
+type ComplianceLedgerFlagsResult =
+  | { status: "live"; flags: ComplianceLedgerFlags }
+  | { status: "compat_fallback"; flags: ComplianceLedgerFlags }
+  | { status: "unavailable" };
+
+/**
+ * Live `compliance_verified_at` / `pod_received_at` for one trip, read
+ * immediately before evaluating payment prerequisites. `params.trip` passed
+ * into `postCompliancePayment` can be stale — a cached list row, or an
+ * instant-verify UI patch that hasn't round-tripped — so trusting it
+ * directly can give a stale "blocked" or "allowed" verdict.
+ *
+ * Queries `trips` directly (rather than going through
+ * `fetchComplianceTripFlags`) because that function collapses "columns
+ * don't exist yet" and "no row for this id" into the same empty result,
+ * which is exactly the ambiguity this function exists to resolve — and only
+ * `compliance_verified_at`/`pod_received_at` are needed here, not the
+ * decline columns `fetchComplianceTripFlags` also fetches.
+ */
+async function readComplianceLedgerFlags(
+  trip: Pick<TripRow, "id" | "compliance_verified_at" | "pod_received_at">,
+): Promise<ComplianceLedgerFlagsResult> {
+  try {
+    const { data, error } = await supabase()
+      .from("trips")
+      .select("compliance_verified_at, pod_received_at")
+      .eq("id", trip.id)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingColumnOrRelation(error)) {
+        return {
+          status: "compat_fallback",
+          flags: {
+            compliance_verified_at: trip.compliance_verified_at ?? null,
+            pod_received_at: trip.pod_received_at ?? null,
+          },
+        };
+      }
+      return { status: "unavailable" };
+    }
+
+    if (!data) {
+      // The caller already holds a loaded TripRow for this id — a healthy
+      // query finding no row means authoritative state could not be
+      // established, not that the feature isn't deployed here.
+      return { status: "unavailable" };
+    }
+
+    const row = data as { compliance_verified_at?: string | null; pod_received_at?: string | null };
+    return {
+      status: "live",
+      flags: {
+        compliance_verified_at: row.compliance_verified_at ?? null,
+        pod_received_at: row.pod_received_at ?? null,
+      },
+    };
+  } catch (e) {
+    // A genuine thrown exception (network failure, timeout, connection
+    // error) is never the pre-migration compatibility case — fail closed.
+    if (isMissingColumnOrRelation(e as { code?: string; message?: string })) {
+      return {
+        status: "compat_fallback",
+        flags: {
+          compliance_verified_at: trip.compliance_verified_at ?? null,
+          pod_received_at: trip.pod_received_at ?? null,
+        },
+      };
+    }
+    return { status: "unavailable" };
+  }
+}
+
 /**
  * Post a compliance advance/balance payment through the canonical Finance
  * ledger write path (`createLedgerEntry` → `transactions`). This is the ONLY
@@ -233,7 +325,11 @@ export async function postCompliancePayment(params: {
   const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
   if (!guard.ok) return { error: new Error(guard.reason) };
 
-  const prerequisite = checkComplianceLedgerPrerequisite(params.category, params.trip);
+  const flagsResult = await readComplianceLedgerFlags(params.trip);
+  if (flagsResult.status === "unavailable") {
+    return { error: new Error("Couldn't confirm compliance status — please retry.") };
+  }
+  const prerequisite = checkComplianceLedgerPrerequisite(params.category, flagsResult.flags);
   if (!prerequisite.ok) return { error: new Error(prerequisite.reason) };
 
   const amountCheck = validateCompliancePaymentAmount({ amount: params.amount, trip: params.trip });
