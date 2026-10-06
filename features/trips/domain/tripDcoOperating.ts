@@ -10,14 +10,3 @@ export function isDcoOperatingTrip(
 ): boolean {
   return String(trip?.operating_mode ?? "").trim().toUpperCase() === "DCO";
 }
-
-/**
- * A Marketplace DCO award settled through Pulse Exchange. The database only
- * lets a DCO trip carry a supplier when it is the shipper's Pulse Exchange
- * party, so the shipper pays Pulse Exchange, not the DCO payee.
- */
-export function isExchangeSettledDcoTrip(
-  trip: { operating_mode?: string | null; supplier_id?: string | null } | null | undefined,
-): boolean {
-  return isDcoOperatingTrip(trip) && !!trip?.supplier_id;
-}

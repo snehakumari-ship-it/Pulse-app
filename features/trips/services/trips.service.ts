@@ -85,7 +85,7 @@ export interface TripRow {
    * Independent of execution_type and trip_payout_mode. See isDcoOperatingTrip().
    */
   operating_mode?: "FLEET" | "DCO" | string | null;
-  /** DCO payee when operating_mode is DCO. supplier_id is null, except the shipper's Pulse Exchange party on a Marketplace DCO award. */
+  /** DCO payee when operating_mode is DCO. Mutually exclusive with supplier_id. */
   dco_payee_id?: string | null;
   /** Explicit, dispatcher-captured execution model for a subcontracted trip. NULL = infer via getTripExecutionModel()'s legacy heuristic. Immutable once started_at is set. */
   execution_type?: "ASSET" | "AGGREGATE" | null;
@@ -2966,8 +2966,8 @@ async function validateSupplierLinkForCompletion(
     .toLowerCase();
   if (isDcoOperatingTrip(trip)) return { error: null };
   if (source === "mover_asset") return { error: null };
-  // Marketplace awards have no Network supplier by design (ADR-012); the
-  // counterparty is the winning bidder on the Exchange transaction.
+  // A Marketplace award's supplier is the shipper's account for the winning
+  // bidder, settled through Pulse Exchange, not a Network link (ADR-012).
   if (source === "market_bid") return { error: null };
   if (payoutMode === "asset") return { error: null };
   if (!payoutMode && hasOwnDriver && hasOwnVehicle) return { error: null };
@@ -2999,7 +2999,7 @@ async function validateSupplierLinkForCompletion(
     .maybeSingle();
   if (!supplierTxnError && supplierTxnRow) return { error: null };
 
-  // The winning bidder cannot read the shipper's Pulse Exchange supplier row.
+  // The winning bidder cannot read the shipper's supplier row for it.
   const { summary: exchangeSummary } = await getExchangeTripSummary(tripId);
   if (exchangeSummary) return { error: null };
 

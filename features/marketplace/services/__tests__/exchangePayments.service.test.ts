@@ -2,12 +2,12 @@ import {
   claimExchangePayment,
   claimExchangePaymentOnce,
   confirmExchangePayment,
-  ensurePulseExchangeParties,
   exchangeErrorMessage,
   exchangeModeFromLedgerLabel,
   getExchangeTripSummary,
   isExchangeClaimOverdue,
-  isPulseExchangeParty,
+  isExchangeLedgerContact,
+  listExchangeTrips,
   rejectExchangePayment,
 } from "../exchangePayments.service";
 
@@ -25,7 +25,13 @@ describe("exchangeErrorMessage", () => {
   it("maps DB error codes to user copy", () => {
     expect(exchangeErrorMessage("over_settlement: claimed 9000 > agreed 8000")).toMatch(/past the agreed amount/);
     expect(exchangeErrorMessage("duplicate_reference: UTR123")).toMatch(/already recorded/);
-    expect(exchangeErrorMessage("exchange_ledger_locked: supplier")).toMatch(/only after the other side confirms/);
+    expect(exchangeErrorMessage("marketplace_account_reserved: x")).toMatch(/not connected to/);
+  });
+
+  it("keeps the server's own explanation for a locked ledger write", () => {
+    expect(
+      exchangeErrorMessage("exchange_ledger_locked: this trip settles through Pulse Exchange; record the payment in Exchange"),
+    ).toBe("this trip settles through Pulse Exchange; record the payment in Exchange");
   });
 
   it("strips an unknown code prefix and keeps the message", () => {
@@ -61,52 +67,22 @@ describe("isExchangeClaimOverdue", () => {
   });
 });
 
-describe("ensurePulseExchangeParties", () => {
-  it("returns the org's parties and caches them per org", async () => {
-    mockRpc.mockResolvedValue({ data: { supplier_id: "px-sup", client_id: "px-cli" }, error: null });
+describe("isExchangeLedgerContact", () => {
+  const supplierSide = { ledger_contact_type: "supplier" as const, ledger_contact_id: "acct-b" };
 
-    await expect(ensurePulseExchangeParties("org-cache")).resolves.toEqual({
-      supplierId: "px-sup",
-      clientId: "px-cli",
-    });
-    await ensurePulseExchangeParties("org-cache");
-
-    expect(mockRpc).toHaveBeenCalledTimes(1);
-    expect(mockRpc).toHaveBeenCalledWith("ensure_pulse_exchange_parties", { p_org_id: "org-cache" });
+  it("matches the viewer's counterparty party on the trip", () => {
+    expect(isExchangeLedgerContact(supplierSide, "supplier", "acct-b")).toBe(true);
+    expect(isExchangeLedgerContact(supplierSide, "SUPPLIER", "acct-b")).toBe(true);
   });
 
-  it("does not cache a failure, so the next call retries", async () => {
-    mockRpc
-      .mockResolvedValueOnce({ data: null, error: { message: "function does not exist" } })
-      .mockResolvedValueOnce({ data: { supplier_id: "s", client_id: "c" }, error: null });
-
-    await expect(ensurePulseExchangeParties("org-retry")).resolves.toBeNull();
-    await Promise.resolve();
-    await expect(ensurePulseExchangeParties("org-retry")).resolves.toEqual({ supplierId: "s", clientId: "c" });
+  it("leaves other parties on the trip to the normal ledger", () => {
+    expect(isExchangeLedgerContact(supplierSide, "supplier", "other")).toBe(false);
+    expect(isExchangeLedgerContact(supplierSide, "client", "acct-b")).toBe(false);
+    expect(isExchangeLedgerContact(null, "supplier", "acct-b")).toBe(false);
   });
 
-  it("treats a thrown lookup as no party", async () => {
-    mockRpc.mockImplementation(() => {
-      throw new Error("network down");
-    });
-    await expect(ensurePulseExchangeParties("org-throw")).resolves.toBeNull();
-  });
-});
-
-describe("isPulseExchangeParty", () => {
-  it("matches only the org's own PX supplier / client", async () => {
-    mockRpc.mockResolvedValue({ data: { supplier_id: "px-sup", client_id: "px-cli" }, error: null });
-
-    await expect(isPulseExchangeParty("org-px", "supplier", "px-sup")).resolves.toBe(true);
-    await expect(isPulseExchangeParty("org-px", "client", "px-cli")).resolves.toBe(true);
-    await expect(isPulseExchangeParty("org-px", "supplier", "px-cli")).resolves.toBe(false);
-    await expect(isPulseExchangeParty("org-px", "client", "other")).resolves.toBe(false);
-  });
-
-  it("skips the lookup for drivers, vehicles and empty contacts", async () => {
-    await expect(isPulseExchangeParty("org-x", "driver", "d1")).resolves.toBe(false);
-    await expect(isPulseExchangeParty("org-x", "supplier", null)).resolves.toBe(false);
-    expect(mockRpc).not.toHaveBeenCalled();
+  it("matches any DCO entry on a DCO award", () => {
+    expect(isExchangeLedgerContact({ ledger_contact_type: "dco", ledger_contact_id: null }, "dco", "payee-1")).toBe(true);
   });
 });
 
@@ -194,5 +170,19 @@ describe("Exchange RPC wrappers", () => {
   it("summary is null for non-Exchange trips", async () => {
     mockRpc.mockResolvedValue({ data: null, error: null });
     await expect(getExchangeTripSummary("trip-own")).resolves.toEqual({ error: null, summary: null });
+  });
+
+  it("lane list returns rows, or an error with no rows", async () => {
+    mockRpc.mockResolvedValueOnce({ data: [{ trip_id: "t-1", viewer_trip_id: "m-1" }], error: null });
+    await expect(listExchangeTrips("org-1")).resolves.toEqual({
+      error: null,
+      trips: [{ trip_id: "t-1", viewer_trip_id: "m-1" }],
+    });
+    expect(mockRpc).toHaveBeenCalledWith("list_exchange_trips", { p_org_id: "org-1" });
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: { message: "unauthorized: not staff" } });
+    const failed = await listExchangeTrips("org-2");
+    expect(failed.trips).toEqual([]);
+    expect(failed.error?.message).toMatch(/unauthorized/);
   });
 });

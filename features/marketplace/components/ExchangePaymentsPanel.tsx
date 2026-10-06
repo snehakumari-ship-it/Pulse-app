@@ -2,7 +2,7 @@
  * Pulse Exchange settlement on a Marketplace trip, for the shipper and the
  * winning bidder (an org in the Business App, or a DCO in the Driver App, on
  * the same trip and rows). Either side records a payment; the other side
- * confirms it, and only then does it post to Finance (Pulse Exchange party).
+ * confirms it, and only then does it post to Finance (each side's party for the other).
  */
 import Theme from "@/constants/Theme";
 import { useOrganization } from "@/contexts/OrganizationContext";

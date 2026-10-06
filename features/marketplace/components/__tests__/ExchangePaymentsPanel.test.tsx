@@ -56,6 +56,8 @@ function summary(overrides: Partial<ExchangeTripSummary> = {}): ExchangeTripSumm
     agreed_amount: 10000,
     confirmed_amount: 0,
     claimed_amount: 3000,
+    ledger_contact_type: "client",
+    ledger_contact_id: "acct-shipper",
     payments: [payment],
     ...overrides,
   };

@@ -19,7 +19,7 @@ import {
     getSuppliersByOrganization,
     type SupplierRow,
 } from "@/features/suppliers/services/suppliers.service";
-import { manuallySelectableSuppliers } from "@/features/suppliers/utils/pulseExchangeSupplier.util";
+import { manuallySelectableSuppliers } from "@/features/marketplace/utils/marketplaceParty.util";
 import {
   getDriverAvailabilityByPhoneGlobal,
   getTripsByOrganization,

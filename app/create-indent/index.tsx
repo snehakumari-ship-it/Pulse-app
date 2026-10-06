@@ -30,6 +30,7 @@ import { FinanceTxnTypography } from "@/constants/FinanceTxnTypography";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { getClientsByOrganization, type ClientRow } from "@/features/clients/services/clients.service";
+import { manuallySelectableClients } from "@/features/marketplace/utils/marketplaceParty.util";
 import { ClientLaneSearchPicker } from "@/features/clients/components/ClientLaneSearchPicker";
 import type { ClientLaneRate } from "@/features/clients/types/clientManagement.types";
 import {
@@ -621,7 +622,7 @@ export default function CreateIndentScreen() {
       setClientsLoading(true);
       getClientsByOrganization(orgId).then(({ clients: list }) => {
         if (!cancelled) {
-          setClients(list ?? []);
+          setClients(manuallySelectableClients(list ?? []));
           setClientsLoading(false);
         }
       });

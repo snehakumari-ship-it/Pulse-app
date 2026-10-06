@@ -11,10 +11,7 @@ import {
   type TripLedgerTripType,
 } from "@/features/finance/utils/tripLedgerPayoutMode.util";
 import { isAssetExecutionTrip } from "@/features/trips/domain/tripExecutionModel";
-import {
-  isDcoOperatingTrip,
-  isExchangeSettledDcoTrip,
-} from "@/features/trips/domain/tripDcoOperating";
+import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import {
   adjustedCost,
   adjustedRevenue,
@@ -257,9 +254,7 @@ export function computeTripSettlementDues(input: {
     };
   }
 
-  const payablePaid = isExchangeSettledDcoTrip(input.trip)
-    ? rollup.supplierPaid
-    : isDcoOperatingTrip(input.trip)
+  const payablePaid = isDcoOperatingTrip(input.trip)
     ? rollup.dcoPaid
     : tripType === "asset"
       ? rollup.driverPaid

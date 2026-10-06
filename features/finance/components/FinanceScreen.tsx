@@ -40,7 +40,6 @@ import type {
     UpdateSupplierData,
 } from "@/features/suppliers/services/suppliers.service";
 import { updateSupplier } from "@/features/suppliers/services/suppliers.service";
-import { isExchangeSettledDcoTrip } from "@/features/trips/domain/tripDcoOperating";
 import { getTripDisplayNumber, type TripRow } from "@/features/trips/services/trips.service";
 import {
     buildUniqueLinkedOrgIdMap,
@@ -123,6 +122,10 @@ import { FinanceTabBody } from "./FinanceTabBody";
 import type { FinancialRowData } from "./FinancialRow";
 import type { EntityListFilter } from "./TreasurySummaryCard";
 import type { SupplierPartyKindFilter } from "@/features/finance/domain/financeCounterpartyLane";
+import {
+  isMarketplaceOnlyClient,
+  isMarketplaceOnlySupplier,
+} from "@/features/marketplace/utils/marketplaceParty.util";
 
 function financeSubTabToPartyKind(
   tab: FinanceSubTab,
@@ -1228,6 +1231,15 @@ export function FinanceScreen() {
       ? selectedEntity.data.id
       : undefined;
 
+  const modalClientOptions = useMemo(() => {
+    const hidden = new Set(clientRows.filter(isMarketplaceOnlyClient).map((c) => c.id));
+    return clients.filter((c) => !hidden.has(c.id) || c.id === defaultPartyId);
+  }, [clients, clientRows, defaultPartyId]);
+  const modalSupplierOptions = useMemo(
+    () => supplierPartyOptions.filter((s) => !isMarketplaceOnlySupplier(s) || s.id === defaultPartyId),
+    [supplierPartyOptions, defaultPartyId],
+  );
+
   const selectedEntityTrips = useMemo((): TripRow[] => {
     if (!selectedEntity) return [];
     const { data: entity, entityType } = selectedEntity;
@@ -1245,9 +1257,7 @@ export function FinanceScreen() {
     }
     if (entityType === "SUPPLIER") {
       if (entity.counterpartyKind === "dco") {
-        return tripRows.filter(
-          (t) => t.dco_payee_id === entity.id && !isExchangeSettledDcoTrip(t),
-        );
+        return tripRows.filter((t) => t.dco_payee_id === entity.id);
       }
       const supplierRow = supplierRows.find((s) => s.id === entity.id) ?? null;
       const fromOwned = tripRows.filter((t) => t.supplier_id === entity.id);
@@ -1828,8 +1838,8 @@ export function FinanceScreen() {
           setPayDriverRequestTripPrefill(null);
         }}
         onSubmitTransaction={handleTransactionSubmit}
-        clients={clients}
-        supplierPartyOptions={supplierPartyOptions}
+        clients={modalClientOptions}
+        supplierPartyOptions={modalSupplierOptions}
         supplierLinkedOrgIds={supplierLinkedOrgIds}
         driverPartyOptions={driverPartyOptions}
         vehicleOptions={vehicleOptions}

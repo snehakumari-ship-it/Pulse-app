@@ -1,7 +1,8 @@
 /**
  * Pulse Exchange payments — Marketplace money between a shipper (payer) and the
- * winning bidder (payee), settled through each org's default "Pulse Exchange"
- * Finance party. A DCO payee works the same rows from the Driver App.
+ * winning bidder (payee) on an Exchange trip. Each side's Finance rows post
+ * against its own account for the other org (or the DCO payee). A DCO payee
+ * works the same rows from the Driver App.
  *
  * Gate 1: either side records a payment (claim). Gate 2: the other side
  * confirms it; only then does it post to both orgs' ledgers. All writes are
@@ -51,12 +52,18 @@ export interface ExchangeTripSummary {
   agreed_amount: number;
   confirmed_amount: number;
   claimed_amount: number;
+  /** The viewer's Finance party for the other side; confirmed payments post against it. */
+  ledger_contact_type: "supplier" | "client" | "dco" | null;
+  ledger_contact_id: string | null;
   payments: ExchangePaymentRow[];
 }
 
-export interface PulseExchangeParties {
-  supplierId: string;
-  clientId: string;
+/** One row of Finance's Marketplace trips lane. */
+export interface ExchangeLaneTrip extends ExchangeTripSummary {
+  /** The viewer org's own trip for the award: the shipper's trip, or the bidder's execution trip. */
+  viewer_trip_id: string;
+  viewer_trip_number: string | null;
+  ledger_contact_name: string | null;
 }
 
 export interface ClaimExchangePaymentInput {
@@ -79,7 +86,8 @@ const EXCHANGE_ERROR_MESSAGES: Record<string, string> = {
   not_exchange_trip: "This trip is not settled through Pulse Exchange.",
   ambiguous_side: "You belong to both organizations on this trip, so you can't record or confirm its payments.",
   award_changed: "The Marketplace award on this trip changed after this payment was recorded.",
-  exchange_ledger_locked: "Pulse Exchange entries post to Finance only after the other side confirms them in Exchange.",
+  marketplace_account_reserved: "A Marketplace partner you are not connected to can only be the supplier on its Marketplace trip.",
+  marketplace_fee_party_reserved: "Pulse Marketplace (fees) is used only for Marketplace platform fees.",
 };
 
 export function exchangeErrorMessage(raw: string): string {
@@ -144,38 +152,15 @@ export function exchangeModeFromLedgerLabel(label: string | null | undefined): E
   return "CASH";
 }
 
-const partiesByOrg = new Map<string, Promise<PulseExchangeParties | null>>();
-
-/** The org's default Pulse Exchange parties, created on first use. Cached per org for the session. */
-export function ensurePulseExchangeParties(orgId: string): Promise<PulseExchangeParties | null> {
-  const cached = partiesByOrg.get(orgId);
-  if (cached) return cached;
-  const pending = (async () => {
-    try {
-      const { data, error } = await supabase().rpc("ensure_pulse_exchange_parties", { p_org_id: orgId });
-      const row = data as { supplier_id?: string | null; client_id?: string | null } | null;
-      if (error || !row?.supplier_id || !row?.client_id) return null;
-      return { supplierId: row.supplier_id, clientId: row.client_id };
-    } catch {
-      return null;
-    }
-  })();
-  partiesByOrg.set(orgId, pending);
-  void pending.then((result) => {
-    if (!result) partiesByOrg.delete(orgId);
-  });
-  return pending;
-}
-
-export async function isPulseExchangeParty(
-  orgId: string,
+/** True when a Finance party on this trip is the viewer's Exchange counterparty, so its payments go through Exchange. */
+export function isExchangeLedgerContact(
+  summary: Pick<ExchangeTripSummary, "ledger_contact_type" | "ledger_contact_id"> | null,
   contactType: string | null | undefined,
   contactId: string | null | undefined,
-): Promise<boolean> {
-  if (!contactId || (contactType !== "supplier" && contactType !== "client")) return false;
-  const parties = await ensurePulseExchangeParties(orgId);
-  if (!parties) return false;
-  return contactType === "supplier" ? parties.supplierId === contactId : parties.clientId === contactId;
+): boolean {
+  if (!summary?.ledger_contact_type) return false;
+  if (String(contactType ?? "").toLowerCase() !== summary.ledger_contact_type) return false;
+  return summary.ledger_contact_type === "dco" || (!!contactId && contactId === summary.ledger_contact_id);
 }
 
 export async function getExchangeTripSummary(
@@ -184,6 +169,14 @@ export async function getExchangeTripSummary(
   const { data, error } = await supabase().rpc("get_exchange_trip_summary", { p_trip_id: tripId });
   if (error) return { error: new Error(error.message), summary: null };
   return { error: null, summary: (data as ExchangeTripSummary | null) ?? null };
+}
+
+export async function listExchangeTrips(
+  orgId: string,
+): Promise<{ error: Error | null; trips: ExchangeLaneTrip[] }> {
+  const { data, error } = await supabase().rpc("list_exchange_trips", { p_org_id: orgId });
+  if (error) return { error: new Error(error.message), trips: [] };
+  return { error: null, trips: (data as ExchangeLaneTrip[] | null) ?? [] };
 }
 
 async function exchangeRpc(

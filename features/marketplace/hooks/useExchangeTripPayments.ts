@@ -4,8 +4,10 @@ import {
   claimExchangePayment,
   confirmExchangePayment,
   getExchangeTripSummary,
+  listExchangeTrips,
   rejectExchangePayment,
   type ClaimExchangePaymentInput,
+  type ExchangeLaneTrip,
   type ExchangePaymentRow,
   type ExchangeTripSummary,
 } from "@/features/marketplace/services/exchangePayments.service";
@@ -21,6 +23,19 @@ export function useExchangeTripSummaryQuery(tripId: string | null | undefined) {
       return summary;
     },
     enabled: !!tripId,
+    staleTime: STALE.frequent,
+  });
+}
+
+export function useExchangeTripsLaneQuery(orgId: string | null | undefined) {
+  return useQuery<ExchangeLaneTrip[], Error>({
+    queryKey: queryKeys.exchange.lane(orgId ?? ""),
+    queryFn: async () => {
+      const { error, trips } = await listExchangeTrips(orgId!);
+      if (error) throw error;
+      return trips;
+    },
+    enabled: !!orgId,
     staleTime: STALE.frequent,
   });
 }
@@ -54,6 +69,7 @@ export function useExchangeTripPaymentAction(tripId: string, organizationId: str
     mutationFn: (action) => runExchangeAction(tripId, action),
     onSuccess: (payment) => {
       void qc.invalidateQueries({ queryKey: queryKeys.exchange.tripSummary(tripId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.exchange.lanesAll() });
       if (payment.status !== "confirmed") return;
       void qc.invalidateQueries({ queryKey: queryKeys.trips.detail(tripId) });
       if (!organizationId) return;

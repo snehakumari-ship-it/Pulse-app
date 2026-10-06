@@ -79,5 +79,6 @@ export function useInvalidateTransactions() {
     void qc.invalidateQueries({ queryKey: queryKeys.transactions.all(orgId) });
     void qc.invalidateQueries({ queryKey: queryKeys.transactions.finite(orgId) });
     void qc.invalidateQueries({ queryKey: ['q', 'transactions', orgId, 'infinite'] });
+    void qc.invalidateQueries({ queryKey: queryKeys.exchange.lane(orgId) });
   }, [qc]);
 }

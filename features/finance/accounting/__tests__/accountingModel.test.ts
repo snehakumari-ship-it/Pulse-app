@@ -125,34 +125,34 @@ describe('getDoubleEntryForNewEntry', () => {
 });
 
 describe('Pulse Exchange rows (posted on confirmation)', () => {
-  it('shipper EXCHANGE_PAYMENT to the Pulse Exchange supplier hits Cash as a supplier payment', () => {
+  it('shipper EXCHANGE_PAYMENT to the bidder\'s Marketplace account hits Cash as a supplier payment', () => {
     const result = getDoubleEntryFromLedgerRow({
       amount_in: 0,
       amount_out: 4000,
       contact_type: 'supplier',
-      party_name: 'Pulse Exchange',
+      party_name: 'Ravi Movers',
       description: 'EXCHANGE PAYMENT | Mode: UPI | UTR: UTR77',
     });
     expect(result).toMatchObject({ debitAccount: 'AP', creditAccount: 'CASH_BANK', amount: 4000 });
   });
 
-  it('bidder EXCHANGE_RECEIPT from the Pulse Exchange customer hits Cash as a customer payment', () => {
+  it('bidder EXCHANGE_RECEIPT from the shipper\'s Marketplace account hits Cash as a customer payment', () => {
     const result = getDoubleEntryFromLedgerRow({
       amount_in: 4000,
       amount_out: 0,
       contact_type: 'client',
-      party_name: 'Pulse Exchange',
+      party_name: 'Acme Shippers',
       description: 'EXCHANGE PAYMENT | Mode: UPI | UTR: UTR77',
     });
     expect(result).toMatchObject({ debitAccount: 'CASH_BANK', creditAccount: 'AR', amount: 4000 });
   });
 
-  it('platform fee to the Pulse Exchange supplier settles the fee payable from Cash', () => {
+  it('platform fee to Pulse Marketplace (fees) settles the fee payable from Cash', () => {
     const result = getDoubleEntryFromLedgerRow({
       amount_in: 0,
       amount_out: 250,
       contact_type: 'supplier',
-      party_name: 'Pulse Exchange',
+      party_name: 'Pulse Marketplace (fees)',
       description: 'MARKETPLACE PLATFORM FEE | Mode: Online | UTR: pay_123',
     });
     expect(result).toMatchObject({ debitAccount: 'AP', creditAccount: 'CASH_BANK' });

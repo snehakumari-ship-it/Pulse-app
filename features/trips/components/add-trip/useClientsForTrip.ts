@@ -7,6 +7,7 @@ import {
   getClientsByOrganization,
   type ClientRow,
 } from '@/features/clients/services/clients.service';
+import { manuallySelectableClients } from '@/features/marketplace/utils/marketplaceParty.util';
 
 export function useClientsForTrip(organizationId: string | null) {
   const [clients, setClients] = useState<ClientRow[]>([]);
@@ -16,7 +17,7 @@ export function useClientsForTrip(organizationId: string | null) {
     if (!organizationId) return;
     setLoading(true);
     getClientsByOrganization(organizationId).then(({ clients: list }) => {
-      setClients(list ?? []);
+      setClients(manuallySelectableClients(list ?? []));
       setLoading(false);
     });
   }, [organizationId]);

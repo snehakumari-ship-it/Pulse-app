@@ -36,7 +36,8 @@ import {
   claimExchangePaymentOnce,
   exchangeErrorMessage,
   exchangeModeFromLedgerLabel,
-  isPulseExchangeParty,
+  getExchangeTripSummary,
+  isExchangeLedgerContact,
 } from "@/features/marketplace/services/exchangePayments.service";
 
 /**
@@ -1351,7 +1352,7 @@ async function tryNotifyLinkedPartyChatAfterLedgerInsert(
  * "already processed" translation) need it preserved.
  */
 function ledgerWriteError(error: { message: string; code?: string }): Error {
-  const message = error.message.startsWith("exchange_ledger_locked:")
+  const message = /^(exchange_ledger_locked|marketplace_account_reserved|marketplace_fee_party_reserved):/.test(error.message)
     ? exchangeErrorMessage(error.message)
     : error.message;
   const err = new Error(message) as Error & { code?: string };
@@ -1363,27 +1364,30 @@ export interface CreateLedgerEntryResult {
   error: Error | null;
   row: LedgerRow | null;
   /**
-   * Set when the entry was a payment against the org's Pulse Exchange party: it
-   * was recorded in Exchange and posts to Finance once the other side confirms.
+   * Set when the entry was a payment to the Marketplace counterparty on an
+   * Exchange trip: it was recorded in Exchange and posts to Finance once the
+   * other side confirms.
    */
   pendingExchangeConfirmation?: boolean;
 }
 
-/** Pulse Exchange party payments go through Exchange's two gates, never straight to the ledger. */
-async function routePulseExchangePartyPayment(
+/** Payments to the counterparty on an Exchange trip go through Exchange's two gates, never straight to the ledger. */
+async function routeExchangeTripPayment(
   orgId: string,
   entry: CreateLedgerEntryData,
-  contactId: string,
-  amount: number,
+  contactId: string | null,
+  amountIn: number,
+  amountOut: number,
   date: string,
 ): Promise<CreateLedgerEntryResult | null> {
-  if (!(await isPulseExchangeParty(orgId, entry.contact_type, contactId))) return null;
-  if (!entry.trip_id) {
-    return {
-      error: new Error("Pick the Marketplace trip this Pulse Exchange payment settles."),
-      row: null,
-    };
-  }
+  if (!entry.trip_id || !entry.contact_type) return null;
+  const summary = await getExchangeTripSummary(entry.trip_id).then(
+    (r) => r.summary,
+    () => null,
+  );
+  if (!summary || !isExchangeLedgerContact(summary, entry.contact_type, contactId)) return null;
+  const amount = summary.viewer_side === "payer" ? amountOut : amountIn;
+  if (amount <= 0 || (summary.viewer_side === "payer" ? amountIn : amountOut) > 0) return null;
   const { error } = await claimExchangePaymentOnce(orgId, {
     tripId: entry.trip_id,
     amount,
@@ -1423,16 +1427,15 @@ export async function createLedgerEntry(
       row: null,
     };
   }
-  if (contactIdTrimmed) {
-    const routed = await routePulseExchangePartyPayment(
-      orgId,
-      enriched,
-      contactIdTrimmed,
-      Math.max(amountIn, amountOut),
-      date,
-    );
-    if (routed) return routed;
-  }
+  const routed = await routeExchangeTripPayment(
+    orgId,
+    enriched,
+    contactIdTrimmed || null,
+    amountIn,
+    amountOut,
+    date,
+  );
+  if (routed) return routed;
   const normalizedContactType = (enriched.contact_type ??
     null) as LedgerContactType | null;
   const normalizedContactId = contactIdTrimmed;

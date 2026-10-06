@@ -2,6 +2,7 @@ import { DcoPayeesTab } from "@/features/finance/components/DcoPayeesTab";
 import {
   SUPPLIER_PARTY_KIND_OPTIONS,
 } from "@/features/finance/domain/financeCounterpartyLane";
+import { ExchangeTripsLaneCard } from "@/features/marketplace/components/ExchangeTripsLaneCard";
 import { SuppliersTab } from "@/features/suppliers/components/SuppliersTab";
 import Theme from "@/constants/Theme";
 import { useTabBarAwareScrollProps } from "@/contexts/DemoTabBarScrollContext";
@@ -98,6 +99,7 @@ export function FinanceSuppliersTab(props: FinanceTabBodyProps) {
 
   const lists = (
     <>
+      <ExchangeTripsLaneCard organizationId={orgId} side="payer" contactFilter={supplierPartyKind} />
       {showDco ? (
         <DcoPayeesTab
           organizationId={orgId}

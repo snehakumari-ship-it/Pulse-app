@@ -1,0 +1,13 @@
+# Pulse Exchange canonical counterparty accounts (replaces the shared
+# "Pulse Exchange" supplier/customer from 20271006144616).
+# Marketplace awards post to one party per counterparty org: the existing linked
+# row when the orgs are connected, otherwise an unlinked Marketplace account
+# (server-side mapping, hidden from pickers, promoted in place on connect).
+# Adds exchange_trips enrollment, the DCO payee lane, the fee-only
+# "Pulse Marketplace (fees)" party, get_non_selectable_party_ids, and
+# list_exchange_trips (Finance Marketplace trips lane).
+# Drops ensure_pulse_exchange_parties: the matching app build must deploy with it.
+# Fails closed if any 'pulse_exchange' party or exchange_payments row exists.
+# Requires pulse-exchange-party (20271006142659, 20271006144616) applied.
+# Apply only after explicit production authorization.
+20271006184500

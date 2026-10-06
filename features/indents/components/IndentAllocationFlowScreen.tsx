@@ -1,7 +1,7 @@
 /**
  * Full-screen indent deploy — asset and aggregate allocation wizards.
  */
-import { manuallySelectableSuppliers } from "@/features/suppliers/utils/pulseExchangeSupplier.util";
+import { manuallySelectableSuppliers } from "@/features/marketplace/utils/marketplaceParty.util";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { useRouter } from "expo-router";

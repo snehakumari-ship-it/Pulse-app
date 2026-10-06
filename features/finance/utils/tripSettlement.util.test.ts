@@ -143,11 +143,11 @@ describe("tripSettlement.util", () => {
     expect(settlement.payableDue).toBe(14000);
   });
 
-  it("counts Pulse Exchange payments on a Marketplace DCO trip, not DCO payee rows", () => {
+  it("counts confirmed Exchange payments to the DCO payee on a Marketplace DCO award", () => {
     const exchangeDcoTrip = trip({
       operating_mode: "DCO",
       dco_payee_id: "payee-1",
-      supplier_id: "px-supplier",
+      supplier_id: null,
       source: "market_bid",
       trip_payout_mode: "market",
       supplier_rate: 15000,
@@ -158,7 +158,8 @@ describe("tripSettlement.util", () => {
       trip: exchangeDcoTrip,
       viewerOrgId: "org-1",
       ledgerEntries: [
-        ledger({ id: "exp", contact_type: "supplier", amount_out: 7000 }),
+        ledger({ id: "exp", contact_type: "dco", amount_out: 7000 }),
+        ledger({ id: "other", contact_type: "supplier", amount_out: 900 }),
       ],
     });
     expect(settlement.payableTarget).toBe(15000);

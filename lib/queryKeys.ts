@@ -333,6 +333,9 @@ export const queryKeys = {
   /** Pulse Exchange: two-gate Marketplace payments on one trip (get_exchange_trip_summary). */
   exchange: {
     tripSummary: (tripId: string) => ["q", "exchange", "trip", tripId] as const,
+    /** Finance Marketplace trips lane (list_exchange_trips). */
+    lanesAll: () => ["q", "exchange", "lane"] as const,
+    lane: (orgId: string) => ["q", "exchange", "lane", orgId] as const,
   },
 
   /** A4 — Business Find Loads: open Marketplace/both discovery for an org. */

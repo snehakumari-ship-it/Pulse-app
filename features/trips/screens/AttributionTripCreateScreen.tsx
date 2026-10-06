@@ -19,6 +19,7 @@ import {
   getClientsByOrganization,
   type ClientRow,
 } from "@/features/clients/services/clients.service";
+import { manuallySelectableClients } from "@/features/marketplace/utils/marketplaceParty.util";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
 import * as tripsService from "@/features/trips/services/trips.service";
@@ -91,7 +92,7 @@ export default function AttributionTripCreateModal() {
     setClientsLoading(true);
     const res = await getClientsByOrganization(orgId);
     if (!res.error) {
-      setClients(res.clients ?? []);
+      setClients(manuallySelectableClients(res.clients ?? []));
     }
     setClientsLoading(false);
   }, [orgId]);

@@ -27,9 +27,6 @@ import {
   useVehiclesQuery,
   useTripSubcontractsQuery,
 } from "@/lib/queries";
-import { ensurePulseExchangeParties } from "@/features/marketplace/services/exchangePayments.service";
-import { queryKeys } from "@/lib/queryKeys";
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface UseFinanceEntitiesArgs {
@@ -134,23 +131,6 @@ export function useFinanceEntities({
     () => tripsWhereOrgIsSupplier.map((trip) => overlayTripPartner(trip, true)),
     [tripsWhereOrgIsSupplier, overlayTripPartner],
   );
-
-  const queryClient = useQueryClient();
-  const partiesReady = !!orgId && !clientsLoading && !suppliersLoading;
-  const pulseExchangeChecked = useRef<string | null>(null);
-  useEffect(() => {
-    if (!partiesReady || !orgId || pulseExchangeChecked.current === orgId) return;
-    pulseExchangeChecked.current = orgId;
-    void ensurePulseExchangeParties(orgId).then((parties) => {
-      if (!parties) return;
-      if (!supplierRows.some((s) => s.id === parties.supplierId)) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.suppliers.all(orgId) });
-      }
-      if (!clientRows.some((c) => c.id === parties.clientId)) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.clients.all(orgId) });
-      }
-    });
-  }, [partiesReady, orgId, supplierRows, clientRows, queryClient]);
 
   const [pendingDriverSalaryRequests, setPendingDriverSalaryRequests] = useState<
     SalaryRequestWithDriverRow[]
