@@ -32,11 +32,18 @@ type Props = {
   stats?: RouteStopStats | null;
 };
 
-const STAT_TILES: Array<{ key: keyof RouteStopStats; label: string; tone: StatusTone; Icon: typeof Clock3 }> = [
-  { key: 'pending', label: 'Pending', tone: 'pending', Icon: Clock3 },
-  { key: 'arrived', label: 'At stop', tone: 'active', Icon: MapPin },
-  { key: 'completed', label: 'Completed', tone: 'done', Icon: CheckCircle2 },
-  { key: 'failed', label: 'Exceptions', tone: 'failed', Icon: AlertCircle },
+/** `short` must fit a quarter-width tile on a 360pt phone; `label` is the spoken name. */
+const STAT_TILES: Array<{
+  key: keyof RouteStopStats;
+  label: string;
+  short: string;
+  tone: StatusTone;
+  Icon: typeof Clock3;
+}> = [
+  { key: 'pending', label: 'Pending', short: 'Pending', tone: 'pending', Icon: Clock3 },
+  { key: 'arrived', label: 'At stop', short: 'At stop', tone: 'active', Icon: MapPin },
+  { key: 'completed', label: 'Completed', short: 'Done', tone: 'done', Icon: CheckCircle2 },
+  { key: 'failed', label: 'Exceptions', short: 'Issues', tone: 'failed', Icon: AlertCircle },
 ];
 
 export function RouteProgressHeader({
@@ -96,7 +103,7 @@ export function RouteProgressHeader({
 
       {stats ? (
         <View style={styles.stats} testID="multi-order-route-stats">
-          {STAT_TILES.map(({ key, label, tone, Icon }) => {
+          {STAT_TILES.map(({ key, label, short, tone, Icon }) => {
             const tint = statusToneColors(colors, tone);
             return (
               <View
@@ -110,7 +117,7 @@ export function RouteProgressHeader({
                 </View>
                 <Text style={[styles.statValue, { color: colors.text }]}>{stats[key]}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]} numberOfLines={1}>
-                  {label}
+                  {short}
                 </Text>
               </View>
             );

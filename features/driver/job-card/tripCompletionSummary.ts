@@ -43,7 +43,7 @@ export function buildTripCompletionSummary(
   const sorted = [...stops].sort((a, b) => a.sequence - b.sequence);
   const rows: TripCompletionStopRow[] = [];
   const orderIds = new Set<string>();
-  const countedDropOrders = new Set<string>();
+  const countedDropLines = new Set<string>();
   let expectedItems = 0;
   let anyQty = false;
   let pickupStops = 0;
@@ -71,11 +71,14 @@ export function buildTripCompletionSummary(
         stopQty += qty;
         stopAnyQty = true;
       }
-      if (delivery && order.salesOrderId && !countedDropOrders.has(order.salesOrderId)) {
-        countedDropOrders.add(order.salesOrderId);
-        if (qty != null) {
-          expectedItems += qty;
-          anyQty = true;
+      if (delivery) {
+        for (const line of order.lines ?? []) {
+          if (countedDropLines.has(line.salesOrderLineId)) continue;
+          countedDropLines.add(line.salesOrderLineId);
+          if (line.quantity != null && Number.isFinite(line.quantity)) {
+            expectedItems += line.quantity;
+            anyQty = true;
+          }
         }
       }
     }

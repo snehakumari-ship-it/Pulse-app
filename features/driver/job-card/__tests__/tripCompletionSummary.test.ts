@@ -96,4 +96,36 @@ describe('tripCompletionSummary', () => {
     expect(tripCompletionHeadline(summary)).toContain('15 items on trip');
     expect(summary.stops[1]?.orderLabels).toEqual(['SO-1']);
   });
+
+  it('counts every line of an order split across two drops', () => {
+    const order = (lines: Array<{ salesOrderLineId: string; quantity: number }>) => ({
+      salesOrderId: 'so-4',
+      orderNumber: 'SO-4',
+      customerId: null,
+      customerName: 'Kumar Traders',
+      customerPhone: null,
+      lines,
+    });
+    const mission = {
+      tripId: 't1',
+      indentId: null,
+      executionPlanId: 'p1',
+      stops: [
+        { stopId: 'pu', orders: [order([{ salesOrderLineId: 'a', quantity: 6 }, { salesOrderLineId: 'b', quantity: 20 }])] },
+        { stopId: 'd1', orders: [order([{ salesOrderLineId: 'a', quantity: 6 }])] },
+        { stopId: 'd2', orders: [order([{ salesOrderLineId: 'b', quantity: 20 }])] },
+      ],
+    } as unknown as DriverTripStopOrderMission;
+    const summary = buildTripCompletionSummary(
+      [
+        stop({ stopId: 'pu', sequence: 1, stopType: 'pickup', status: 'completed' }),
+        stop({ stopId: 'd1', sequence: 2, stopType: 'drop', status: 'completed' }),
+        stop({ stopId: 'd2', sequence: 3, stopType: 'drop', status: 'completed' }),
+      ],
+      mission,
+    );
+    expect(summary.distinctOrders).toBe(1);
+    expect(summary.expectedItems).toBe(26);
+    expect(summary.stops.map((s) => s.expectedQty)).toEqual([26, 6, 20]);
+  });
 });
