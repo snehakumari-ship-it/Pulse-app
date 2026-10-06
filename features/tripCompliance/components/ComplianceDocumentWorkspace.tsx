@@ -727,6 +727,7 @@ export function ComplianceDocumentWorkspace({
   canManageFinance = false,
   canManagePod = false,
   showHardCopyPodLog = false,
+  compliancePendingQueue = false,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
   onPay,
@@ -759,6 +760,8 @@ export function ComplianceDocumentWorkspace({
   canManagePod?: boolean;
   /** True only while the Compliance queue filter is Awaiting POD. */
   showHardCopyPodLog?: boolean;
+  /** True while the Compliance queue filter is Compliance Pending (hides the Finance tab for every listed trip). */
+  compliancePendingQueue?: boolean;
   /**
    * Increments when the page bar asks to create a hard-copy POD log
    * for the selected Awaiting POD trip.
@@ -942,7 +945,8 @@ export function ComplianceDocumentWorkspace({
     const base = deriveFinanceDocumentRows(summary.documents);
     return mergeFinanceBankDocsFromSupplier(base, supplierBankProof);
   }, [summary, supplierBankProof]);
-  const isFinanceMode = checklistPreviewMode === "finance" && summary?.stage !== "compliance_pending";
+  const isFinanceMode =
+    checklistPreviewMode === "finance" && summary?.stage !== "compliance_pending" && !compliancePendingQueue;
   const listRows = isFinanceMode ? financeRows : checklistRows;
   const reviewScope: DocTab = isFinanceMode ? "trip" : tab;
   const displayListRows = useMemo(
@@ -1019,6 +1023,10 @@ export function ComplianceDocumentWorkspace({
   useEffect(() => {
     setLocalDecisionByKey({});
   }, [summary?.trip.id]);
+
+  useEffect(() => {
+    if (compliancePendingQueue) setChecklistPreviewMode((mode) => (mode === "finance" ? "document" : mode));
+  }, [compliancePendingQueue]);
 
   useEffect(() => {
     setDocIndex(0);
@@ -2024,7 +2032,7 @@ export function ComplianceDocumentWorkspace({
               <View style={[styles.checklistListPane, stacked && styles.checklistListPaneStacked]}>
                 <View style={styles.checklistPanelToolbar}>
                   <View style={styles.checklistPanelTabs}>
-                    {isCompliancePendingStage ? null : (
+                    {isCompliancePendingStage || compliancePendingQueue ? null : (
                     <Pressable
                       onPress={() => {
                         setTab("trip");

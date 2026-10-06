@@ -1,5 +1,12 @@
 # Changelog — V1 (v0.0.01)
 
+## nihas/V1.0.18 — 2026-10-06
+- **What:** The Finance tab in the Compliance document panel is hidden for every trip listed under the **Compliance Pending** filter, not only trips whose own stage is Compliance Pending.
+- **Why:** Since Sneha V1.0.4, Compliance Pending also lists finance-declined (Verified-stage) and hold trips, and those showed the Finance tab again.
+- **Files/areas:** `ComplianceDocumentWorkspace` (new `compliancePendingQueue` prop), `app/compliance/index.tsx`
+- **Migrations:** none
+- **Tested:** tsc (140, baseline), Jest tripCompliance suites pass. Not clicked through on web yet.
+
 ## sneha/V1.0.4 — 2026-10-05
 - **What:** Compliance document panel (Finance, Trip, Vehicle, Driver — every stage):
   - Files open in the right-hand panel in their original form: EXIF orientation is honoured, the page is fitted and centred, and Rotate / Reset / Expand sit on a toolbar. The old full-pane tap-to-modal overlay is gone so you can read the document in place.
