@@ -39,6 +39,7 @@ function summaryFromHardCopyPodState(
     courier: state.courier,
     awbNumber: state.awbNumber,
     receivedBy: state.receivedBy,
+    ibond: state.ibond,
   };
 }
 

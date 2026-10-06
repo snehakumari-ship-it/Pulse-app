@@ -71,9 +71,12 @@ export function podAgingOffset(days: number): number {
 }
 
 /** Amount that Vendor POD Delay Submission should show. Empty inside the free window. */
-export function podDelaySubmissionAmount(penalty: number | null | undefined): string {
-  const amount = Number(penalty) || 0;
-  return amount > 0 ? String(amount) : "";
+export function podDelaySubmissionAmount(
+  penalty: number | null | undefined,
+  extra = 0,
+): string {
+  const amount = (Number(penalty) || 0) + (Number(extra) || 0);
+  return amount > 0 ? String(Math.round(amount)) : "";
 }
 
 /** `-15 days` through `0 days`, then `1 day - ₹50` once the penalty starts. */

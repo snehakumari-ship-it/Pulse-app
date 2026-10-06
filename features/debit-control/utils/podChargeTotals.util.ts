@@ -2,6 +2,7 @@ import {
   CHARGE_FIELDS,
   EMPTY_CHARGE_LINES,
   EXCLUDED_CHARGE_KEYS,
+  IBOND_DEDUCTIBLE_COST,
   INCLUDED_CHARGE_KEYS,
   type ChargeDraft,
   type DebitControlReceivedTrip,
@@ -26,9 +27,19 @@ export function excludedChargeTotal(lines: PodChargeLines): number {
   return EXCLUDED_CHARGE_KEYS.reduce((sum, key) => sum + (Number(lines[key]) || 0), 0);
 }
 
-/** Delay, damage, product missing, document cost, and POD delay submission are deducted from the side's total. */
+/** Delay, damage, product missing, document cost, POD delay, and the IBond deductible are deducted from the side's total. */
 export function netChargeTotal(lines: PodChargeLines): number {
   return Math.round((includedChargeTotal(lines) - excludedChargeTotal(lines)) * 100) / 100;
+}
+
+/**
+ * Vendor cost after the IBond deductible. The same original and flag always
+ * return the same amount, so refresh and a repeated save do not deduct again.
+ */
+export function vendorCostAfterIbond(originalVendorCost: number, ibond: boolean): number {
+  const original = Number.isFinite(originalVendorCost) ? originalVendorCost : 0;
+  if (!ibond) return Math.round(original * 100) / 100;
+  return Math.round(Math.max(0, original - IBOND_DEDUCTIBLE_COST) * 100) / 100;
 }
 
 export function chargeLinesFromBase(cost: number): PodChargeLines {

@@ -27,9 +27,11 @@ import {
 import { fetchComplianceVehicleVaultForTrips } from "@/features/tripCompliance/services/complianceListFacts.service";
 import {
   isSoftPodDocumentType,
+  fetchHardCopyIbondTripIds,
   tripPodIsReceived,
 } from "@/features/trips/services/tripDocumentLrPod.service";
 import { lrNumbersFromDocumentNumber } from "@/features/trips/utils/hardCopyPodLrSelection.util";
+import { POD_VALIDATED_EVENT } from "@/features/debit-control/utils/debitControlPod.model";
 import { decodeCourierLrRemarks, lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import {
   isCompletedTripStatus,
@@ -219,6 +221,54 @@ export async function fetchHardCopyReceivedLrNumbers(
     if (received.length > 0) byTrip.set(tripId, received);
   }
   return byTrip;
+}
+
+function attachIbondFlags(
+  flagsByTrip: Map<string, ComplianceTripFlags>,
+  ibondTripIds: Set<string>,
+): Map<string, ComplianceTripFlags> {
+  if (ibondTripIds.size === 0) return flagsByTrip;
+  const next = new Map(flagsByTrip);
+  for (const tripId of ibondTripIds) {
+    const flags = next.get(tripId);
+    if (!flags) continue;
+    next.set(tripId, { ...flags, pod_ibond: true });
+  }
+  return next;
+}
+
+/** Trips whose POD client/vendor charges have been saved. */
+export async function fetchPodChargeValidatedTripIds(tripIds: string[]): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (tripIds.length === 0) return ids;
+  const { data, error } = await supabase()
+    .from("trip_workflow_events")
+    .select("trip_id")
+    .eq("event_type", POD_VALIDATED_EVENT)
+    .in("trip_id", tripIds);
+  if (error) {
+    if (isMissingColumnOrRelation(error)) return ids;
+    throw new Error(error.message);
+  }
+  for (const row of data ?? []) {
+    const tripId = String((row as { trip_id?: string }).trip_id ?? "").trim();
+    if (tripId) ids.add(tripId);
+  }
+  return ids;
+}
+
+function attachChargesSavedFlags(
+  flagsByTrip: Map<string, ComplianceTripFlags>,
+  validatedTripIds: Set<string>,
+): Map<string, ComplianceTripFlags> {
+  if (validatedTripIds.size === 0) return flagsByTrip;
+  const next = new Map(flagsByTrip);
+  for (const tripId of validatedTripIds) {
+    const flags = next.get(tripId);
+    if (!flags) continue;
+    next.set(tripId, { ...flags, pod_charges_saved: true });
+  }
+  return next;
 }
 
 function attachReceivedLrNumbers(
@@ -697,17 +747,22 @@ export async function fetchComplianceTripInputs(
   if (trips.length === 0) return [];
   const tripIds = trips.map((t) => t.id);
   const entityIds = trips.flatMap((trip) => [trip.vehicle_id, trip.driver_id].filter((id): id is string => Boolean(id)));
-  const [docsByTrip, flagsByTrip, receivedLrsByTrip, txnsByTrip, entityDocsById, vault, driverKycDocs] =
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargesSavedIds, txnsByTrip, entityDocsById, vault, driverKycDocs] =
     await Promise.all([
       fetchTripDocumentsForTrips(tripIds),
       fetchComplianceTripFlags(tripIds),
       fetchHardCopyReceivedLrNumbers(tripIds),
+      fetchHardCopyIbondTripIds(tripIds),
+      fetchPodChargeValidatedTripIds(tripIds),
       fetchComplianceTransactions(tripIds),
       fetchEntityDocumentsByIds(orgIdOf(trips), entityIds, ["vehicle", "driver"]),
       fetchVehicleVaultDocumentsForTrips(trips, viewerOrgId),
       fetchDriverKycDocumentsForTrips(trips),
     ]);
-  const flagsWithLrs = attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip);
+  const flagsWithLrs = attachChargesSavedFlags(
+    attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
+    chargesSavedIds,
+  );
   return trips.map((trip) => ({
     trip,
     documents: docsByTrip.get(trip.id) ?? [],
@@ -822,6 +877,8 @@ export function summarizeComplianceTrip(inputs: ComplianceTripInputs): Complianc
       courier: flags?.pod_hard_copy_courier ?? null,
       awbNumber: flags?.pod_hard_copy_awb_number ?? null,
       receivedBy: flags?.pod_hard_copy_received_by ?? null,
+      ibond: flags?.pod_ibond === true,
+      ...(flags?.pod_charges_saved ? { chargesSaved: true } : {}),
       lrNumbers: [...lrReceipt.received, ...lrReceipt.pending],
       receivedLrNumbers: lrReceipt.received,
     },
@@ -881,13 +938,18 @@ export async function fetchTripScopedInputs(
 ): Promise<Map<string, Pick<ComplianceTripInputs, "documents" | "flags" | "taggedAdvance" | "balance">>> {
   const byTrip = new Map<string, Pick<ComplianceTripInputs, "documents" | "flags" | "taggedAdvance" | "balance">>();
   if (tripIds.length === 0) return byTrip;
-  const [docsByTrip, flagsByTrip, receivedLrsByTrip, txnsByTrip] = await Promise.all([
+  const [docsByTrip, flagsByTrip, receivedLrsByTrip, ibondTripIds, chargesSavedIds, txnsByTrip] = await Promise.all([
     fetchTripDocumentsForTrips(tripIds),
     fetchComplianceTripFlags(tripIds),
     fetchHardCopyReceivedLrNumbers(tripIds),
+    fetchHardCopyIbondTripIds(tripIds),
+    fetchPodChargeValidatedTripIds(tripIds),
     fetchComplianceTransactions(tripIds),
   ]);
-  const flagsWithLrs = attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip);
+  const flagsWithLrs = attachChargesSavedFlags(
+    attachIbondFlags(attachReceivedLrNumbers(flagsByTrip, receivedLrsByTrip), ibondTripIds),
+    chargesSavedIds,
+  );
   for (const id of tripIds) {
     byTrip.set(id, {
       documents: docsByTrip.get(id) ?? [],

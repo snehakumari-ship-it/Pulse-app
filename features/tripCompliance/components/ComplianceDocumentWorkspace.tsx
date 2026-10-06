@@ -730,6 +730,8 @@ export function ComplianceDocumentWorkspace({
   showHardCopyPodLog = false,
   compliancePendingQueue = false,
   showPodClientValidation = false,
+  chargesReview = false,
+  onChargesSaved,
   logHardCopyPodRequest = 0,
   courierLrOptions = [],
   onPay,
@@ -739,6 +741,8 @@ export function ComplianceDocumentWorkspace({
   onDeclineCompliance,
   onMarkComplianceVerified,
   selectedTripId = null,
+  chargeFocusTripId = null,
+  chargeFocusToken = 0,
   focusTab = null,
   focusToken = 0,
   onReviewTripDocs,
@@ -766,6 +770,10 @@ export function ComplianceDocumentWorkspace({
   compliancePendingQueue?: boolean;
   /** True only while the Compliance queue filter is POD Received. */
   showPodClientValidation?: boolean;
+  /** Charges stay as text until Edit. */
+  chargesReview?: boolean;
+  /** POD Received save: parent moves the trip to the next stage. */
+  onChargesSaved?: (tripId: string) => void;
   /**
    * Increments when the page bar asks to create a hard-copy POD log
    * for the selected Awaiting POD trip.
@@ -790,6 +798,9 @@ export function ComplianceDocumentWorkspace({
   onMarkComplianceVerified?: (tripId: string) => Promise<boolean | void>;
   /** Trip to show when opening the card view from the table. */
   selectedTripId?: string | null;
+  /** Trip to select after a charge save moves it to Balance Pending. */
+  chargeFocusTripId?: string | null;
+  chargeFocusToken?: number;
   /** Tab to open with that trip. Applied once per `focusToken`. */
   focusTab?: "trip" | "vehicle" | "driver" | null;
   focusToken?: number;
@@ -804,6 +815,7 @@ export function ComplianceDocumentWorkspace({
   const scrolledTripId = useRef<string | null>(null);
   const appliedFocusToken = useRef(0);
   const focusUploadTypeRef = useRef<string | null>(null);
+  const appliedChargeFocus = useRef(0);
   const { truckTypeByVehicleId, supplierNameByTripId } = tripFacts;
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
   const [tab, setTab] = useState<DocTab>("trip");
@@ -1006,6 +1018,14 @@ export function ComplianceDocumentWorkspace({
     : checklistSelectedRow && hasFile(checklistSelectedRow)
       ? checklistSelectedRow
       : null;
+  useEffect(() => {
+    if (!chargeFocusToken || !chargeFocusTripId) return;
+    if (appliedChargeFocus.current === chargeFocusToken) return;
+    if (!summaries.some((item) => item.trip.id === chargeFocusTripId)) return;
+    appliedChargeFocus.current = chargeFocusToken;
+    setSelectedId(chargeFocusTripId);
+  }, [chargeFocusToken, chargeFocusTripId, summaries]);
+
   useEffect(() => {
     if (selectedTripId && summaries.some((item) => item.trip.id === selectedTripId)) {
       setSelectedId(selectedTripId);
@@ -2050,13 +2070,21 @@ export function ComplianceDocumentWorkspace({
                 .join(" → ")}
               clientPrice={Number(summary.trip.client_price) || 0}
               supplierRate={Number(summary.trip.supplier_rate) || 0}
+              ibond={summary.hardCopyPod.ibond === true}
+              reviewMode={chargesReview}
+              onSaved={() => {
+                const tripId = summary.trip.id;
+                void onChanged({ type: "podChargesSaved", tripId });
+                void onChanged({ type: "tripFlags", tripId });
+                onChargesSaved?.(tripId);
+              }}
             />
           ) : (
             <View style={styles.emptyStage}>
               <NoDocumentPreviewEmpty
                 compact={stacked}
                 title="No trip selected"
-                hint="Select a POD Received trip to review its client charges."
+                hint="Select a trip to review its charges."
               />
             </View>
           )}
@@ -2073,11 +2101,9 @@ export function ComplianceDocumentWorkspace({
               organizationId={organizationId || summary.trip.organization_id}
               canManage={canManagePod || showLogHardCopyPod}
               initialMode="create"
-              onUpdated={(tripIds) => {
+              onUpdated={async (tripIds) => {
                 const ids = tripIds?.length ? tripIds : [summary.trip.id];
-                for (const tripId of ids) {
-                  onChanged({ type: "tripFlags", tripId });
-                }
+                await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
               }}
               lrOptions={courierLrOptions}
               summary={{
@@ -2833,11 +2859,9 @@ export function ComplianceDocumentWorkspace({
           organizationId={organizationId || summary.trip.organization_id}
           canManage={canManagePod || showLogHardCopyPod}
           initialMode="create"
-          onUpdated={(tripIds) => {
+          onUpdated={async (tripIds) => {
             const ids = tripIds?.length ? tripIds : [summary.trip.id];
-            for (const tripId of ids) {
-              onChanged({ type: "tripFlags", tripId });
-            }
+            await Promise.all(ids.map((tripId) => onChanged({ type: "tripFlags", tripId })));
           }}
           lrOptions={courierLrOptions}
           summary={{

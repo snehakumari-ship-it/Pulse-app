@@ -2,6 +2,7 @@ import {
   includedChargeTotal,
   netChargeTotal,
   resolveIndentType,
+  vendorCostAfterIbond,
   chargeLinesFromBase,
   parseChargeInput,
   chargeLinesFromDraft,
@@ -13,6 +14,7 @@ import {
 import { canMarkPodInward } from "@/features/debit-control/utils/podInwardForm.util";
 import {
   EMPTY_CHARGE_LINES,
+  IBOND_DEDUCTIBLE_COST,
   type DebitControlReceivedTrip,
 } from "@/features/debit-control/utils/debitControlPod.model";
 
@@ -71,6 +73,7 @@ describe("pod charge totals", () => {
       productMissing: "",
       podDelaySubmission: "",
       documentCost: "",
+      ibondDeductible: "",
     };
     const parsed = chargeLinesFromDraft(draft);
     expect(parsed.lines).toBeNull();
@@ -99,6 +102,31 @@ describe("pod charge totals", () => {
     } as DebitControlReceivedTrip;
     expect(displayedClientValue(trip)).toBe(1500);
     expect(displayedClientValue({ ...trip, totalClientValue: null })).toBe(1000);
+  });
+
+  it("deducts the IBond amount once through vendor POD delay submission", () => {
+    expect(vendorCostAfterIbond(57000, true)).toBe(55500);
+    expect(vendorCostAfterIbond(57000, true)).toBe(55500);
+    expect(vendorCostAfterIbond(57000, false)).toBe(57000);
+    const once = netChargeTotal({
+      ...EMPTY_CHARGE_LINES,
+      cost: 57000,
+      podDelaySubmission: 200 + IBOND_DEDUCTIBLE_COST,
+      ibondDeductible: 0,
+    });
+    const stored = readPodValidationPayload({
+      client: chargeLinesFromBase(57000),
+      vendor: {
+        ...chargeLinesFromBase(57000),
+        podDelaySubmission: IBOND_DEDUCTIBLE_COST,
+        ibondDeductible: 0,
+      },
+    });
+    expect(once).toBe(55300);
+    expect(stored?.totalVendorValue).toBe(55500);
+    expect(stored?.vendorCharges.podDelaySubmission).toBe(IBOND_DEDUCTIBLE_COST);
+    expect(stored?.vendorCharges.ibondDeductible).toBe(0);
+    expect(netChargeTotal(stored?.vendorCharges ?? EMPTY_CHARGE_LINES)).toBe(55500);
   });
 
   it("rebuilds totals from stored charge lines so the table matches the formula", () => {

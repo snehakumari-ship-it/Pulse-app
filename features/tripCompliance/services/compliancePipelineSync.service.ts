@@ -10,16 +10,18 @@
  *   tripDocumentDecision → 0 (patch mirrors verify_trip_document); 1 read of
  *                          that trip's documents only if the doc isn't cached
  *   tripDocuments        → 1 (trip_documents for one trip)
- *   tripFlags            → 2 (trips compliance/POD columns + courier received-LR event)
+ *   tripFlags            → trips compliance/POD columns, courier received-LR event, and saved POD charges
  *   complianceVerified   → 0 (patch mirrors mark_trip_compliance_verified)
  *   complianceDeclined   → 0 (patch mirrors decline_trip_compliance)
  *   payment              → 2 (compliance transactions + trips.amount_paid for one trip)
  *   vehicleDocuments     → entity docs + vault for every trip on that vehicle
  *   driverDocuments      → entity docs + KYC for every trip with that driver
  */
+import { fetchHardCopyIbondTripIds } from "@/features/trips/services/tripDocumentLrPod.service";
 import {
   fetchComplianceTripFlags,
   fetchHardCopyReceivedLrNumbers,
+  fetchPodChargeValidatedTripIds,
   fetchComplianceTripInputs,
   fetchDriverDocumentsForTrips,
   fetchTripDocumentsForTrips,
@@ -36,6 +38,7 @@ import {
   applyTripPayment,
   applyVehicleDocuments,
   reconcilePipelineTrips,
+  applyPodChargesSaved,
   replaceTripDocuments,
   replaceTripFlags,
   tripsUsingDriver,
@@ -57,6 +60,7 @@ export type ComplianceChange =
     }
   | { type: "tripDocuments"; tripId: string }
   | { type: "tripFlags"; tripId: string }
+  | { type: "podChargesSaved"; tripId: string }
   | { type: "complianceVerified"; tripId: string; actorId: string }
   | { type: "complianceDeclined"; tripId: string; actorId: string; reason: string }
   | { type: "payment"; tripId: string }
@@ -90,15 +94,28 @@ export async function patchForComplianceChange(
       return (cur) => replaceTripDocuments(cur, change.tripId, documents);
     }
     case "tripFlags": {
-      const [flags, received] = await Promise.all([
+      const [flags, received, ibondIds] = await Promise.all([
         fetchComplianceTripFlags([change.tripId]),
         fetchHardCopyReceivedLrNumbers([change.tripId]),
+        fetchHardCopyIbondTripIds([change.tripId]),
       ]);
+      const validatedIds = await fetchPodChargeValidatedTripIds([change.tripId]);
       const tripFlags = flags.get(change.tripId) ?? null;
       const numbers = received.get(change.tripId) ?? [];
-      const merged =
-        tripFlags && numbers.length > 0 ? { ...tripFlags, received_lr_numbers: numbers } : tripFlags;
-      return (cur) => replaceTripFlags(cur, change.tripId, merged);
+      let merged = tripFlags && numbers.length > 0 ? { ...tripFlags, received_lr_numbers: numbers } : tripFlags;
+      if (merged && ibondIds.has(change.tripId)) merged = { ...merged, pod_ibond: true };
+      if (merged && validatedIds.has(change.tripId)) merged = { ...merged, pod_charges_saved: true };
+      return (cur) => {
+        const row = cur.find((item) => item.trip.id === change.tripId);
+        const keepSaved =
+          validatedIds.has(change.tripId) || row?.flags?.pod_charges_saved === true;
+        const base = merged ?? row?.flags ?? null;
+        const flags = base && keepSaved ? { ...base, pod_charges_saved: true } : base;
+        return replaceTripFlags(cur, change.tripId, flags);
+      };
+    }
+    case "podChargesSaved": {
+      return (cur) => applyPodChargesSaved(cur, change.tripId);
     }
     case "complianceVerified": {
       const at = now();

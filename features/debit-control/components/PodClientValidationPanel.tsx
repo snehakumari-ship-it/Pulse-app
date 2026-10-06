@@ -6,6 +6,7 @@ import {
 } from "@/features/debit-control/hooks/useDebitControlPod";
 import {
   CHARGE_FIELDS,
+  IBOND_DEDUCTIBLE_COST,
   type ChargeDraft,
   type ChargeFieldKey,
 } from "@/features/debit-control/utils/debitControlPod.model";
@@ -64,6 +65,9 @@ export function PodClientValidationPanel({
   routeLabel,
   clientPrice,
   supplierRate,
+  ibond = false,
+  reviewMode = false,
+  onSaved,
 }: {
   organizationId: string;
   actorId: string | null;
@@ -75,6 +79,12 @@ export function PodClientValidationPanel({
   routeLabel: string;
   clientPrice: number;
   supplierRate: number;
+  /** Kept so existing callers can still pass the saved IBond flag. */
+  ibond?: boolean;
+  /** Charges stay as text until Edit. Save on POD Received moves the trip on. */
+  reviewMode?: boolean;
+  /** Called after charges are stored. */
+  onSaved?: () => void;
 }) {
   const loaded = usePodClientValidationQuery(organizationId || null, tripId);
   const validate = useValidatePodsMutation(organizationId || null, actorId);
@@ -89,6 +99,9 @@ export function PodClientValidationPanel({
   const [dispatchDate, setDispatchDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [clientBaseline, setClientBaseline] = useState<ChargeDraft | null>(null);
+  const [vendorBaseline, setVendorBaseline] = useState<ChargeDraft | null>(null);
 
   useEffect(() => {
     setDraft(chargeDraftFromLines(chargeLinesFromBase(clientPrice)));
@@ -99,6 +112,7 @@ export function PodClientValidationPanel({
     setDispatchDate("");
     setSeededFor("");
     setSaved(false);
+    setEditing(false);
     setError(null);
   }, [tripId, clientPrice, supplierRate, startDate, deliveryDate]);
 
@@ -106,9 +120,14 @@ export function PodClientValidationPanel({
     if (!loaded.data || seededFor === tripId) return;
     const lines = loaded.data.clientCharges ?? chargeLinesFromBase(clientPrice);
     setDraft(chargeDraftFromLines(lines));
-    setVendorDraft(
-      chargeDraftFromLines(loaded.data.vendorCharges ?? chargeLinesFromBase(supplierRate)),
+    const vendorSeed = chargeDraftFromLines(
+      loaded.data.vendorCharges ?? chargeLinesFromBase(supplierRate),
     );
+    if ((ibond || loaded.data.ibond) && !loaded.data.validatedAt) {
+      vendorSeed.podDelaySubmission = String(IBOND_DEDUCTIBLE_COST);
+      vendorSeed.ibondDeductible = "";
+    }
+    setVendorDraft(vendorSeed);
     setInvoiceNumber(loaded.data.invoiceNumber?.trim() || "");
     setTripStart(isoDate(loaded.data.tripStartDate) || isoDate(startDate));
     setDelivery(isoDate(loaded.data.deliveryDate) || isoDate(deliveryDate));
@@ -116,38 +135,47 @@ export function PodClientValidationPanel({
     setSeededFor(tripId);
     setError(null);
     setSaved(false);
-  }, [loaded.data, tripId, clientPrice, supplierRate, startDate, deliveryDate, seededFor]);
+  }, [loaded.data, tripId, clientPrice, supplierRate, startDate, deliveryDate, seededFor, ibond]);
 
   const aging = podReceivingAging(delivery, podAgingEndDate(dispatchDate, todayIsoDate()), true);
-  const podDelayAmount = podDelaySubmissionAmount(aging?.penalty);
+  const showIbond = ibond || loaded.data?.ibond === true;
+  const shownAging = showIbond && aging ? { ...aging, penalty: IBOND_DEDUCTIBLE_COST } : aging;
+  const podDelayAmount = showIbond
+    ? String(IBOND_DEDUCTIBLE_COST)
+    : podDelaySubmissionAmount(aging?.penalty);
   useEffect(() => {
     if (loaded.data?.validatedAt || saved) return;
     setVendorDraft((current) =>
-      current.podDelaySubmission === podDelayAmount
+      current.podDelaySubmission === podDelayAmount && current.ibondDeductible === ""
         ? current
-        : { ...current, podDelaySubmission: podDelayAmount },
+        : { ...current, podDelaySubmission: podDelayAmount, ibondDeductible: "" },
     );
-  }, [podDelayAmount, loaded.data?.validatedAt, saved]);
+  }, [podDelayAmount, loaded.data?.validatedAt, saved, seededFor]);
 
   const documentCostAmount =
-    loaded.data && loaded.data.documentCost > 0 ? String(loaded.data.documentCost) : "";
+    !showIbond && loaded.data && loaded.data.documentCost > 0 ? String(loaded.data.documentCost) : "";
   useEffect(() => {
-    if (loaded.data?.validatedAt || saved) return;
+    if (showIbond || loaded.data?.validatedAt || saved) return;
     setVendorDraft((current) =>
       current.documentCost === documentCostAmount ? current : { ...current, documentCost: documentCostAmount },
     );
-  }, [documentCostAmount, loaded.data?.validatedAt, saved]);
+  }, [documentCostAmount, showIbond, loaded.data?.validatedAt, saved]);
 
   const parsed = useMemo(() => chargeLinesFromDraft(draft), [draft]);
   const parsedVendor = useMemo(() => chargeLinesFromDraft(vendorDraft), [vendorDraft]);
-  const locked = Boolean(loaded.data?.validatedAt) || saved;
+  const previouslyValidated = Boolean(loaded.data?.validatedAt) || saved;
+  const locked = reviewMode ? !editing : false;
+  const chargesConfirmed = reviewMode && previouslyValidated;
   const total = parsed.lines ? netChargeTotal(parsed.lines) : null;
-  const vendorTotal = parsedVendor.lines ? netChargeTotal(parsedVendor.lines) : null;
+  const vendorLines = parsedVendor.lines
+    ? { ...parsedVendor.lines, ibondDeductible: 0 }
+    : null;
+  const vendorTotal = vendorLines ? netChargeTotal(vendorLines) : null;
   const invalid = new Set(parsed.lines ? [] : parsed.invalidKeys);
   const vendorInvalid = new Set(parsedVendor.lines ? [] : parsedVendor.invalidKeys);
   const fetchedInvoice = loaded.data?.invoiceNumber?.trim() || "";
   const ready =
-    Boolean(parsed.lines && parsedVendor.lines) && !locked && !validate.isPending && !loaded.isLoading;
+    Boolean(parsed.lines && parsedVendor.lines) && !validate.isPending && !loaded.isLoading;
 
   const confirm = async () => {
     if (!parsed.lines || !parsedVendor.lines) return;
@@ -161,11 +189,13 @@ export function PodClientValidationPanel({
         deliveryDate: delivery || null,
         dispatchDate: dispatchDate || null,
         client: parsed.lines,
-        vendor: parsedVendor.lines,
+        vendor: vendorLines ?? parsedVendor.lines,
       },
     ]);
     if (result.updatedIds.includes(tripId)) {
       setSaved(true);
+      setEditing(false);
+      onSaved?.();
       return;
     }
     setError(result.error?.message ?? "Could not confirm validation.");
@@ -178,7 +208,24 @@ export function PodClientValidationPanel({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.title}>POD Validation</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>POD Validation</Text>
+        {reviewMode && !editing ? (
+          <Pressable
+            style={styles.editBtn}
+            onPress={() => {
+              setClientBaseline(draft);
+              setVendorBaseline(vendorDraft);
+              setEditing(true);
+              setError(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Edit charges"
+          >
+            <Text style={styles.editBtnText}>Edit</Text>
+          </Pressable>
+        ) : null}
+      </View>
       <Text style={styles.tripId}>{displayId}</Text>
       {[clientName, routeLabel].filter(Boolean).length > 0 ? (
         <Text style={styles.sub} numberOfLines={2}>
@@ -215,18 +262,18 @@ export function PodClientValidationPanel({
           <View
             style={[
               styles.agingShell,
-              aging ? styles.agingShellFilled : null,
-              aging && aging.penalty > 0 ? styles.agingShellLate : null,
+              shownAging || showIbond ? styles.agingShellFilled : null,
+              showIbond || (shownAging && shownAging.penalty > 0) ? styles.agingShellLate : null,
             ]}
           >
             <Text
               style={[
                 styles.agingValue,
-                aging ? null : styles.agingPlaceholder,
-                aging && aging.penalty > 0 ? styles.agingLate : null,
+                shownAging || showIbond ? null : styles.agingPlaceholder,
+                showIbond || (shownAging && shownAging.penalty > 0) ? styles.agingLate : null,
               ]}
             >
-              {formatPodReceivingAging(aging)}
+              {showIbond && !shownAging ? formatInr(IBOND_DEDUCTIBLE_COST) : formatPodReceivingAging(shownAging)}
             </Text>
           </View>
         </View>
@@ -290,21 +337,41 @@ export function PodClientValidationPanel({
         </View>
         <View style={styles.footerActions}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {locked ? (
-            <Text style={styles.lockedNote}>Validated. These charges cannot be changed.</Text>
-          ) : (
-            <Pressable
-              style={[styles.confirm, !ready && styles.confirmDisabled]}
-              disabled={!ready}
-              onPress={() => void confirm()}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !ready }}
-              accessibilityLabel="Confirm Validation"
-            >
-              <Text style={styles.confirmText}>
-                {validate.isPending ? "Saving…" : "Confirm Validation"}
-              </Text>
-            </Pressable>
+          {chargesConfirmed && !editing ? null : (
+            <View style={styles.footerButtons}>
+              {reviewMode && editing ? (
+                <Pressable
+                  style={styles.cancelBtn}
+                  onPress={() => {
+                    if (clientBaseline) setDraft(clientBaseline);
+                    if (vendorBaseline) setVendorDraft(vendorBaseline);
+                    setEditing(false);
+                    setError(null);
+                  }}
+                  disabled={validate.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel charge edits"
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={[styles.confirm, !ready && styles.confirmDisabled]}
+                disabled={!ready}
+                onPress={() => void confirm()}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !ready }}
+                accessibilityLabel={reviewMode || previouslyValidated ? "Save" : "Confirm Validation"}
+              >
+                <Text style={styles.confirmText}>
+                  {validate.isPending
+                    ? "Saving…"
+                    : reviewMode || previouslyValidated
+                      ? "Save"
+                      : "Confirm Validation"}
+                </Text>
+              </Pressable>
+            </View>
           )}
         </View>
       </View>
@@ -357,16 +424,22 @@ function ChargeCards({
             .map((key) => (
             <View key={key} style={styles.row}>
               <Text style={styles.fieldLabel}>{labels.get(key)}</Text>
-              <TextInput
-                value={draft[key]}
-                editable={!locked}
-                onChangeText={(value) => onChange(key, value)}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={Theme.textMuted}
-                style={[styles.input, invalid.has(key) && styles.inputInvalid, locked && styles.inputLocked]}
-                accessibilityLabel={labels.get(key)}
-              />
+              {locked ? (
+                <Text style={styles.readOnlyValue} accessibilityLabel={labels.get(key)}>
+                  {draft[key] ? formatInr(Number(draft[key])) : formatInr(0)}
+                </Text>
+              ) : (
+                <TextInput
+                  value={draft[key]}
+                  editable
+                  onChangeText={(value) => onChange(key, value)}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={Theme.textMuted}
+                  style={[styles.input, invalid.has(key) && styles.inputInvalid]}
+                  accessibilityLabel={labels.get(key)}
+                />
+              )}
             </View>
           ))}
         </View>
@@ -379,6 +452,37 @@ const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0 },
   scroll: { flex: 1 },
   content: { padding: 16, gap: 12 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  editBtn: {
+    minHeight: 36,
+    minWidth: 64,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editBtnText: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  cancelBtn: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: Theme.buttonPrimaryRadius,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelBtnText: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
+  readOnlyValue: {
+    minWidth: 96,
+    textAlign: "right",
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
   title: { fontSize: 18, fontWeight: "800", color: Theme.primaryText },
   tripId: { fontSize: 14, fontWeight: "700", color: Theme.primaryText },
   dateCard: {
@@ -484,6 +588,7 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 12, fontWeight: "700", color: Theme.textSecondary },
   totalValue: { fontSize: 20, fontWeight: "800", color: Theme.primaryText },
   footerActions: { flexGrow: 1, alignItems: "flex-end", gap: 6, minWidth: 180 },
+  footerButtons: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   confirm: {
     minHeight: 44,
     paddingHorizontal: 16,

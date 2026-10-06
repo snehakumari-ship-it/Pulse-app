@@ -193,11 +193,13 @@ export default function ComplianceScreen() {
   }, [stage]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [cardTripId, setCardTripId] = useState<string | null>(null);
+  const [chargeFocus, setChargeFocus] = useState<{ tripId: string; token: number } | null>(null);
   const [cardFocus, setCardFocus] = useState<{
     tab: "trip" | "vehicle" | "driver";
     token: number;
   } | null>(null);
   const [awaitingPodSubview, setAwaitingPodSubview] = useState<AwaitingPodSubview>("all");
+  const [podReceivedSubview, setPodReceivedSubview] = useState<"all" | "ibond">("all");
   const awaitingPodCounts = useMemo(
     () =>
       stage === "hard_copy_pod_received"
@@ -209,9 +211,22 @@ export default function ComplianceScreen() {
     if (stage !== "hard_copy_pod_received" || awaitingPodSubview === "all") return filtered;
     return filtered.filter((summary) => matchesAwaitingPodSubview(summary, awaitingPodSubview));
   }, [filtered, stage, awaitingPodSubview]);
+  const podReceivedCounts = useMemo(() => {
+    if (stage !== "pod_received") return null;
+    const ibond = filtered.filter((summary) => summary.hardCopyPod?.ibond === true).length;
+    return { all: filtered.length - ibond, ibond };
+  }, [stage, filtered]);
+  const podReceivedQueue = useMemo(() => {
+    if (stage !== "pod_received") return filtered;
+    if (podReceivedSubview === "ibond") {
+      return filtered.filter((summary) => summary.hardCopyPod?.ibond === true);
+    }
+    return filtered.filter((summary) => summary.hardCopyPod?.ibond !== true);
+  }, [filtered, stage, podReceivedSubview]);
   const selectStage = useCallback((next: Parameters<typeof setStage>[0]) => {
     setStage(next);
     if (next !== "hard_copy_pod_received") setAwaitingPodSubview("all");
+    if (next !== "pod_received") setPodReceivedSubview("all");
   }, [setStage]);
   const courierLrOptions = useMemo(() => {
     if (stage !== "hard_copy_pod_received") return [];
@@ -590,7 +605,13 @@ export default function ComplianceScreen() {
   const searched = useMemo(() => {
     // With an active query, search the full Compliance queue (not only the
     // selected stage chip) so supplier / trip matches aren't hidden by filter.
-    const pool = search.trim() ? summaries : stage === "hard_copy_pod_received" ? stageQueue : outcomePool;
+    const pool = search.trim()
+      ? summaries
+      : stage === "hard_copy_pod_received"
+        ? stageQueue
+        : stage === "pod_received"
+          ? podReceivedQueue
+          : outcomePool;
     return pool.filter((summary) => {
       const supplierId = (summary.trip.supplier_id ?? "").trim();
       const resolved = supplierNameByTripId[summary.trip.id];
@@ -599,7 +620,7 @@ export default function ComplianceScreen() {
         resolved && resolved !== "—" ? resolved : null,
       ]);
     });
-  }, [outcomePool, stageQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
+  }, [outcomePool, stageQueue, podReceivedQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
   const ordered = useMemo(
     () => (viewMode === "table" ? sortComplianceTableRows(searched, tableDateSort) : searched),
     [searched, tableDateSort, viewMode],
@@ -945,6 +966,32 @@ export default function ComplianceScreen() {
           ) : null}
         </View>
       ) : null}
+      {podReceivedCounts ? (
+        <View style={styles.subchipRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.subchipScroll}
+            contentContainerStyle={styles.chipWrap}
+            keyboardShouldPersistTaps="handled"
+          >
+            <StageChip
+              label="All"
+              count={podReceivedCounts.all}
+              countColor={Theme.complianceStageSuccessFg}
+              active={podReceivedSubview === "all"}
+              onPress={() => setPodReceivedSubview("all")}
+            />
+            <StageChip
+              label="IBond"
+              count={podReceivedCounts.ibond}
+              countColor={Theme.complianceStageInfoFg}
+              active={podReceivedSubview === "ibond"}
+              onPress={() => setPodReceivedSubview("ibond")}
+            />
+          </ScrollView>
+        </View>
+      ) : null}
       </View>
 
       <View style={styles.queueBody}>
@@ -990,7 +1037,9 @@ export default function ComplianceScreen() {
                         ? "No trips on compliance hold."
                         : stage === "hard_copy_pod_received" && awaitingPodSubview !== "all"
                           ? "No trips in this Awaiting POD group."
-                          : "No trips in this stage."
+                          : stage === "pod_received" && podReceivedSubview === "ibond"
+                            ? "No IBond trips in POD Received."
+                            : "No trips in this stage."
                 : "No Loading→Completed trips in the Compliance queue yet."}
           </Text>
         </View>
@@ -1067,7 +1116,14 @@ export default function ComplianceScreen() {
           canManagePod={canManagePod}
           showHardCopyPodLog={stage === "hard_copy_pod_received"}
           compliancePendingQueue={stage === "compliance_pending"}
-          showPodClientValidation={stage === "pod_received"}
+          showPodClientValidation={stage === "pod_received" || stage === "balance_pending"}
+          chargesReview={stage === "pod_received" || stage === "balance_pending"}
+          onChargesSaved={(tripId) => {
+            setChargeFocus({ tripId, token: Date.now() });
+            selectStage("balance_pending");
+          }}
+          chargeFocusTripId={chargeFocus?.tripId ?? null}
+          chargeFocusToken={chargeFocus?.token ?? 0}
           logHardCopyPodRequest={logHardCopyPodRequest}
           courierLrOptions={courierLrOptions}
           selectedTripId={cardTripId}

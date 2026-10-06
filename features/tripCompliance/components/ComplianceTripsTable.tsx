@@ -71,6 +71,8 @@ export type ComplianceTripsTableProps = {
   /** Date column sort. The page owns this so pagination and export follow it. */
   dateSort?: RequiredDateSort;
   onDateSortChange?: (sort: RequiredDateSort) => void;
+  /** POD Received stage only: IBond column. */
+  showIbondColumn?: boolean;
 };
 
 type RequiredDateSort = "asc" | "desc";
@@ -204,6 +206,7 @@ function TripRowContent({
   onPay,
   canManageFinance = false,
   compliancePendingLayout = false,
+  showIbondColumn = false,
 }: {
   summary: ComplianceTripSummary;
   onOpenTrip: (tripId: string) => void;
@@ -215,6 +218,7 @@ function TripRowContent({
   onPay?: (tripId: string) => void;
   canManageFinance?: boolean;
   compliancePendingLayout?: boolean;
+  showIbondColumn?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [markingTrip, setMarkingTrip] = useState(false);
@@ -427,6 +431,11 @@ function TripRowContent({
             </Text>
           </>
         )}
+        {showIbondColumn ? (
+          <Text style={[styles.cell, styles.colIbond]} numberOfLines={1}>
+            {summary.hardCopyPod.ibond ? "Yes" : "—"}
+          </Text>
+        ) : null}
         <View style={styles.colAction}>
           {isVerified ? (
             <Text style={[styles.actionLink, styles.successText]} numberOfLines={1}>
@@ -533,6 +542,7 @@ export function ComplianceTripsTable({
   compliancePendingLayout = false,
   dateSort,
   onDateSortChange,
+  showIbondColumn = false,
 }: ComplianceTripsTableProps) {
   const [internalDateSort, setInternalDateSort] = useState<RequiredDateSort>("desc");
   const requiredDateSort = dateSort ?? internalDateSort;
@@ -583,6 +593,9 @@ export function ComplianceTripsTable({
               <Text style={[styles.cell, styles.colMoney, styles.headerText]}>Balance</Text>
             </>
           )}
+          {showIbondColumn ? (
+            <Text style={[styles.cell, styles.colIbond, styles.headerText]}>IBond</Text>
+          ) : null}
           <Text style={[styles.cell, styles.colAction, styles.headerText]}>Action</Text>
         </View>
 
@@ -599,6 +612,7 @@ export function ComplianceTripsTable({
             onPay={onPay}
             canManageFinance={canManageFinance}
             compliancePendingLayout={compliancePendingLayout}
+            showIbondColumn={showIbondColumn}
           />
         ))}
       </View>
@@ -688,6 +702,7 @@ const styles = StyleSheet.create({
   readyText: { color: Theme.complianceStageSuccessFg, fontWeight: "700" },
   blockedText: { color: Theme.complianceStageDocsFg, fontWeight: "700" },
   colMoney: { flex: 0.6, minWidth: 0 },
+  colIbond: { width: 92, flexGrow: 0, flexShrink: 0 },
   colAction: {
     width: 176,
     minWidth: 176,

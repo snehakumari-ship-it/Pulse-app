@@ -138,7 +138,7 @@ export function PodValidationModal({
                     />
                     <ChargeColumn
                       title="Vendor Charges"
-                      fields={CHARGE_FIELDS}
+                      fields={CHARGE_FIELDS.filter((field) => !field.fixed)}
                       labelOf={(field) => field.vendorLabel}
                       draft={draft.vendor}
                       invalid={vendorInvalid}

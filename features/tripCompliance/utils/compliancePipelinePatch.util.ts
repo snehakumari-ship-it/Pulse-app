@@ -143,6 +143,17 @@ const EMPTY_FLAGS: ComplianceTripFlags = {
   pod_received_at: null,
 };
 
+/** Charge save leaves POD Received. Kept even if the workflow-event read is still in flight. */
+export function applyPodChargesSaved(
+  inputs: ComplianceTripInputs[],
+  tripId: string,
+): ComplianceTripInputs[] {
+  return mapWhere(inputs, (row) => row.trip.id === tripId, (row) => ({
+    ...row,
+    flags: { ...(row.flags ?? EMPTY_FLAGS), pod_charges_saved: true },
+  }));
+}
+
 export function replaceTripFlags(
   inputs: ComplianceTripInputs[],
   tripId: string,

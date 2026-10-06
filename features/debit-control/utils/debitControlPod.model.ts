@@ -17,6 +17,8 @@ export type PodChargeLines = {
   productMissing: number;
   documentCost: number;
   podDelaySubmission: number;
+  /** Fixed vendor deduction stored once for an IBond receipt. Not an editable charge. */
+  ibondDeductible: number;
 };
 
 export type ChargeDraft = Record<keyof PodChargeLines, string>;
@@ -34,7 +36,11 @@ export const EMPTY_CHARGE_LINES: PodChargeLines = {
   productMissing: 0,
   documentCost: 0,
   podDelaySubmission: 0,
+  ibondDeductible: 0,
 };
+
+/** Taken off vendor cost once when the hard-copy receipt was saved as IBond. */
+export const IBOND_DEDUCTIBLE_COST = 1500;
 
 /** Amounts that roll into Total Client Value / Total Vendor Value. */
 export const INCLUDED_CHARGE_KEYS = [
@@ -54,6 +60,7 @@ export const EXCLUDED_CHARGE_KEYS = [
   "productMissing",
   "documentCost",
   "podDelaySubmission",
+  "ibondDeductible",
 ] as const satisfies readonly (keyof PodChargeLines)[];
 
 export type ChargeFieldKey = keyof PodChargeLines;
@@ -65,6 +72,8 @@ export type ChargeField = {
   included: boolean;
   /** Shown on the vendor side only. */
   vendorOnly?: boolean;
+  /** Stored with the vendor charges. Not shown as an editable amount. */
+  fixed?: boolean;
 };
 
 export const CHARGE_FIELDS: readonly ChargeField[] = [
@@ -91,6 +100,14 @@ export const CHARGE_FIELDS: readonly ChargeField[] = [
     vendorLabel: "Vendor POD Delay Submission",
     included: false,
     vendorOnly: true,
+  },
+  {
+    key: "ibondDeductible",
+    clientLabel: "IBond Deductible Cost",
+    vendorLabel: "IBond Deductible Cost",
+    included: false,
+    vendorOnly: true,
+    fixed: true,
   },
 ];
 

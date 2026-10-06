@@ -58,5 +58,8 @@ describe("pod receiving aging", () => {
     expect(podDelaySubmissionAmount(podReceivingAging("2026-09-01", "2026-09-16")?.penalty)).toBe("");
     expect(podDelaySubmissionAmount(podReceivingAging("2026-09-01", "2026-09-17")?.penalty)).toBe("50");
     expect(podDelaySubmissionAmount(podReceivingAging("2026-09-01", "2026-09-19")?.penalty)).toBe("150");
+    expect(podDelaySubmissionAmount(0, 1500)).toBe("1500");
+    expect(podDelaySubmissionAmount(200, 1500)).toBe("1700");
+    expect(podDelaySubmissionAmount(200, 1500)).toBe("1700");
   });
 });

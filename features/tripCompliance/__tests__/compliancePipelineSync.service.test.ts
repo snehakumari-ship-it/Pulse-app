@@ -245,6 +245,15 @@ describe("mark verified / POD", () => {
     expect(summarizeComplianceTrip(patch(loaded)[0]).stage).toBe("hard_copy_pod_received");
   });
 
+  it("charge save: 0 reads, trip is marked saved for Balance Pending", async () => {
+    const patch = await patchForComplianceChange(loaded, { type: "podChargesSaved", tripId: "t1" });
+    expect(reads()).toBe(0);
+    const next = patch(loaded);
+    expect(next[0].flags?.pod_charges_saved).toBe(true);
+    expect(summarizeComplianceTrip(next[0]).hardCopyPod.chargesSaved).toBe(true);
+    expect(next[1]).toBe(loaded[1]);
+  });
+
   it("POD / exception: flags plus received-LR event for that trip", async () => {
     await patchForComplianceChange(loaded, { type: "tripFlags", tripId: "t1" }, "org-1");
     expect(mockOps).toEqual([
@@ -253,6 +262,16 @@ describe("mark verified / POD", () => {
         kind: "from",
         name: "trip_workflow_events",
         filters: ["event_type=pod.hard_copy_courier_dispatched", "trip_id in 1"],
+      },
+      {
+        kind: "from",
+        name: "trip_workflow_events",
+        filters: ["event_type=pod.hard_copy_received", "trip_id in 1"],
+      },
+      {
+        kind: "from",
+        name: "trip_workflow_events",
+        filters: ["event_type=pod.debit_control_validated", "trip_id in 1"],
       },
     ]);
   });
@@ -264,6 +283,8 @@ describe("focus / incremental pipeline refetch", () => {
     expect(mockOps.map((op) => op.name).sort()).toEqual([
       "transactions",
       "trip_documents",
+      "trip_workflow_events",
+      "trip_workflow_events",
       "trip_workflow_events",
       "trips",
     ]);

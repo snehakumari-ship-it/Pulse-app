@@ -262,12 +262,25 @@ export type ComplianceQueueFilter =
   /** Cross-cutting: Verified Rejects (Declined by finance), shown between CP and Verified. */
   | "declined";
 
+/** Hard copy is in, and the charge form has not been saved yet. */
+function tripStillInPodReceived(summary: ComplianceTripSummary): boolean {
+  return Boolean(summary.hardCopyPod?.received) && summary.hardCopyPod?.chargesSaved !== true;
+}
+
+/** Saved charges belong on Balance Pending, including trips already derived there. */
+function tripAppearsInBalancePending(summary: ComplianceTripSummary): boolean {
+  if (summary.stage === "payment_settled") return false;
+  if (summary.hardCopyPod?.chargesSaved === true) return true;
+  return summary.stage === "balance_pending";
+}
+
 export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | undefined) {
   const [stage, setStage] = useState<ComplianceQueueFilter>("all");
   const filtered = useMemo(() => {
     if (!summaries) return [];
     if (stage === "all") return summaries;
-    if (stage === "pod_received") return summaries.filter((summary) => summary.hardCopyPod?.received);
+    if (stage === "pod_received") return summaries.filter(tripStillInPodReceived);
+    if (stage === "balance_pending") return summaries.filter(tripAppearsInBalancePending);
     if (stage === "payment_pending") return summaries.filter(isCompliancePaymentPending);
     if (stage === "compliance_verified") return summaries.filter(isComplianceVerifiedQueue);
     if (stage === "hard_copy_pod_received") return summaries.filter(tripAppearsInAwaitingPod);
@@ -311,12 +324,15 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       if (summary.stage !== "hard_copy_pod_received" && tripAppearsInAwaitingPod(summary)) {
         next.hard_copy_pod_received += 1;
       }
+      if (summary.stage !== "balance_pending" && tripAppearsInBalancePending(summary)) {
+        next.balance_pending += 1;
+      }
     }
     return next;
   }, [summaries]);
 
   const podReceivedCount = useMemo(
-    () => (summaries ?? []).filter((summary) => summary.hardCopyPod?.received).length,
+    () => (summaries ?? []).filter(tripStillInPodReceived).length,
     [summaries],
   );
 

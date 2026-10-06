@@ -191,6 +191,11 @@ export async function fetchTripPodClientValidation(
   dispatchDate: string | null;
   /** Documentation charge already deducted on the advance payment. */
   documentCost: number;
+  /** Hard-copy receipt was saved as IBond. */
+  ibond: boolean;
+  ibondDeductibleCost: number | null;
+  ibondVendorCostBefore: number | null;
+  ibondVendorCostAfter: number | null;
 }> {
   const empty = {
     invoiceNumber: null,
@@ -201,6 +206,10 @@ export async function fetchTripPodClientValidation(
     deliveryDate: null,
     dispatchDate: null,
     documentCost: 0,
+    ibond: false,
+    ibondDeductibleCost: null,
+    ibondVendorCostBefore: null,
+    ibondVendorCostAfter: null,
   };
   try {
     const [invoices, validation, pod, documentCost] = await Promise.all([
@@ -221,6 +230,10 @@ export async function fetchTripPodClientValidation(
       deliveryDate: parsed?.deliveryDate ?? null,
       dispatchDate: parsed?.dispatchDate ?? pod.state?.dispatchDate ?? null,
       documentCost,
+      ibond: pod.state?.ibond === true || (parsed?.vendorCharges.ibondDeductible ?? 0) > 0,
+      ibondDeductibleCost: pod.state?.ibondDeductibleCost ?? null,
+      ibondVendorCostBefore: pod.state?.ibondVendorCostBefore ?? null,
+      ibondVendorCostAfter: pod.state?.ibondVendorCostAfter ?? null,
     };
   } catch (error) {
     return {
@@ -444,6 +457,21 @@ export async function validateDebitControlPods(input: {
       podAgingEndDate(trip.dispatchDate, todayIsoDate()),
       true,
     );
+    const payload = {
+      v: 1,
+      remarks: text(trip.remarks) || null,
+      client_invoice_number: text(trip.clientInvoiceNumber) || null,
+      client: trip.client,
+      vendor: trip.vendor,
+      total_client_value: totalClient,
+      total_vendor_value: totalVendor,
+      trip_start_date: text(trip.tripStartDate).slice(0, 10) || null,
+      delivery_date: text(trip.deliveryDate).slice(0, 10) || null,
+      dispatch_date: text(trip.dispatchDate).slice(0, 10) || null,
+      aging_days: aging?.days ?? null,
+      pod_penalty_amount: aging?.penalty ?? null,
+    };
+    const idempotencyKey = podValidationIdempotencyKey(tripId);
     const { error } = await supabase()
       .from("trip_workflow_events")
       .insert({
@@ -451,25 +479,21 @@ export async function validateDebitControlPods(input: {
         org_id: orgId,
         actor_id: input.actorId,
         event_type: POD_VALIDATED_EVENT,
-        idempotency_key: podValidationIdempotencyKey(tripId),
-        payload: {
-          v: 1,
-          remarks: text(trip.remarks) || null,
-          client_invoice_number: text(trip.clientInvoiceNumber) || null,
-          client: trip.client,
-          vendor: trip.vendor,
-          total_client_value: totalClient,
-          total_vendor_value: totalVendor,
-          trip_start_date: text(trip.tripStartDate).slice(0, 10) || null,
-          delivery_date: text(trip.deliveryDate).slice(0, 10) || null,
-          dispatch_date: text(trip.dispatchDate).slice(0, 10) || null,
-          aging_days: aging?.days ?? null,
-          pod_penalty_amount: aging?.penalty ?? null,
-        },
+        idempotency_key: idempotencyKey,
+        payload,
       });
     if (!error) return { tripId, ok: true as const };
     const code = String((error as { code?: string }).code ?? "");
-    if (code === "23505") return { tripId, ok: true as const, already: true };
+    if (code === "23505") {
+      const { error: updateError } = await supabase()
+        .from("trip_workflow_events")
+        .update({ actor_id: input.actorId, payload })
+        .eq("trip_id", tripId)
+        .eq("event_type", POD_VALIDATED_EVENT)
+        .eq("idempotency_key", idempotencyKey);
+      if (updateError) return { tripId, ok: false as const, message: updateError.message };
+      return { tripId, ok: true as const, already: true };
+    }
     return { tripId, ok: false as const, message: error.message };
   });
 
