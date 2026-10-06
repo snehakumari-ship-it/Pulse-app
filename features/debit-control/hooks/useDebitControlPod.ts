@@ -4,6 +4,7 @@ import {
   fetchTripPodClientValidation,
   markPodInward,
   validateDebitControlPods,
+  type AdvanceDocumentCostSource,
   type ValidatePodTripInput,
 } from "@/features/debit-control/services/debitControlPod.service";
 import type { PodInwardDraft } from "@/features/debit-control/utils/podInwardForm.util";
@@ -24,11 +25,26 @@ export function useDebitControlBoardQuery(orgId: string | null) {
   });
 }
 
-export function usePodClientValidationQuery(orgId: string | null, tripId: string | null) {
+export function usePodClientValidationQuery(
+  orgId: string | null,
+  tripId: string | null,
+  documentCostSource?: AdvanceDocumentCostSource,
+) {
+  const sourceOrg = documentCostSource?.organizationId ?? "";
+  const sourceRate = documentCostSource?.supplierRate ?? 0;
+  const sourceBasis = documentCostSource?.supplierRateBasis ?? "";
+  const sourceTons = documentCostSource?.loadTons ?? 0;
   return useQuery({
     queryKey:
       orgId && tripId
-        ? queryKeys.debitControl.clientValidation(orgId, tripId)
+        ? ([
+            ...queryKeys.debitControl.clientValidation(orgId, tripId),
+            "advance-recorded",
+            sourceOrg,
+            sourceRate,
+            sourceBasis,
+            sourceTons,
+          ] as const)
         : ["q", "debit-control", "client-validation", "none"],
     queryFn: async () => {
       const result = await fetchTripPodClientValidation(orgId!, tripId!);

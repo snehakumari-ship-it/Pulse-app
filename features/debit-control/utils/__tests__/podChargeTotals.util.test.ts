@@ -3,6 +3,7 @@ import {
   netChargeTotal,
   resolveIndentType,
   vendorCostAfterIbond,
+  advanceDocumentCostAmount,
   chargeLinesFromBase,
   parseChargeInput,
   chargeLinesFromDraft,
@@ -48,6 +49,12 @@ describe("pod charge totals", () => {
       documentCost: 200,
     });
     expect(total).toBe(9450);
+  });
+
+  it("shows only the document cost recorded when the advance was processed", () => {
+    expect(advanceDocumentCostAmount(150)).toBe(150);
+    expect(advanceDocumentCostAmount(0)).toBe(0);
+    expect(advanceDocumentCostAmount(null)).toBe(0);
   });
 
   it("rejects blank-looking garbage and accepts an empty field as zero", () => {

@@ -2,6 +2,9 @@
 
 export const POD_VALIDATED_EVENT = "pod.debit_control_validated";
 
+/** Document charge taken off when the compliance advance was posted. */
+export const ADVANCE_DOCUMENT_COST_EVENT = "compliance.advance_document_cost";
+
 export type IndentType = "Contract" | "Adhoc" | "Spot";
 
 export type PodChargeLines = {

@@ -36,6 +36,17 @@ export function netChargeTotal(lines: PodChargeLines): number {
  * Vendor cost after the IBond deductible. The same original and flag always
  * return the same amount, so refresh and a repeated save do not deduct again.
  */
+/**
+ * Vendor Document Cost shown on the trip. Only the amount recorded when the
+ * advance was processed. A missing record is ₹0, including a value typed on this screen.
+ */
+export function advanceDocumentCostAmount(stored: number | null): number {
+  if (stored != null && Number.isFinite(stored) && stored >= 0) {
+    return Math.round(stored * 100) / 100;
+  }
+  return 0;
+}
+
 export function vendorCostAfterIbond(originalVendorCost: number, ibond: boolean): number {
   const original = Number.isFinite(originalVendorCost) ? originalVendorCost : 0;
   if (!ibond) return Math.round(original * 100) / 100;

@@ -19,6 +19,7 @@ import {
 } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
+import { recordAdvanceDocumentCostSnapshot } from "@/features/debit-control/services/debitControlPod.service";
 import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
   COMPLIANCE_DECLINE_REASON_MAX,
@@ -369,6 +370,19 @@ export async function postCompliancePayment(params: {
           : "Hard-copy POD must be received before a balance payment can be posted. Refresh and try again.",
       ),
     };
+  }
+  if (!error && params.category === "compliance_advance") {
+    try {
+      await recordAdvanceDocumentCostSnapshot(params.trip.id, {
+        organizationId: params.trip.organization_id || params.organizationId,
+        supplierRate: params.trip.supplier_rate,
+        supplierRateBasis:
+          (params.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+        loadTons: params.trip.load_tons ?? null,
+      });
+    } catch {
+      // The ledger row is already posted. POD validation still resolves the slab.
+    }
   }
   return { error };
 }

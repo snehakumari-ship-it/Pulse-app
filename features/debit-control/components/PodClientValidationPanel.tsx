@@ -65,6 +65,9 @@ export function PodClientValidationPanel({
   routeLabel,
   clientPrice,
   supplierRate,
+  supplierRateBasis = null,
+  loadTons = null,
+  tripOrganizationId = null,
   ibond = false,
   reviewMode = false,
   onSaved,
@@ -79,6 +82,11 @@ export function PodClientValidationPanel({
   routeLabel: string;
   clientPrice: number;
   supplierRate: number;
+  /** Same basis Advance Payment uses when the vendor rate is per metric ton. */
+  supplierRateBasis?: string | null;
+  loadTons?: number | null;
+  /** Trip org that owns the document-charge slabs. */
+  tripOrganizationId?: string | null;
   /** Kept so existing callers can still pass the saved IBond flag. */
   ibond?: boolean;
   /** Charges stay as text until Edit. Save on POD Received moves the trip on. */
@@ -86,7 +94,12 @@ export function PodClientValidationPanel({
   /** Called after charges are stored. */
   onSaved?: () => void;
 }) {
-  const loaded = usePodClientValidationQuery(organizationId || null, tripId);
+  const loaded = usePodClientValidationQuery(organizationId || null, tripId, {
+    organizationId: tripOrganizationId || organizationId,
+    supplierRate,
+    supplierRateBasis,
+    loadTons,
+  });
   const validate = useValidatePodsMutation(organizationId || null, actorId);
   const [draft, setDraft] = useState<ChargeDraft>(() => chargeDraftFromLines(chargeLinesFromBase(clientPrice)));
   const [vendorDraft, setVendorDraft] = useState<ChargeDraft>(() =>
@@ -127,6 +140,10 @@ export function PodClientValidationPanel({
       vendorSeed.podDelaySubmission = String(IBOND_DEDUCTIBLE_COST);
       vendorSeed.ibondDeductible = "";
     }
+    vendorSeed.documentCost =
+      !(ibond || loaded.data.ibond) && loaded.data.documentCost > 0
+        ? String(loaded.data.documentCost)
+        : "";
     setVendorDraft(vendorSeed);
     setInvoiceNumber(loaded.data.invoiceNumber?.trim() || "");
     setTripStart(isoDate(loaded.data.tripStartDate) || isoDate(startDate));
@@ -155,11 +172,11 @@ export function PodClientValidationPanel({
   const documentCostAmount =
     !showIbond && loaded.data && loaded.data.documentCost > 0 ? String(loaded.data.documentCost) : "";
   useEffect(() => {
-    if (showIbond || loaded.data?.validatedAt || saved) return;
+    const next = showIbond ? "" : documentCostAmount;
     setVendorDraft((current) =>
-      current.documentCost === documentCostAmount ? current : { ...current, documentCost: documentCostAmount },
+      current.documentCost === next ? current : { ...current, documentCost: next },
     );
-  }, [documentCostAmount, showIbond, loaded.data?.validatedAt, saved]);
+  }, [documentCostAmount, showIbond, seededFor]);
 
   const parsed = useMemo(() => chargeLinesFromDraft(draft), [draft]);
   const parsedVendor = useMemo(() => chargeLinesFromDraft(vendorDraft), [vendorDraft]);
@@ -167,8 +184,9 @@ export function PodClientValidationPanel({
   const locked = reviewMode ? !editing : false;
   const chargesConfirmed = reviewMode && previouslyValidated;
   const total = parsed.lines ? netChargeTotal(parsed.lines) : null;
+  const fetchedDocumentCost = showIbond ? 0 : Math.max(0, Number(loaded.data?.documentCost) || 0);
   const vendorLines = parsedVendor.lines
-    ? { ...parsedVendor.lines, ibondDeductible: 0 }
+    ? { ...parsedVendor.lines, ibondDeductible: 0, documentCost: fetchedDocumentCost }
     : null;
   const vendorTotal = vendorLines ? netChargeTotal(vendorLines) : null;
   const invalid = new Set(parsed.lines ? [] : parsed.invalidKeys);
@@ -208,33 +226,38 @@ export function PodClientValidationPanel({
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>POD Validation</Text>
-        {reviewMode && !editing ? (
-          <Pressable
-            style={styles.editBtn}
-            onPress={() => {
-              setClientBaseline(draft);
-              setVendorBaseline(vendorDraft);
-              setEditing(true);
-              setError(null);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Edit charges"
-          >
-            <Text style={styles.editBtnText}>Edit</Text>
-          </Pressable>
+      <View style={styles.header}>
+        <View style={styles.titleRow}>
+          <View style={styles.titleBlock}>
+            <Text style={styles.title}>POD Validation</Text>
+            <Text style={styles.tripId} numberOfLines={1}>{displayId}</Text>
+          </View>
+          {reviewMode && !editing ? (
+            <Pressable
+              style={styles.editBtn}
+              onPress={() => {
+                setClientBaseline(draft);
+                setVendorBaseline(vendorDraft);
+                setEditing(true);
+                setError(null);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Edit charges"
+            >
+              <Text style={styles.editBtnText}>Edit</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {[clientName, routeLabel].filter(Boolean).length > 0 ? (
+          <Text style={styles.sub} numberOfLines={2}>
+            {[clientName, routeLabel].filter(Boolean).join(" · ")}
+          </Text>
         ) : null}
       </View>
-      <Text style={styles.tripId}>{displayId}</Text>
-      {[clientName, routeLabel].filter(Boolean).length > 0 ? (
-        <Text style={styles.sub} numberOfLines={2}>
-          {[clientName, routeLabel].filter(Boolean).join(" · ")}
-        </Text>
-      ) : null}
       <View style={styles.dateCard}>
         <View style={styles.dateCol}>
           <HardCopyPodDateField
+            compact
             label="Trip start date"
             value={tripStart}
             onChange={setTripStart}
@@ -243,6 +266,7 @@ export function PodClientValidationPanel({
         </View>
         <View style={styles.dateCol}>
           <HardCopyPodDateField
+            compact
             label="Delivery date"
             value={delivery}
             onChange={setDelivery}
@@ -251,6 +275,7 @@ export function PodClientValidationPanel({
         </View>
         <View style={styles.dateCol}>
           <HardCopyPodDateField
+            compact
             label="Dispatch date"
             value={dispatchDate}
             onChange={setDispatchDate}
@@ -322,7 +347,11 @@ export function PodClientValidationPanel({
         draft={vendorDraft}
         invalid={vendorInvalid}
         locked={locked}
-        onChange={(key, value) => setVendorDraft((current) => ({ ...current, [key]: value }))}
+        readOnlyKeys={["documentCost"]}
+        onChange={(key, value) => {
+          if (key === "documentCost") return;
+          setVendorDraft((current) => ({ ...current, [key]: value }));
+        }}
       />
     </ScrollView>
 
@@ -391,6 +420,7 @@ function ChargeCards({
   draft,
   invalid,
   locked,
+  readOnlyKeys,
   onChange,
 }: {
   side: "Client" | "Vendor";
@@ -399,6 +429,8 @@ function ChargeCards({
   draft: ChargeDraft;
   invalid: Set<ChargeFieldKey>;
   locked: boolean;
+  /** Filled from another process. Shown in the same box, but not typed. */
+  readOnlyKeys?: readonly ChargeFieldKey[];
   onChange: (key: ChargeFieldKey, value: string) => void;
 }) {
   return (
@@ -424,7 +456,7 @@ function ChargeCards({
             .map((key) => (
             <View key={key} style={styles.row}>
               <Text style={styles.fieldLabel}>{labels.get(key)}</Text>
-              {locked ? (
+              {locked || readOnlyKeys?.includes(key) ? (
                 <Text style={styles.readOnlyValue} accessibilityLabel={labels.get(key)}>
                   {draft[key] ? formatInr(Number(draft[key])) : formatInr(0)}
                 </Text>
@@ -449,15 +481,22 @@ function ChargeCards({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 0 },
+  root: { flex: 1, minHeight: 0, backgroundColor: Theme.cardWhite },
   scroll: { flex: 1 },
-  content: { padding: 16, gap: 12 },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  content: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 16, gap: 10 },
+  header: {
+    gap: 4,
+    paddingBottom: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+  },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  titleBlock: { flex: 1, minWidth: 0, gap: 2 },
   editBtn: {
     minHeight: 36,
     minWidth: 64,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    borderRadius: Theme.buttonPrimaryRadius,
     borderWidth: 1,
     borderColor: Theme.borderMedium,
     backgroundColor: Theme.cardWhite,
@@ -477,73 +516,103 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: { fontSize: 13, fontWeight: "700", color: Theme.textPrimaryDark },
   readOnlyValue: {
-    minWidth: 96,
+    width: 112,
     textAlign: "right",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
-  title: { fontSize: 18, fontWeight: "800", color: Theme.primaryText },
-  tripId: { fontSize: 14, fontWeight: "700", color: Theme.primaryText },
+  title: { fontSize: 16, fontWeight: "800", color: Theme.primaryText },
+  tripId: { fontSize: 12, fontWeight: "700", color: Theme.textSecondary },
   dateCard: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    alignItems: "flex-end",
+    gap: 8,
     borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
-    borderRadius: 12,
-    backgroundColor: Theme.cardWhite,
-    padding: 12,
+    borderColor: Theme.complianceCardBorder,
+    borderRadius: 10,
+    backgroundColor: Theme.screenBackground,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
-  dateCol: { flexGrow: 1, flexBasis: 180, minWidth: 160 },
-  agingCol: { flexGrow: 1, flexBasis: 180, minWidth: 160, gap: 6 },
+  dateCol: { flexGrow: 1, flexBasis: "22%", minWidth: 132 },
+  agingCol: { flexGrow: 1, flexBasis: "22%", minWidth: 132, gap: 4 },
   agingLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   agingShell: {
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 32,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: Theme.borderMedium,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     justifyContent: "center",
   },
   agingShellFilled: { borderColor: Theme.borderInput },
-  agingShellLate: { borderColor: Theme.destructive },
-  agingValue: { fontSize: 14, fontWeight: "600", color: Theme.textPrimaryDark },
+  agingShellLate: { borderColor: Theme.destructive, backgroundColor: Theme.cardWhite },
+  agingValue: { fontSize: 13, fontWeight: "600", color: Theme.textPrimaryDark },
   agingLate: { color: Theme.destructive, fontWeight: "800" },
   agingPlaceholder: { color: Theme.textMuted, fontWeight: "500" },
-  sectionTitle: { fontSize: 15, fontWeight: "800", color: Theme.primaryText },
-  sub: { fontSize: 13, color: Theme.textSecondary },
-  spinner: { marginVertical: 8 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  sectionTitle: { fontSize: 13, fontWeight: "800", color: Theme.primaryText, marginTop: 2 },
+  sub: { fontSize: 13, fontWeight: "600", color: Theme.primaryText },
+  spinner: { marginVertical: 4 },
+  grid: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 8 },
   card: {
     flexGrow: 1,
-    flexBasis: 320,
-    minWidth: 280,
-    borderRadius: 12,
+    flexBasis: 240,
+    minWidth: 220,
+    borderRadius: 10,
     borderWidth: 1,
-    padding: 12,
-    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 2,
   },
   charges: { backgroundColor: Theme.complianceStageBalanceBg, borderColor: Theme.complianceTripCardBorder },
   additional: { backgroundColor: Theme.complianceStageSuccessBg, borderColor: Theme.complianceTripCardBorder },
   exceptions: { backgroundColor: Theme.complianceStagePendingBg, borderColor: Theme.complianceTripCardBorder },
-  invoice: { backgroundColor: Theme.complianceStageInfoBg, borderColor: Theme.complianceTripCardBorder },
-  cardTitle: { fontSize: 14, fontWeight: "800", color: Theme.primaryText },
-  cardHint: { fontSize: 12, color: Theme.textSecondary },
-  tableHead: { flexDirection: "row", justifyContent: "space-between" },
+  invoice: { backgroundColor: Theme.complianceStageInfoBg, borderColor: Theme.complianceTripCardBorder, gap: 6 },
+  cardTitle: { fontSize: 13, fontWeight: "800", color: Theme.primaryText },
+  cardHint: { fontSize: 11, color: Theme.textSecondary, marginBottom: 2 },
+  tableHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 4,
+    marginBottom: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+  },
   headLabel: { fontSize: 11, fontWeight: "700", color: Theme.textMuted },
-  headAmount: { fontSize: 11, fontWeight: "700", color: Theme.textMuted, width: 140, textAlign: "right" },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
+  headAmount: { width: 112, fontSize: 11, fontWeight: "700", color: Theme.textMuted, textAlign: "right" },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 40,
+  },
   fieldLabel: { flex: 1, minWidth: 0, fontSize: 13, color: Theme.primaryText },
   input: {
-    width: 140,
+    width: 112,
+    minHeight: 40,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    backgroundColor: Theme.cardWhite,
+    color: Theme.primaryText,
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "right",
+  },
+  inputInvalid: { borderColor: Theme.buttonDestructive },
+  inputLocked: { backgroundColor: Theme.screenBackground },
+  invoiceInput: {
     minHeight: 40,
     borderWidth: 1,
     borderColor: Theme.borderMedium,
@@ -551,54 +620,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: Theme.cardWhite,
     color: Theme.primaryText,
-    textAlign: "right",
+    fontSize: 13,
   },
-  inputInvalid: { borderColor: Theme.buttonDestructive },
-  inputLocked: { backgroundColor: Theme.screenBackground },
-  invoiceInput: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: Theme.borderMedium,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    backgroundColor: Theme.cardWhite,
-    color: Theme.primaryText,
-  },
-  autoFetched: { alignSelf: "flex-end", fontSize: 12, fontWeight: "700", color: Theme.positive },
+  autoFetched: { alignSelf: "flex-end", fontSize: 11, fontWeight: "700", color: Theme.positive },
   footer: {
     flexShrink: 0,
     flexDirection: "row",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 12,
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: Theme.complianceTripCardBorder,
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
   },
   totalBox: {
     flexGrow: 1,
-    minWidth: 200,
-    borderRadius: 12,
+    flexBasis: 160,
+    minWidth: 150,
+    borderRadius: 10,
     backgroundColor: Theme.complianceStageBalanceBg,
-    padding: 12,
-    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 2,
   },
   vendorTotal: { backgroundColor: Theme.complianceStageSuccessBg },
-  totalLabel: { fontSize: 12, fontWeight: "700", color: Theme.textSecondary },
-  totalValue: { fontSize: 20, fontWeight: "800", color: Theme.primaryText },
-  footerActions: { flexGrow: 1, alignItems: "flex-end", gap: 6, minWidth: 180 },
+  totalLabel: { fontSize: 11, fontWeight: "700", color: Theme.textSecondary },
+  totalValue: { fontSize: 16, fontWeight: "800", color: Theme.primaryText },
+  footerActions: { marginLeft: "auto", alignItems: "flex-end", justifyContent: "center", gap: 6, minWidth: 120 },
   footerButtons: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   confirm: {
     minHeight: 44,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    minWidth: 88,
+    paddingHorizontal: 18,
+    borderRadius: Theme.buttonPrimaryRadius,
     backgroundColor: Theme.buttonDark,
     alignItems: "center",
     justifyContent: "center",
   },
   confirmDisabled: { opacity: 0.4 },
-  confirmText: { color: Theme.buttonDarkText, fontWeight: "700" },
+  confirmText: { color: Theme.buttonDarkText, fontWeight: "700", fontSize: 14 },
   lockedNote: { fontSize: 13, fontWeight: "600", color: Theme.positive },
-  error: { color: Theme.buttonDestructive, fontSize: 13 },
+  error: { color: Theme.buttonDestructive, fontSize: 13, textAlign: "right" },
 });
