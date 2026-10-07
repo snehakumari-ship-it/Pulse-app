@@ -3,11 +3,17 @@ import type { LedgerEntryReceiptPartyAvatar } from "@/components/ledger/LedgerEn
 import { LEDGER_RECEIPT } from "@/components/ledger/ledgerEntryReceiptPalette";
 import type { LedgerRow } from "@/features/finance/services/finance.service";
 import {
+  isMarketplacePlatformFeeLedgerRow,
+  marketplaceFeeBidIdFromLedgerRow,
+} from "@/features/finance/utils/marketplaceFeeLedgerTrip.util";
+import {
   enrichLedgerReceiptDetails,
   ledgerReceiptFromRow,
   type LedgerReceiptTripDetailMap,
 } from "@/features/finance/utils/ledgerTransactionReceipt.util";
+import { findOrgTripForMarketBid } from "@/features/marketplace/services/marketplaceFeeTrip.service";
 import { ROUTES } from "@/lib/routes";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import {
@@ -46,6 +52,23 @@ export function LedgerTransactionPreviewModal({
     [transaction],
   );
 
+  const feeBidId =
+    transaction && !transaction.trip_id && isMarketplacePlatformFeeLedgerRow(transaction)
+      ? marketplaceFeeBidIdFromLedgerRow(transaction)
+      : null;
+  const { data: feeTrip } = useQuery({
+    queryKey: ["q", "marketplace-fee-trip", transaction?.organization_id, feeBidId],
+    queryFn: async () => {
+      const { trip, error } = await findOrgTripForMarketBid(
+        transaction!.organization_id,
+        feeBidId!,
+      );
+      if (error) throw error;
+      return trip;
+    },
+    enabled: Boolean(visible && transaction && feeBidId),
+  });
+
   const partyAvatar = useMemo<LedgerEntryReceiptPartyAvatar | undefined>(() => {
     if (!transaction) return undefined;
     const resolved = resolveReceiptPartyAvatar?.(transaction);
@@ -53,21 +76,38 @@ export function LedgerTransactionPreviewModal({
     return receipt?.partyAvatar;
   }, [transaction, resolveReceiptPartyAvatar, receipt?.partyAvatar]);
 
+  const linkedTripId = (transaction?.trip_id ?? feeTrip?.id ?? "").trim() || null;
+
   const enrichedDetails = useMemo(() => {
     if (!receipt || !transaction) return [];
     const tripId = (transaction.trip_id ?? "").trim();
-    const tripDetail = tripId ? tripDetailsMap?.[tripId] : undefined;
+    const fromMap = tripId ? tripDetailsMap?.[tripId] : undefined;
+    const tripDetail = fromMap ??
+      (feeTrip
+        ? {
+            trip_number: feeTrip.trip_number ?? undefined,
+            pickup_area: feeTrip.pickup_area,
+            drop_location: feeTrip.drop_location,
+            pickup_date: feeTrip.pickup_date,
+          }
+        : undefined);
     return enrichLedgerReceiptDetails(receipt.details, tripDetail);
-  }, [receipt, transaction, tripDetailsMap]);
+  }, [receipt, transaction, tripDetailsMap, feeTrip]);
 
   if (!visible || !transaction || !receipt) return null;
 
-  const showViewAll = Boolean(receipt.tripId);
-  const viewAllOnTrip =
-    onViewAllOnTrip ??
-    ((tripId: string) => {
-      router.push(ROUTES.tripDetailFinanceTransactions(tripId) as never);
-    });
+  const showViewTrip = Boolean(linkedTripId);
+  const openLinkedTrip = (tripId: string) => {
+    if (onViewAllOnTrip && transaction.trip_id) {
+      onViewAllOnTrip(tripId);
+      return;
+    }
+    router.push(
+      (feeTrip && !transaction.trip_id
+        ? ROUTES.tripDetail(tripId)
+        : ROUTES.tripDetailFinanceTransactions(tripId)) as never,
+    );
+  };
 
   return (
     <Modal
@@ -94,15 +134,15 @@ export function LedgerTransactionPreviewModal({
             partyAvatar={partyAvatar}
             details={enrichedDetails}
             secondaryAction={
-              showViewAll ? { label: "Close", onPress: onClose } : undefined
+              showViewTrip ? { label: "Close", onPress: onClose } : undefined
             }
             primaryAction={
-              showViewAll
+              showViewTrip && linkedTripId
                 ? {
-                    label: "View all on trip",
+                    label: feeTrip && !transaction.trip_id ? "View trip" : "View all on trip",
                     onPress: () => {
                       onClose();
-                      if (receipt.tripId) viewAllOnTrip(receipt.tripId);
+                      openLinkedTrip(linkedTripId);
                     },
                   }
                 : { label: "Done", onPress: onClose }

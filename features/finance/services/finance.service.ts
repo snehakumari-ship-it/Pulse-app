@@ -261,6 +261,11 @@ export interface LedgerRow {
   ledger_entity_type?: string | null;
   ledger_flow_type?: string | null;
   ledger_category?: string | null;
+  /**
+   * Structured payment_ref (not the UTR). Marketplace platform-fee rows store
+   * the market_bid_id here so the receipt can open the related trip.
+   */
+  payment_ref?: string | null;
   /** Chat "Add to book" mirror — source transaction id (dedupe); migration 20260601100000. */
   chat_mirror_of_transaction_id?: string | null;
   /** User who recorded the entry (profiles.id). */
@@ -878,6 +883,7 @@ export function toLedgerRow(row: {
   ledger_flow_type?: string | null;
   ledger_category?: string | null;
   payment_reference?: string | null;
+  payment_ref?: string | null;
   created_by?: string | null;
 }): LedgerRow {
   const descriptionRaw = row.description ?? "ENTRY";
@@ -949,6 +955,7 @@ export function toLedgerRow(row: {
     ledger_entity_type: row.ledger_entity_type ?? interpreted.entity_type,
     ledger_flow_type: row.ledger_flow_type ?? interpreted.transaction_type,
     ledger_category: row.ledger_category ?? interpreted.category,
+    payment_ref: row.payment_ref ?? null,
     created_by: row.created_by ?? null,
   };
 }
