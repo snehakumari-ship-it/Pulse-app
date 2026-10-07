@@ -4,11 +4,12 @@
  */
 import { IndentBidAmountEntry } from "@/features/indents/components/bidding/IndentBidAmountEntry";
 import {
-  createDirectQuote,
   getIndentDisplayNumber,
   type DirectQuoteRow,
   type IndentRow,
 } from "@/features/indents";
+import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
+import { submitNetworkQuote } from "@/features/network/services/networkPools.service";
 import { useInvalidateIndents } from "@/lib/queries";
 import { queryKeys } from "@/lib/queryKeys";
 import { type QueryClient } from "@tanstack/react-query";
@@ -75,16 +76,9 @@ export function BidModal({
       const existingQuoteBeforeSave = myQuoteByIndentId.get(load.id);
       try {
         setSubmittingQuote(true);
-        const { error } = await createDirectQuote(
-          load.id,
-          orgId,
-          amount,
-          null,
-          null,
-          null,
-        );
+        const { error } = await submitNetworkQuote(load.id, orgId, amount);
         if (error) {
-          setEntryError(error.message);
+          setEntryError(formatMarketplaceTransactionError(error.message));
           refetchMarketIndents();
           return false;
         }

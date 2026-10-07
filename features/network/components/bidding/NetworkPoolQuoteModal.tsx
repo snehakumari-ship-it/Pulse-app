@@ -1,14 +1,17 @@
 /**
  * One quote for a whole Network pool (one canonical lane, any number of
- * shippers). The rate is written as one direct quote per member indent,
- * sequentially; each indent's shipper reviews, counters and awards only the
- * quote on its own indent.
+ * shippers). The server manifest (get_org_network_pool) defines the pool and
+ * which members this organization may quote; the rate is written with
+ * submit_network_quote once per quotable member, sequentially. Each indent's
+ * shipper reviews, counters and awards only the quote on its own indent.
  */
 import { IndentBidAmountEntry } from "@/features/indents/components/bidding/IndentBidAmountEntry";
+import type { IndentRow } from "@/features/indents";
 import {
-  createDirectQuote,
-  type IndentRow,
-} from "@/features/indents";
+  getOrgNetworkPool,
+  submitNetworkQuote,
+  type NetworkPoolManifest,
+} from "@/features/network/services/networkPools.service";
 import {
   poolQuoteFailureLines,
   type NetworkLoadPool,
@@ -16,11 +19,26 @@ import {
 import { runPoolBidSubmission } from "@/features/network/utils/pooledOpportunity.util";
 import { useInvalidateIndents } from "@/lib/queries";
 import { queryKeys } from "@/lib/queryKeys";
-import { type QueryClient } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
+
+export const NETWORK_POOL_TOO_LARGE_MESSAGE =
+  "This pool contains more loads than Network can currently process. Nothing was submitted.";
+export const NETWORK_POOL_CHANGED_MESSAGE =
+  "This pool changed while you were quoting. Nothing was submitted — review the updated pool and submit again.";
 
 function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+async function readManifest(
+  orgId: string,
+  pool: NetworkLoadPool<IndentRow>,
+): Promise<NetworkPoolManifest> {
+  const { error, pool: manifest } = await getOrgNetworkPool(orgId, pool.key);
+  if (error) throw error;
+  if (!manifest) throw new Error("Pool not found.");
+  return manifest;
 }
 
 export function NetworkPoolQuoteModal({
@@ -45,6 +63,15 @@ export function NetworkPoolQuoteModal({
   const [entryError, setEntryError] = useState<string | undefined>();
   const [succeededCount, setSucceededCount] = useState(0);
 
+  const manifestKey = queryKeys.networkPools.manifest(orgId ?? "", pool?.id ?? "");
+  const manifestQ = useQuery({
+    queryKey: manifestKey,
+    queryFn: () => readManifest(orgId as string, pool as NetworkLoadPool<IndentRow>),
+    enabled: !!orgId && !!pool,
+    staleTime: 0,
+  });
+  const shown = manifestQ.data ?? null;
+
   const handleClose = useCallback(() => {
     setEntryError(undefined);
     onClose();
@@ -53,21 +80,31 @@ export function NetworkPoolQuoteModal({
   const submitPoolQuote = useCallback(
     async (amount: number): Promise<boolean> => {
       if (!orgId || !pool) return false;
-      const indentIds = pool.members.map((m) => m.id);
+      if (!shown) {
+        setEntryError("This pool is still being prepared. Try again in a moment.");
+        return false;
+      }
+      let fresh: NetworkPoolManifest;
+      try {
+        fresh = await readManifest(orgId, pool);
+      } catch {
+        setEntryError("Couldn't load this pool. Nothing was submitted — try again.");
+        return false;
+      }
+      queryClient.setQueryData(manifestKey, fresh);
+      if (!fresh.complete) {
+        setEntryError(NETWORK_POOL_TOO_LARGE_MESSAGE);
+        return false;
+      }
+      if (fresh.fingerprint !== shown.fingerprint) {
+        setEntryError(NETWORK_POOL_CHANGED_MESSAGE);
+        return false;
+      }
+
       const result = await runPoolBidSubmission({
-        indentIds,
-        memberIds: new Set(indentIds),
-        submitOne: async (indentId) => {
-          const { error } = await createDirectQuote(
-            indentId,
-            orgId,
-            amount,
-            null,
-            null,
-            null,
-          );
-          return { error };
-        },
+        indentIds: fresh.quotable_ids,
+        memberIds: new Set(fresh.members.map((m) => m.id)),
+        submitOne: (indentId) => submitNetworkQuote(indentId, orgId, amount),
       });
       if (result.blocked) {
         setEntryError(result.blocked);
@@ -80,6 +117,8 @@ export function NetworkPoolQuoteModal({
             queryKey: [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
           }),
           queryClient.invalidateQueries({ queryKey: ["indents", "quote-counts"] }),
+          queryClient.invalidateQueries({ queryKey: manifestKey }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.networkPools.lanes(orgId) }),
           ...result.succeeded.map((id) =>
             queryClient.invalidateQueries({
               queryKey: ["indents", id, "direct-quotes"],
@@ -106,6 +145,8 @@ export function NetworkPoolQuoteModal({
     [
       orgId,
       pool,
+      shown,
+      manifestKey,
       invalidateIndents,
       queryClient,
       refetchMyQuotes,
@@ -115,12 +156,25 @@ export function NetworkPoolQuoteModal({
 
   if (!pool) return null;
 
-  const count = pool.members.length;
-  const loadsLabel = plural(count, "load");
+  const count = shown?.complete ? shown.quotable_ids.length : null;
+  const loadsLabel =
+    count != null
+      ? plural(count, "load")
+      : shown && !shown.complete
+        ? "too many loads"
+        : "preparing";
   const target =
     pool.targetRateMin != null && pool.targetRateMin === pool.targetRateMax
       ? pool.targetRateMin
       : undefined;
+  const contextLine =
+    count != null
+      ? `Applies to all ${loadsLabel} in this pool`
+      : shown && !shown.complete
+        ? NETWORK_POOL_TOO_LARGE_MESSAGE
+        : manifestQ.isError
+          ? "Couldn't load this pool."
+          : "Preparing pool…";
 
   return (
     <IndentBidAmountEntry
@@ -136,12 +190,12 @@ export function NetworkPoolQuoteModal({
       vehicleType={pool.key.vehicleType}
       ownerName="Network pool"
       targetRateInr={target}
-      contextLine={`Applies to all ${loadsLabel} in this pool`}
+      contextLine={contextLine}
       submitLabel="Quote for pool"
       confirmCopy={{
         scopeNote: `Your rate will be quoted on all ${loadsLabel} in this pool. Each shipper reviews, counters and awards its own load.`,
         successTitle: "Pool quoted",
-        successSubtitle: `Your rate has been quoted on all ${loadsLabel}.`,
+        successSubtitle: `Your rate has been quoted on all ${plural(succeededCount, "load")}.`,
       }}
       validationError={entryError}
       onClearValidationError={() => setEntryError(undefined)}

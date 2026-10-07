@@ -23,9 +23,11 @@ import {
 import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
 import { IncompleteLaneNotice } from "@/features/network/components/pooled/IncompleteLaneNotice";
 import { NetworkLoadPoolCard } from "@/features/network/components/pooled/NetworkLoadPoolCard";
+import { useServerNetworkPoolIds } from "@/features/network/hooks/useNetworkPoolLanesQuery";
 import {
   buildNetworkLoadPools,
   filterNetworkLoadPools,
+  keepServerPools,
   type NetworkLoadPool,
 } from "@/features/network/utils/networkLoadPools.util";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -96,6 +98,8 @@ export type LoadCenterKanbanColumnModalProps = {
   renderPoolMemberCard?: (load: IndentRow) => ReactNode;
   /** Every open Network load before search, so a shown pool is always whole. */
   poolLoads?: IndentRow[];
+  /** Viewing org; pools the server does not list for it are not shown. */
+  poolOrgId?: string | null;
   /** Pool to open when the column opens (from the board preview). */
   initialOpenPoolId?: string | null;
 };
@@ -260,6 +264,7 @@ export function LoadCenterKanbanColumnModal({
   canQuotePools = false,
   renderPoolMemberCard,
   poolLoads,
+  poolOrgId = null,
   initialOpenPoolId = null,
 }: LoadCenterKanbanColumnModalProps) {
   const insets = useSafeAreaInsets();
@@ -335,18 +340,24 @@ export function LoadCenterKanbanColumnModal({
     [columnLanes, laneDraft, openMenu, menuQuery],
   );
 
+  const serverPoolIds = useServerNetworkPoolIds(pooledMode ? poolOrgId : null);
   const networkPools = useMemo(() => {
     if (!pooledMode) {
       return { pools: [] as NetworkLoadPool<IndentRow>[], unpooled: [] as IndentRow[] };
     }
-    if (!poolLoads) return buildNetworkLoadPools(stageLoads);
+    if (!poolLoads) {
+      const built = buildNetworkLoadPools(stageLoads);
+      return { pools: keepServerPools(built.pools, serverPoolIds), unpooled: built.unpooled };
+    }
     const shownIds = new Set(stageLoads.map((l) => l.id));
     const all = buildNetworkLoadPools(poolLoads);
     return {
-      pools: all.pools.filter((p) => p.members.some((m) => shownIds.has(m.id))),
+      pools: keepServerPools(all.pools, serverPoolIds).filter((p) =>
+        p.members.some((m) => shownIds.has(m.id)),
+      ),
       unpooled: all.unpooled.filter((l) => shownIds.has(l.id)),
     };
-  }, [pooledMode, stageLoads, poolLoads]);
+  }, [pooledMode, stageLoads, poolLoads, serverPoolIds]);
   const shownPools = useMemo(
     () => filterNetworkLoadPools(networkPools.pools, appliedSearch),
     [networkPools, appliedSearch],

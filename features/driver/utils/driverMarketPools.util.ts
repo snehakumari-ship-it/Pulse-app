@@ -8,6 +8,10 @@
  * useFleetOwnerOpenLoadsQuery). An incomplete read blocks every pool rate.
  */
 import type { FleetOwnerOpenLoad } from '@/features/driver/services/fleetOwnerLoads.service';
+import type {
+  DcoMarketplacePoolManifest,
+  DcoMarketplacePoolMember,
+} from '@/features/driver/services/marketBids.service';
 import type { MarketplaceLoadSearch } from '@/features/network/utils/marketplaceSearch.util';
 import {
   poolBidReadiness,
@@ -15,6 +19,7 @@ import {
   poolKeyId,
   poolMembers,
   summarizePool,
+  summarizeServerPool,
   type PoolBid,
   type PoolFetchProgress,
 } from '@/features/network/utils/pooledOpportunity.util';
@@ -111,6 +116,36 @@ export function summarizeDriverPool<B extends PoolBid>(input: {
     laneLoadCount: null,
     priorMemberIds: input.priorMemberIds,
     canBidLoad: () => input.canBid,
+  });
+}
+
+/** A get_dco_marketplace_pool member as a pool load; sponsored loads are never members. */
+export function dcoManifestMemberAsLoad(member: DcoMarketplacePoolMember): DriverPoolLoad {
+  return { ...member, creator_organization_name: null, is_sponsored: false };
+}
+
+/**
+ * Summary of the server DCO pool manifest: members, biddable set and own bids
+ * are the server's. `bids` adds the DCO's bid list so awards on loads that
+ * already left the pool this session stay attributable; manifest bids win.
+ */
+export function summarizeDcoManifestPool<B extends PoolBid>(input: {
+  manifest: DcoMarketplacePoolManifest | null | undefined;
+  bids: readonly B[];
+  priorMemberIds?: ReadonlySet<string>;
+  canBid: boolean;
+}) {
+  const { manifest } = input;
+  return summarizeServerPool<PoolBid, DriverPoolLoad>({
+    manifest: {
+      member_count: manifest?.member_count ?? 0,
+      complete: manifest?.complete ?? false,
+      members: (manifest?.members ?? []).map(dcoManifestMemberAsLoad),
+      biddable_ids: manifest?.biddable_ids ?? [],
+      bids: [...input.bids, ...(manifest?.my_bids ?? [])],
+    },
+    priorMemberIds: input.priorMemberIds,
+    canBid: () => input.canBid,
   });
 }
 

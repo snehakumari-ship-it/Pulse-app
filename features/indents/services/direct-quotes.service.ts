@@ -1,6 +1,9 @@
 /**
  * Direct quotes — supplier quotes on indents that have no marketplace listing
  * (circulation_target offline / integrated_supplier). Backed by public.direct_quotes.
+ * Bidder quote writes go through submit_network_quote (networkPools.service),
+ * submit_pulse_bid_with_direct_quote (bids.service), or
+ * accept_direct_quote_counter, never a table upsert.
  */
 import { shouldFallbackDirectQuotesToTable } from '@/features/indents/utils/bidding/indentReviewHubOffers.util';
 import { FINITE_LIST_CAP } from '@/lib/pagination';
@@ -39,41 +42,6 @@ export interface DirectQuoteRow {
    * (`superseded`) or `is_driver_available()` is currently false.
    */
   bidderUnavailable?: boolean;
-}
-
-/**
- * Submit a direct quote (RLS: caller must be member of bidder_organization_id).
- * Upserts so one quote per bidder per indent.
- * driverId/vehicleId optional — when provided, assign at quote time.
- */
-export async function createDirectQuote(
-  indentId: string,
-  bidderOrgId: string,
-  amount: number,
-  notes?: string | null,
-  driverId?: string | null,
-  vehicleId?: string | null
-): Promise<{ error: Error | null; quote: DirectQuoteRow | null }> {
-  const { data, error } = await supabase()
-    .from('direct_quotes')
-    .upsert(
-      {
-        indent_id: indentId,
-        bidder_organization_id: bidderOrgId,
-        amount: Number(amount),
-        notes: notes ?? null,
-        status: 'pending',
-        updated_at: new Date().toISOString(),
-        driver_id: driverId ?? null,
-        vehicle_id: vehicleId ?? null,
-      },
-      { onConflict: 'indent_id,bidder_organization_id' }
-    )
-    .select()
-    .single();
-
-  if (error) return { error: new Error(error.message), quote: null };
-  return { error: null, quote: data as DirectQuoteRow };
 }
 
 /**
@@ -208,6 +176,33 @@ export async function submitDirectQuoteCounterOffer(
   return { error: null };
 }
 
+const COUNTER_ACCEPT_ERRORS: [code: string, message: string][] = [
+  ['not_found', 'This counter offer is no longer open.'],
+  ['unauthorized', "You don't have permission to accept this counter."],
+];
+
+/**
+ * Bidder takes the owner's counter on its own pending quote
+ * (accept_direct_quote_counter): amount becomes the stored counter, and
+ * status, notes and fleet stay unchanged. quote_locked, invalid_amount and
+ * indent_not_open are left as server codes for the shared error formatter.
+ */
+export async function acceptDirectQuoteCounter(
+  quoteId: string,
+  counterAmount: number,
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase().rpc('accept_direct_quote_counter', {
+    p_quote_id: quoteId,
+    p_counter_amount: Number(counterAmount),
+  });
+  if (error) {
+    const raw = error.message;
+    const mapped = COUNTER_ACCEPT_ERRORS.find(([code]) => raw.toLowerCase().includes(code))?.[1];
+    return { error: new Error(mapped ?? raw) };
+  }
+  return { error: null };
+}
+
 /**
  * Fetch accepted direct quote for a single indent (supplier deploy — fresh read).
  */
@@ -247,35 +242,36 @@ export async function getAcceptedDirectQuotesByOrg(
   return { error: null, quotes: (data ?? []) as DirectQuoteRow[] };
 }
 
+const ASSIGNMENT_ERRORS: [code: string, message: string][] = [
+  ['invalid_driver', 'This driver is not in your organization. Choose one of your own drivers.'],
+  ['invalid_vehicle', 'This vehicle is not in your organization. Choose one of your own vehicles.'],
+  ['invalid_state', 'This quote is no longer awarded to your organization, so it cannot be assigned.'],
+  ['not_found', 'Could not find this awarded quote for your organization.'],
+  ['unauthorized', "You don't have permission to assign this load."],
+];
+
+function assignmentErrorMessage(raw: string): string {
+  const m = raw.toLowerCase();
+  return ASSIGNMENT_ERRORS.find(([code]) => m.includes(code))?.[1] ?? raw;
+}
+
 /**
- * Update driver and vehicle assignment on an accepted quote (supplier only).
- * Used before creating trip from quote; RLS: caller must be member of bidder_organization_id.
- * O(1) single-row update. Allow driverId = null for ad hoc (OTP) path.
+ * Driver and vehicle on this org's accepted quote, before creating the trip
+ * from it (set_direct_quote_assignment: bidder staff only, accepted quotes
+ * only, fleet must belong to the bidder org). driverId = null for the ad hoc
+ * (OTP) path.
  */
 export async function updateDirectQuoteAssignment(
   quoteId: string,
   driverId: string | null,
   vehicleId: string | null
 ): Promise<{ error: Error | null }> {
-  const { data, error } = await supabase()
-    .from('direct_quotes')
-    .update({
-      driver_id: driverId ?? null,
-      vehicle_id: vehicleId ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', quoteId)
-    .select('id')
-    .maybeSingle();
-
-  if (error) return { error: new Error(error.message) };
-  if (!data?.id) {
-    return {
-      error: new Error(
-        'Could not update quote assignment (no matching quote or permission denied).',
-      ),
-    };
-  }
+  const { error } = await supabase().rpc('set_direct_quote_assignment', {
+    p_quote_id: quoteId,
+    p_driver_id: driverId ?? null,
+    p_vehicle_id: vehicleId ?? null,
+  });
+  if (error) return { error: new Error(assignmentErrorMessage(error.message)) };
   return { error: null };
 }
 

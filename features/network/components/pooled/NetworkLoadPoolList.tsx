@@ -5,15 +5,19 @@
  * lane cannot be pooled and is review-only too: no normal Network indent is
  * individually biddable.
  *
- * Pools are built from every open Network load, not the searched subset, so
- * "Quote for pool" always covers the whole pool. Search only decides which
- * pools are shown.
+ * Which pools exist comes from the server (list_network_pool_lanes_for_org):
+ * a lane the server does not list is not shown, whatever the loaded rows say.
+ * The cards and their indent lists are built from the loaded open loads for
+ * display only; "Quote for pool" re-reads the server manifest for its scope.
+ * Search only decides which pools are shown.
  */
 import Theme from "@/constants/Theme";
 import { IncompleteLaneNotice } from "@/features/network/components/pooled/IncompleteLaneNotice";
 import { NetworkLoadPoolCard } from "@/features/network/components/pooled/NetworkLoadPoolCard";
+import { useServerNetworkPoolIds } from "@/features/network/hooks/useNetworkPoolLanesQuery";
 import {
   buildNetworkLoadPools,
+  keepServerPools,
   type NetworkLoadPool,
 } from "@/features/network/utils/networkLoadPools.util";
 import type { IndentRow } from "@/features/indents/services/indents.service";
@@ -22,6 +26,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export function NetworkLoadPoolList({
+  orgId,
   openLoads,
   shownLoads,
   canQuote,
@@ -29,6 +34,7 @@ export function NetworkLoadPoolList({
   renderPoolMemberCard,
   onViewIndents,
 }: {
+  orgId: string | null;
   openLoads: readonly IndentRow[];
   shownLoads: readonly IndentRow[];
   canQuote: boolean;
@@ -40,10 +46,11 @@ export function NetworkLoadPoolList({
 }) {
   const [openPoolId, setOpenPoolId] = useState<string | null>(null);
 
-  const { pools, unpooled } = useMemo(
-    () => buildNetworkLoadPools([...openLoads]),
-    [openLoads],
-  );
+  const serverPoolIds = useServerNetworkPoolIds(orgId);
+  const { pools, unpooled } = useMemo(() => {
+    const built = buildNetworkLoadPools([...openLoads]);
+    return { pools: keepServerPools(built.pools, serverPoolIds), unpooled: built.unpooled };
+  }, [openLoads, serverPoolIds]);
   const shownIds = useMemo(
     () => new Set(shownLoads.map((l) => l.id)),
     [shownLoads],

@@ -243,6 +243,9 @@ export const queryKeys = {
     /** Open marketplace loads for a DCO (owner-operator). */
     fleetOwnerOpenLoads: (userId: string) =>
       ["q", "driver-app", userId, "fleet-owner-open-loads"] as const,
+    /** Server manifest of one DCO Marketplace pool (get_dco_marketplace_pool). */
+    dcoMarketPool: (userId: string, poolId: string) =>
+      ["q", "driver-app", userId, "dco-market-pool", poolId] as const,
     /** Phase 3B.1: FO capacity Stories authored by this driver. */
     capacityStories: (userId: string) =>
       ["q", "driver-app", userId, "capacity-stories"] as const,
@@ -339,6 +342,15 @@ export const queryKeys = {
       ["q", "find-loads", orgId, "post-ids", indentIdsKey] as const,
     myBids: (orgId: string) => ["q", "find-loads", orgId, "my-bids"] as const,
     searchLanes: (orgId: string) => ["q", "find-loads", orgId, "search-lanes"] as const,
+    /** Server manifest of one Marketplace pool (get_org_marketplace_pool). */
+    pool: (orgId: string, poolId: string) =>
+      ["q", "find-loads", orgId, "pool", poolId] as const,
+  },
+
+  networkPools: {
+    lanes: (orgId: string) => ["q", "network-pools", orgId, "lanes"] as const,
+    manifest: (orgId: string, poolId: string) =>
+      ["q", "network-pools", orgId, "manifest", poolId] as const,
   },
 
   reach: {

@@ -30,6 +30,12 @@ export function formatMarketplaceTransactionError(message: string | null | undef
   if (m.includes('bid_locked')) {
     return 'This bid has already been decided and can no longer be changed.';
   }
+  if (m.includes('quote_locked')) {
+    return 'This quote has been countered or decided and can no longer be changed.';
+  }
+  if (m.includes('indent_not_visible')) {
+    return 'This load is not available to your organization.';
+  }
   if (m.includes('invalid_amount')) {
     return 'Enter a valid bid amount greater than zero.';
   }

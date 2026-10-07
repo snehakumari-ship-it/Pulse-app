@@ -1,10 +1,10 @@
 /**
  * Pooled Marketplace opportunity detail: one live lane as an anonymous
  * requirement, one rate for every eligible load, and the identity / award →
- * trip handoff. Reads only the existing Find Loads RPCs (lanes, lane loads,
- * this org's bids) under the same query keys as the Find Loads list. Load
- * rows are read page by page automatically to define the bid scope and are
- * never listed: no indent ids, shipper names or per-load details are shown.
+ * trip handoff. The pool, its biddable set and this org's bid state come from
+ * the server manifest (get_org_marketplace_pool); the bid scope is re-read and
+ * fingerprint-checked before any write. Members are never listed: no indent
+ * ids, shipper names or per-load details are shown.
  */
 import { ChromeBelowTopNavLoadingScreen } from "@/components/chromeLoadingScreens";
 import Layout from "@/constants/Layout";
@@ -25,10 +25,10 @@ import { PoolHandoffPanel } from "@/features/network/components/pooled/PoolHando
 import { PoolStatusPill } from "@/features/network/components/pooled/PoolStatusPill";
 import {
   composeFindLoadsOpportunity,
-  listMarketplaceSearchLanes,
+  getOrgMarketplacePool,
   listMyOrgMarketBids,
-  listOpenMarketplaceLoadsPage,
   marketBidsFromQueryData,
+  marketplacePoolMemberAsLoad,
   submitOrgPoolBid,
   type OrgOpenMarketplaceLoad,
 } from "@/features/network/services/findLoadsForOrg.service";
@@ -36,14 +36,13 @@ import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplace
 import { isMarketplaceSearchReady } from "@/features/network/utils/marketplaceSearch.util";
 import {
   POOL_STATE_COPY,
-  findPoolLane,
+  manifestFetchProgress,
   poolBidReadiness,
-  poolFetchProgress,
-  readCompletePool,
+  poolDriftResult,
   poolKey,
   poolKeyId,
   poolSubmissionBlockReason,
-  summarizePool,
+  summarizeServerPool,
   type PoolBidSubmissionResult,
 } from "@/features/network/utils/pooledOpportunity.util";
 import { formatStoryDate } from "@/features/network/utils/storyDisplay";
@@ -120,7 +119,8 @@ export function PooledOpportunityScreen() {
     [params.pickup, params.drop, params.vehicle],
   );
   const keyReady = isMarketplaceSearchReady(key);
-  const searchKey = keyReady ? `pool:${poolKeyId(key)}` : "";
+  const poolId = keyReady ? poolKeyId(key) : "";
+  const searchKey = keyReady ? `pool:${poolId}` : "";
 
   const orgCtx = useOptionalOrganization();
   const organization = orgCtx?.currentOrganization ?? null;
@@ -140,48 +140,25 @@ export function PooledOpportunityScreen() {
   const [bidError, setBidError] = useState<string | undefined>();
   const [result, setResult] = useState<PoolBidSubmissionResult | null>(null);
 
-  const loadsQ = useQuery({
-    queryKey: [
-      ...queryKeys.findLoadsForOrg.infinite(
-        orgId ?? "",
-        MARKETPLACE_LOAD_PAGE_SIZE,
-        searchKey,
-      ),
-      "complete",
-    ],
-    queryFn: () =>
-      readCompletePool(async (offset) => {
-        const { error, loads, nextOffset } = await listOpenMarketplaceLoadsPage(
-          orgId as string,
-          offset,
-          MARKETPLACE_LOAD_PAGE_SIZE,
-          key,
-        );
-        if (error) throw error;
-        return { loads, nextOffset };
-      }),
+  const poolQueryKey = queryKeys.findLoadsForOrg.pool(orgId ?? "", poolId);
+  const poolQ = useQuery({
+    queryKey: poolQueryKey,
+    queryFn: async () => {
+      const { error, pool } = await getOrgMarketplacePool(orgId as string, key);
+      if (error) throw error;
+      if (!pool) throw new Error("Pool not found.");
+      return pool;
+    },
     enabled: !!orgId && keyReady,
     staleTime: STALE.frequent,
   });
-  const loadsError = loadsQ.isError;
-  const rows = useMemo(() => loadsQ.data?.rows ?? [], [loadsQ.data]);
+  const loadsError = poolQ.isError;
   const fetchProgress = useMemo(
-    () => loadsQ.data?.progress ?? poolFetchProgress([]),
-    [loadsQ.data],
+    () => manifestFetchProgress(poolQ.data),
+    [poolQ.data],
   );
 
-  const lanesQ = useQuery({
-    queryKey: queryKeys.findLoadsForOrg.searchLanes(orgId ?? ""),
-    queryFn: async () => {
-      const { error, lanes } = await listMarketplaceSearchLanes(
-        orgId as string,
-      );
-      if (error && lanes.length === 0) throw error;
-      return lanes;
-    },
-    enabled: !!orgId,
-    staleTime: STALE.moderate,
-  });
+  /** Org bids beyond the manifest, so awards on loads that left the pool this session stay attributable. */
   const myBidsQ = useQuery({
     queryKey: [
       ...queryKeys.findLoadsForOrg.myBids(orgId ?? ""),
@@ -197,33 +174,36 @@ export function PooledOpportunityScreen() {
     enabled: !!orgId,
   });
 
-  const lanes = useMemo(() => lanesQ.data ?? [], [lanesQ.data]);
-  const myBids = marketBidsFromQueryData(myBidsQ.data);
-  const lane = lanesQ.isSuccess ? findPoolLane(lanes, key) : null;
+  const myBids = useMemo(
+    () => marketBidsFromQueryData(myBidsQ.data),
+    [myBidsQ.data],
+  );
   const fitsFleet = isVehicleTypeCompatibleWithFleet(
     key.vehicleType,
     (vehiclesQ.data?.vehicles ?? []).map((v) => v.vehicle_type),
   );
 
-  const summary = useMemo(
-    () =>
-      summarizePool({
-        key,
-        rows,
-        bids: myBids,
-        laneLoadCount: lane ? lane.load_count : null,
-        priorMemberIds,
-        canBidLoad: (load: OrgOpenMarketplaceLoad) =>
-          composeFindLoadsOpportunity(load, orgId, viewerCanBidCapability)
-            .bidding.canBid,
-      }),
-    [key, rows, myBids, lane, priorMemberIds, orgId, viewerCanBidCapability],
-  );
+  const summary = useMemo(() => {
+    const manifest = poolQ.data;
+    return summarizeServerPool({
+      manifest: {
+        member_count: manifest?.member_count ?? 0,
+        complete: manifest?.complete ?? false,
+        members: (manifest?.members ?? []).map(marketplacePoolMemberAsLoad),
+        biddable_ids: manifest?.biddable_ids ?? [],
+        // Manifest state last, so it wins over the bid list for member indents.
+        bids: [...myBids, ...(manifest?.org_bids ?? [])],
+      },
+      priorMemberIds,
+      canBid: (load: OrgOpenMarketplaceLoad) =>
+        composeFindLoadsOpportunity(load, orgId, viewerCanBidCapability)
+          .bidding.canBid,
+    });
+  }, [poolQ.data, myBids, priorMemberIds, orgId, viewerCanBidCapability]);
   const members = summary.members;
   const eligibleCount = summary.biddableIds.length;
   const readiness = poolBidReadiness({ fetch: fetchProgress, eligibleCount });
-  const preparing =
-    !loadsError && !fetchProgress.complete && !fetchProgress.truncated;
+  const preparing = !loadsError && poolQ.data == null;
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -237,6 +217,9 @@ export function PooledOpportunityScreen() {
     if (!orgId) return;
     queryClient.invalidateQueries({
       queryKey: queryKeys.findLoadsForOrg.myBids(orgId),
+    });
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.findLoadsForOrg.pool(orgId, poolId),
     });
     queryClient.invalidateQueries({
       queryKey: queryKeys.findLoadsForOrg.infinite(
@@ -259,9 +242,22 @@ export function PooledOpportunityScreen() {
       setBidError(blocked);
       return false;
     }
+    const shown = poolQ.data;
+    const { error: freshError, pool: fresh } = await getOrgMarketplacePool(orgId, key);
+    if (freshError || !fresh) {
+      setBidError("Couldn't load this pool. Nothing was submitted — try again.");
+      return false;
+    }
+    if (!fresh.complete || fresh.fingerprint !== shown?.fingerprint) {
+      queryClient.setQueryData(poolQueryKey, fresh);
+      setBidTargets(null);
+      setBidError(undefined);
+      setResult(poolDriftResult(fresh.complete));
+      return false;
+    }
     const outcome = await submitOrgPoolBid(
       orgId,
-      { indentIds: bidTargets, memberIds: summary.memberIds },
+      { indentIds: bidTargets, memberIds: new Set(fresh.members.map((m) => m.id)) },
       amount,
     );
     setResult(outcome);
@@ -313,15 +309,12 @@ export function PooledOpportunityScreen() {
   }
 
   const twoColumn = !!layout.isDesktopWeb && width >= TWO_COLUMN_MIN_WIDTH;
-  /** Lane count while reading; once every row is read, the members actually found. */
-  const poolCount = fetchProgress.complete
-    ? members.length
-    : (summary.poolSize ?? members.length);
+  /** Server member count: the whole pool, also when it is too large to list. */
+  const poolCount = summary.poolSize ?? members.length;
   const countLabel = plural(poolCount, "load");
   const vehicleLabel = titleCaseWord(key.vehicleType);
   const targetCount = bidTargets?.length ?? 0;
   const targetsLabel = plural(targetCount, "eligible load");
-  const bidsSaturated = myBids.length >= POOL_BIDS_LIMIT;
   const dates = dateRangeLabel(summary.earliestPickup, summary.latestPickup);
 
   const header = (
@@ -411,12 +404,6 @@ export function PooledOpportunityScreen() {
           setBidTargets([...summary.biddableIds]);
         }}
       />
-      {bidsSaturated ? (
-        <Text style={styles.footnote}>
-          Bid status here reflects your organization's latest {POOL_BIDS_LIMIT}{" "}
-          Marketplace bids. Older bids on these loads may not show.
-        </Text>
-      ) : null}
     </View>
   );
 
@@ -431,11 +418,11 @@ export function PooledOpportunityScreen() {
     <Text style={styles.message}>
       This pool link is incomplete. Go back and pick a pool.
     </Text>
-  ) : loadsQ.isError ? (
+  ) : poolQ.isError ? (
     <View style={styles.stateBox}>
       <Text style={styles.message}>Couldn't load this pool.</Text>
       <Pressable
-        onPress={() => loadsQ.refetch()}
+        onPress={() => poolQ.refetch()}
         style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
         accessibilityRole="button"
         accessibilityLabel="Retry"
@@ -452,7 +439,7 @@ export function PooledOpportunityScreen() {
       No loads in this pool are open right now.
     </Text>
   ) : null;
-  const showCommercial = keyReady && !loadsQ.isError;
+  const showCommercial = keyReady && !poolQ.isError;
 
   return (
     <View style={[styles.root, { paddingTop: contentTopInset }]}>
@@ -566,12 +553,6 @@ const styles = StyleSheet.create({
   },
   subtitle: { fontSize: 13, fontWeight: "600", color: Theme.textSecondary },
   stateDetail: { fontSize: 12, color: Theme.textMuted },
-  footnote: {
-    fontSize: 12,
-    color: Theme.textMuted,
-    lineHeight: 16,
-    paddingHorizontal: 4,
-  },
   columns: { flexDirection: "row", alignItems: "flex-start", gap: 20 },
   mainCol: { flex: 1, minWidth: 0, gap: 16 },
   sideCol: { width: 360, flexShrink: 0, gap: 16 },

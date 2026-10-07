@@ -5,7 +5,8 @@ import { LoadCenterHubMobileIndentCard } from "@/features/network/components/Loa
 import { LoadCenterKanbanColumnModal } from "@/features/network/components/LoadCenterKanbanColumnModal";
 import { NetworkLoadPoolList } from "@/features/network/components/pooled/NetworkLoadPoolList";
 import { buildNetworkLoadPools } from "@/features/network/utils/networkLoadPools.util";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Pressable, Text } from "react-native";
 
 jest.mock("react-native", () => jest.requireActual("react-native"));
@@ -22,10 +23,18 @@ jest.mock("@/features/indents/components/IndentDetailScreen", () => ({
   IndentDetailScreen: () => null,
 }));
 
-const mockCreateDirectQuote = jest.fn();
 jest.mock("@/features/indents", () => ({
-  createDirectQuote: (...args: unknown[]) => mockCreateDirectQuote(...args),
   getIndentDisplayNumber: (row: { indent_number?: string }) => row.indent_number ?? "",
+}));
+const mockSubmitNetworkQuote = jest.fn();
+const mockGetOrgNetworkPool = jest.fn();
+jest.mock("@/features/network/services/networkPools.service", () => ({
+  submitNetworkQuote: (...args: unknown[]) => mockSubmitNetworkQuote(...args),
+  getOrgNetworkPool: (...args: unknown[]) => mockGetOrgNetworkPool(...args),
+}));
+let mockServerPoolIds: ReadonlySet<string> | null = null;
+jest.mock("@/features/network/hooks/useNetworkPoolLanesQuery", () => ({
+  useServerNetworkPoolIds: () => mockServerPoolIds,
 }));
 jest.mock("@/lib/queries", () => ({ useInvalidateIndents: () => jest.fn() }));
 const mockMutualsFor = jest.fn();
@@ -112,6 +121,7 @@ describe("NetworkLoadPoolList (phone Network Loads)", () => {
   function renderList(shownLoads = LOADS, onQuotePool = jest.fn()) {
     render(
       <NetworkLoadPoolList
+        orgId="me"
         openLoads={LOADS}
         shownLoads={shownLoads}
         canQuote
@@ -165,6 +175,28 @@ describe("NetworkLoadPoolList (phone Network Loads)", () => {
     expect(onQuotePool.mock.calls[0][0].members).toHaveLength(3);
     expect(screen.queryByText("Incomplete lane")).toBeNull();
   });
+
+  describe("server lane list", () => {
+    afterEach(() => {
+      mockServerPoolIds = null;
+    });
+
+    it("shows only pools the server lists for this organization", () => {
+      const pools = buildNetworkLoadPools(LOADS).pools;
+      const puneMumbai = pools.find((p) => p.members.length === 3)!;
+      mockServerPoolIds = new Set([puneMumbai.id]);
+      renderList();
+      expect(screen.getByText("1 pool · one quote per pool")).toBeTruthy();
+      expect(screen.getByLabelText("Quote for pool, 3 loads")).toBeTruthy();
+      expect(screen.queryByLabelText("Quote for pool, 1 load")).toBeNull();
+    });
+
+    it("an empty server list hides every locally grouped pool", () => {
+      mockServerPoolIds = new Set();
+      renderList();
+      expect(screen.queryByLabelText(/^Quote for pool/)).toBeNull();
+    });
+  });
 });
 
 const bidCard = (load: IndentRow) => (
@@ -201,6 +233,7 @@ function renderBoard(
       renderColumnBody={(col) =>
         col.id === "OPEN" ? (
           <NetworkLoadPoolList
+            orgId="me"
             openLoads={LOADS}
             shownLoads={col.loads}
             canQuote
@@ -473,24 +506,69 @@ describe("Network Loads as pools", () => {
 
 describe("NetworkPoolQuoteModal", () => {
   const pool = buildNetworkLoadPools(LOADS).pools[0]!;
-  const baseProps = {
+  const memberIds = pool.members.map((m) => m.id);
+
+  function manifest(over: Partial<Record<string, unknown>> = {}) {
+    return {
+      pool_key: pool.id,
+      viewing_organization_id: "me",
+      as_of: "2026-10-07T00:00:00Z",
+      max_members: 150,
+      member_count: memberIds.length,
+      shipper_count: 2,
+      excluded_sponsored_count: 0,
+      complete: true,
+      fingerprint: "fp-1",
+      members: pool.members,
+      quotable_ids: memberIds,
+      org_quotes: [],
+      ...over,
+    };
+  }
+
+  let queryClient: QueryClient;
+  const baseProps = () => ({
     pool,
     orgId: "me",
     onClose: jest.fn(),
     onSuccess: jest.fn(),
-    queryClient: { invalidateQueries: jest.fn().mockResolvedValue(undefined) } as never,
+    queryClient,
     invalidateIndents: jest.fn() as never,
     refetchMyQuotes: jest.fn(),
     refetchMarketIndents: jest.fn(),
-  };
+  });
+
+  async function renderQuoteModal() {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <NetworkPoolQuoteModal {...baseProps()} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText("Preparing pool…")).toBeNull());
+  }
+
+  async function submit(amount = 18000) {
+    let ok = false;
+    await act(async () => {
+      ok = await lastEntry!.onSubmitAmount(amount);
+    });
+    return ok;
+  }
 
   beforeEach(() => {
-    mockCreateDirectQuote.mockReset();
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    mockSubmitNetworkQuote.mockReset();
+    mockGetOrgNetworkPool.mockReset();
+    mockGetOrgNetworkPool.mockResolvedValue({ error: null, pool: manifest() });
     lastEntry = null;
   });
 
-  it("shows what the rate applies to, without naming the shipper", () => {
-    render(<NetworkPoolQuoteModal {...baseProps} />);
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it("shows what the rate applies to, without naming the shipper", async () => {
+    await renderQuoteModal();
     expect(screen.getByText("Network pool")).toBeTruthy();
     expect(screen.queryByText(/Acme Steel/)).toBeNull();
     expect(screen.queryByText(/Bolt Logistics/)).toBeNull();
@@ -501,29 +579,94 @@ describe("NetworkPoolQuoteModal", () => {
     expect(lastEntry?.submitLabel).toBe("Quote for pool");
   });
 
-  it("writes one direct quote per member indent, sequentially, at the same rate", async () => {
-    mockCreateDirectQuote.mockResolvedValue({ error: null, quote: null });
-    render(<NetworkPoolQuoteModal {...baseProps} />);
-    let ok = false;
-    await act(async () => {
-      ok = await lastEntry!.onSubmitAmount(18000);
-    });
-    expect(ok).toBe(true);
-    expect(mockCreateDirectQuote.mock.calls.map((c) => [c[0], c[1], c[2]])).toEqual([
+  it("reads the pool from the server by its lane key", async () => {
+    await renderQuoteModal();
+    expect(mockGetOrgNetworkPool).toHaveBeenCalledWith("me", pool.key);
+  });
+
+  it("quotes every server-quotable member through submit_network_quote, sequentially, at the same rate", async () => {
+    mockSubmitNetworkQuote.mockResolvedValue({ error: null, quote: null });
+    await renderQuoteModal();
+    expect(await submit()).toBe(true);
+    expect(mockSubmitNetworkQuote.mock.calls.map((c) => [c[0], c[1], c[2]])).toEqual([
       ["a", "me", 18000],
       ["b", "me", 18000],
       ["c", "me", 18000],
     ]);
   });
 
-  it("cross-shipper isolation: each quote targets only its own indent, never the pool", async () => {
-    mockCreateDirectQuote.mockResolvedValue({ error: null, quote: null });
-    render(<NetworkPoolQuoteModal {...baseProps} />);
-    await act(async () => {
-      await lastEntry!.onSubmitAmount(18000);
+  it("skips members the server does not list as quotable (countered or decided)", async () => {
+    mockGetOrgNetworkPool.mockResolvedValue({
+      error: null,
+      pool: manifest({ quotable_ids: ["a", "c"] }),
     });
+    mockSubmitNetworkQuote.mockResolvedValue({ error: null, quote: null });
+    await renderQuoteModal();
+    expect(screen.getByText("Applies to all 2 loads in this pool")).toBeTruthy();
+    expect(await submit()).toBe(true);
+    expect(mockSubmitNetworkQuote.mock.calls.map((c) => c[0])).toEqual(["a", "c"]);
+  });
+
+  it("submits nothing when the pool changed since it was shown", async () => {
+    await renderQuoteModal();
+    mockGetOrgNetworkPool.mockResolvedValue({
+      error: null,
+      pool: manifest({ fingerprint: "fp-2" }),
+    });
+    expect(await submit()).toBe(false);
+    expect(mockSubmitNetworkQuote).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "This pool changed while you were quoting. Nothing was submitted — review the updated pool and submit again.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("submits nothing when the pool is larger than Network can process", async () => {
+    mockGetOrgNetworkPool.mockResolvedValue({
+      error: null,
+      pool: manifest({ complete: false, fingerprint: null, members: [], quotable_ids: [] }),
+    });
+    await renderQuoteModal();
+    expect(
+      screen.getAllByText(
+        "This pool contains more loads than Network can currently process. Nothing was submitted.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(await submit()).toBe(false);
+    expect(mockSubmitNetworkQuote).not.toHaveBeenCalled();
+  });
+
+  it("submits nothing when the pool cannot be re-read", async () => {
+    await renderQuoteModal();
+    mockGetOrgNetworkPool.mockResolvedValue({ error: new Error("boom"), pool: null });
+    expect(await submit()).toBe(false);
+    expect(mockSubmitNetworkQuote).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Couldn't load this pool. Nothing was submitted — try again."),
+    ).toBeTruthy();
+  });
+
+  it("explains a quote that was countered or decided meanwhile", async () => {
+    mockSubmitNetworkQuote
+      .mockResolvedValueOnce({ error: null, quote: null })
+      .mockResolvedValueOnce({ error: null, quote: null })
+      .mockResolvedValueOnce({
+        error: new Error("quote_locked: quote has been countered or decided"),
+        quote: null,
+      });
+    await renderQuoteModal();
+    expect(await submit()).toBe(false);
+    expect(screen.getByText(/^Quoted 2 of 3 loads\. 1 load could not be quoted/)).toBeTruthy();
+    expect(screen.queryByText(/quote_locked/)).toBeNull();
+  });
+
+  it("cross-shipper isolation: each quote targets only its own indent, never the pool", async () => {
+    mockSubmitNetworkQuote.mockResolvedValue({ error: null, quote: null });
+    await renderQuoteModal();
+    await submit();
     const byShipper = new Map<string, string[]>();
-    for (const call of mockCreateDirectQuote.mock.calls) {
+    for (const call of mockSubmitNetworkQuote.mock.calls) {
       const indentId = call[0] as string;
       const owner = LOADS.find((l) => l.id === indentId)!.organization_id as string;
       byShipper.set(owner, [...(byShipper.get(owner) ?? []), indentId]);
@@ -534,17 +677,13 @@ describe("NetworkPoolQuoteModal", () => {
   });
 
   it("a failure on one shipper's indent does not undo the other shipper's quotes", async () => {
-    mockCreateDirectQuote
+    mockSubmitNetworkQuote
       .mockResolvedValueOnce({ error: null, quote: null })
       .mockResolvedValueOnce({ error: null, quote: null })
       .mockResolvedValueOnce({ error: new Error("indent_not_open"), quote: null });
-    render(<NetworkPoolQuoteModal {...baseProps} />);
-    let ok = true;
-    await act(async () => {
-      ok = await lastEntry!.onSubmitAmount(18000);
-    });
-    expect(ok).toBe(false);
-    expect(mockCreateDirectQuote).toHaveBeenCalledTimes(3);
+    await renderQuoteModal();
+    expect(await submit()).toBe(false);
+    expect(mockSubmitNetworkQuote).toHaveBeenCalledTimes(3);
     expect(
       screen.getByText(
         "Quoted 2 of 3 loads. 1 load could not be quoted because the indent is no longer open.",
@@ -553,14 +692,12 @@ describe("NetworkPoolQuoteModal", () => {
   });
 
   it("keeps an unknown backend reason as-is", async () => {
-    mockCreateDirectQuote
+    mockSubmitNetworkQuote
       .mockResolvedValueOnce({ error: null, quote: null })
       .mockResolvedValueOnce({ error: null, quote: null })
       .mockResolvedValueOnce({ error: new Error("permission denied for table direct_quotes"), quote: null });
-    render(<NetworkPoolQuoteModal {...baseProps} />);
-    await act(async () => {
-      await lastEntry!.onSubmitAmount(18000);
-    });
+    await renderQuoteModal();
+    await submit();
     expect(
       screen.getByText(
         "Quoted 2 of 3 loads. 1 load could not be quoted: permission denied for table direct_quotes",
@@ -569,13 +706,9 @@ describe("NetworkPoolQuoteModal", () => {
   });
 
   it("reports zero success without claiming a pool quote", async () => {
-    mockCreateDirectQuote.mockResolvedValue({ error: new Error("indent_not_open"), quote: null });
-    render(<NetworkPoolQuoteModal {...baseProps} />);
-    let ok = true;
-    await act(async () => {
-      ok = await lastEntry!.onSubmitAmount(18000);
-    });
-    expect(ok).toBe(false);
+    mockSubmitNetworkQuote.mockResolvedValue({ error: new Error("indent_not_open"), quote: null });
+    await renderQuoteModal();
+    expect(await submit()).toBe(false);
     expect(
       screen.getByText(
         "Not quoted: none of the 3 loads took your rate. 3 loads could not be quoted because the indent is no longer open.",

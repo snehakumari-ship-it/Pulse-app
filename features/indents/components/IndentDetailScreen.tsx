@@ -22,8 +22,9 @@ import {
 } from "@/features/indents/components/IndentReviewHubSplitLayout";
 import { IndentSupplierPartySummary } from "@/features/indents/components/IndentSupplierPartySummary";
 import type { SupplierQuoteActionHint } from "@/features/indents/components/IndentSupplierQuoteCard";
+import { submitNetworkQuote } from "@/features/network/services/networkPools.service";
 import {
-    createDirectQuote,
+    acceptDirectQuoteCounter,
     submitDirectQuoteCounterOffer,
     updateDirectQuoteStatus,
 } from "@/features/indents/services/direct-quotes.service";
@@ -866,13 +867,17 @@ export function IndentDetailScreen({
       if (!indent || !orgId || submittingQuote) return false;
       try {
         setSubmittingQuote(true);
-        const { error: quoteError } = await createDirectQuote(
-          indent.id,
-          orgId,
-          amount,
-        );
+        const counter = Number(myQuote?.counter_amount ?? 0);
+        const takesCounter =
+          !!myQuote &&
+          normalizeStatus(myQuote.status) === "pending" &&
+          counter > 0 &&
+          Number(amount) === counter;
+        const { error: quoteError } = takesCounter
+          ? await acceptDirectQuoteCounter(myQuote.id, counter)
+          : await submitNetworkQuote(indent.id, orgId, amount);
         if (quoteError) {
-          setQuoteEntryError(quoteError.message);
+          setQuoteEntryError(formatMarketplaceTransactionError(quoteError.message));
           return false;
         }
         queryClient.invalidateQueries({
@@ -896,6 +901,7 @@ export function IndentDetailScreen({
     [
       indent,
       orgId,
+      myQuote,
       queryClient,
       refetchMyQuotes,
       refetchQuotes,

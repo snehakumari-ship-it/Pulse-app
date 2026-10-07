@@ -20,7 +20,6 @@ export type IndentStopInput = indentsService.IndentStopInput;
 export type CirculationTarget = indentsService.CirculationTarget;
 export type IndentAction = indentsService.IndentAction;
 
-export const createDirectQuote = directQuotesService.createDirectQuote;
 export const getMyDirectQuotes = directQuotesService.getMyDirectQuotes;
 export const getDirectQuotesByIndentId = directQuotesService.getDirectQuotesByIndentId;
 export const getDirectQuoteCountsByIndentIds = directQuotesService.getDirectQuoteCountsByIndentIds;
