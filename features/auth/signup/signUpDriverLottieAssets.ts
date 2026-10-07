@@ -1,7 +1,5 @@
 import type { AnimationObject } from 'lottie-react-native';
 
-import type { PulseMascotIllustrationId } from '@/lib/pulseMascotIllustrations';
-
 /** Driver activation — step hero Lotties (green workforce flow). Kept for non-keypad steps. */
 export const DRIVER_SIGNUP_LOTTIE = {
   phone: require('@/assets/Animated folder/phone call check.json') as AnimationObject,
@@ -11,11 +9,8 @@ export const DRIVER_SIGNUP_LOTTIE = {
   success: require('@/assets/Animated folder/delivery completed.json') as AnimationObject,
 } as const;
 
-/**
- * Soft watermark mascots for phone / OTP keypad steps
- * (`assets/illustrations` Pulse mascot set).
- */
-export const DRIVER_SIGNUP_HERO_MASCOT = {
-  phone: 'driverAtWarehouse' satisfies PulseMascotIllustrationId,
-  verify: 'phoneVerifiedMessage' satisfies PulseMascotIllustrationId,
-} as const;
+/** Color illustration above the driver phone step. */
+export const DRIVER_SIGNUP_PHONE_HERO = require('@/assets/illustrations/Friendly Blue Mascot Delivery Scene.png');
+
+/** Color illustration above the driver OTP step. */
+export const DRIVER_SIGNUP_VERIFY_HERO = require('@/assets/illustrations/OTP Delivery Truck Mascot.png');

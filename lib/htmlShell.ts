@@ -254,8 +254,25 @@ textarea:-webkit-autofill:focus {
  * Runtime fallback for the SPA dev shell. No-ops when the static shell
  * (app/+html.tsx) already rendered, or off-web. Safe to call multiple times.
  */
+const FAVICON_HREF = "/favicon.ico?v=mascot";
+
+/** Browsers keep the tab icon cached against /favicon.ico. A versioned link forces a fresh fetch. */
+function ensureFavicon() {
+  if (typeof document === "undefined") return;
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  if (link.getAttribute("href") === FAVICON_HREF) return;
+  link.type = "image/x-icon";
+  link.href = FAVICON_HREF;
+}
+
 export function ensureWebShellParity() {
   if (typeof document === 'undefined') return;
+  ensureFavicon();
   if (document.getElementById(SHELL_STYLE_ID)) return;
 
   const style = document.createElement('style');

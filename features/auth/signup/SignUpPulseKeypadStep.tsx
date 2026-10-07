@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   Animated,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ImageSourcePropType,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AnimationObject } from 'lottie-react-native';
@@ -69,6 +71,8 @@ export interface SignUpPulseKeypadStepProps {
    * Wins over `heroLottie` when both are set.
    */
   heroMascotId?: PulseMascotIllustrationId;
+  /** Color illustration above the title. Wins over `heroMascotId`. */
+  heroImage?: ImageSourcePropType;
 }
 
 export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
@@ -98,6 +102,7 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
   centeredLayout = false,
   heroLottie,
   heroMascotId,
+  heroImage,
 }: SignUpPulseKeypadStepProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -299,7 +304,21 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
 
   const formBody = (
     <View style={[styles.formBody, centeredLayout && styles.centeredStack]}>
-      {heroMascotId ? (
+      {heroImage ? (
+        <View
+          style={[styles.heroWrap, styles.heroImageWrap, styles.heroWrapCentered]}
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Image
+            source={heroImage}
+            style={styles.heroImage}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        </View>
+      ) : heroMascotId ? (
         <View
           style={[
             styles.heroWrap,
@@ -509,6 +528,14 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     },
     heroWatermark: {
       opacity: 0.42,
+    },
+    heroImageWrap: {
+      width: '100%',
+      maxWidth: mobile ? 360 : 400,
+    },
+    heroImage: {
+      width: '100%',
+      height: mobile ? 168 : 188,
     },
     heroWrapCentered: {
       alignItems: 'center',

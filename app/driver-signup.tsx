@@ -57,7 +57,10 @@ import { SignUpPulseTitle } from '@/features/auth/signup/SignUpPulseTitle';
 import { SignUpOtpBoxes } from '@/features/auth/signup/SignUpOtpBoxes';
 import { formatSignupPhoneDisplay } from '@/features/auth/signup/signUpKeypad.util';
 import { DRIVER_SIGNUP } from '@/features/auth/signup/signUpDriverTheme';
-import { DRIVER_SIGNUP_HERO_MASCOT } from '@/features/auth/signup/signUpDriverLottieAssets';
+import {
+  DRIVER_SIGNUP_PHONE_HERO,
+  DRIVER_SIGNUP_VERIFY_HERO,
+} from '@/features/auth/signup/signUpDriverLottieAssets';
 import { createPulseSignUpTextStyles } from '@/features/auth/signup/signUpTypography';
 import { suiteSignUpCopy } from '@/lib/suite/suiteAuthContent';
 import { updateProfile } from '@/features/auth/services/auth.service';
@@ -950,7 +953,7 @@ export default function DriverSignUpScreen() {
         {pageBody(0, useMobileLayout ? (
           <SignUpPulseKeypadStep
             theme={DRIVER_SIGNUP}
-            heroMascotId={DRIVER_SIGNUP_HERO_MASCOT.phone}
+            heroImage={DRIVER_SIGNUP_PHONE_HERO}
             title={STEP_CONTENT[0].title}
             subtitle={STEP_CONTENT[0].subtitle}
             value={phone}
@@ -1054,7 +1057,7 @@ export default function DriverSignUpScreen() {
         {pageBody(1, useMobileLayout ? (
           <SignUpPulseKeypadStep
             theme={DRIVER_SIGNUP}
-            heroMascotId={DRIVER_SIGNUP_HERO_MASCOT.verify}
+            heroImage={DRIVER_SIGNUP_VERIFY_HERO}
             centeredLayout
             title={STEP_CONTENT[1].title}
             subtitle={
