@@ -61,6 +61,7 @@ import {
   countAdvanceProcessedExport,
   type AdvanceProcessedExportRow,
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
+import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
 import {
   complianceExportDateSpan,
   complianceTableExportMessage,
@@ -153,7 +154,6 @@ function StageChip({
 /** Window in which a retried Decline submit reuses its idempotency key. */
 const DECLINE_KEY_REUSE_MS = 2 * 60 * 1000;
 const ADVANCE_PROCESSED_TONE = COMPLIANCE_STAGE_TONE.advance_payment_processed;
-const AWAITING_UTR_TONE = COMPLIANCE_STAGE_TONE.hard_copy_pod_received;
 
 export default function ComplianceScreen() {
   const layout = useLayoutInsets();
@@ -709,10 +709,14 @@ export default function ComplianceScreen() {
       ]);
     });
   }, [stagePool, stageQueue, podReceivedQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
-  const ordered = useMemo(
-    () => (viewMode === "table" ? sortComplianceTableRows(searched, tableDateSort) : searched),
-    [searched, tableDateSort, viewMode],
-  );
+  const ordered = useMemo(() => {
+    // Advance Processed: newest posted advance first (Cards + Table). Other stages
+    // keep trip-event date sort on Table only.
+    if (stage === "advance_payment_processed") {
+      return sortAdvanceProcessedSummaries(searched);
+    }
+    return viewMode === "table" ? sortComplianceTableRows(searched, tableDateSort) : searched;
+  }, [searched, stage, tableDateSort, viewMode]);
   const visible = ordered;
   const filteredTotal = ordered.length;
 
@@ -776,7 +780,8 @@ export default function ComplianceScreen() {
     if (!orgId) return;
     const request = ++apExportRequest.current;
     setApExport({ open: true, preparing: true, exporting: false, rows: [] });
-    prepareAdvanceProcessedReport(orgId, filtered)
+    // Same newest-first order as the Advance Processed Cards / Table list.
+    prepareAdvanceProcessedReport(orgId, ordered)
       .then((rows) => {
         if (request !== apExportRequest.current) return;
         setApExport((cur) => ({ ...cur, preparing: false, rows }));
@@ -786,7 +791,7 @@ export default function ComplianceScreen() {
         setApExport((cur) => ({ ...cur, open: false, preparing: false }));
         alertMessage("Couldn't prepare report", error instanceof Error ? error.message : "Please try again.");
       });
-  }, [currentOrganization?.id, filtered]);
+  }, [currentOrganization?.id, ordered]);
 
   const closeAdvanceProcessedExport = useCallback(() => {
     apExportRequest.current += 1;
@@ -1365,8 +1370,12 @@ export default function ComplianceScreen() {
         rejectedCount={0}
         includedCount={apExportCounts.total}
         stats={[
-          { key: "utr", label: "UTR added", value: apExportCounts.withUtr, tone: ADVANCE_PROCESSED_TONE },
-          { key: "awaiting", label: "Awaiting UTR", value: apExportCounts.awaitingUtr, tone: AWAITING_UTR_TONE },
+          {
+            key: "total",
+            label: "Trips",
+            value: apExportCounts.total,
+            tone: ADVANCE_PROCESSED_TONE,
+          },
         ]}
         preparing={apExport.preparing}
         exporting={apExport.exporting}

@@ -37,6 +37,9 @@ function mockMakeThenable<T>(result: { data: T; error: null }) {
   builder.select = chain;
   builder.eq = chain;
   builder.in = chain;
+  builder.limit = chain;
+  // Supplier-mirror existence check uses maybeSingle(); default = no mirror yet.
+  builder.maybeSingle = async () => ({ data: null, error: null });
   builder.then = (resolve: (v: typeof result) => void) => resolve(result);
   return builder;
 }
@@ -238,6 +241,48 @@ describe("postCompliancePayment — Phase 6 server-side settlement-prerequisite 
     });
     expect(result.error).toBeNull();
     expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(1);
+  });
+
+  it("also posts a supplier Cash OUT mirror when the trip has a supplier_id", async () => {
+    mockCreateLedgerEntry.mockResolvedValue({ error: null, row: {} });
+    const result = await postCompliancePayment({
+      organizationId: "org-1",
+      trip: makeTrip({
+        supplier_id: "sup-1",
+        supplier_name: "RAJASTHAN ROADWAYS",
+      }),
+      category: "compliance_advance",
+      amount: 38650,
+      paymentModeId: "UPI",
+      paymentModeLabel: "UPI",
+      utr: "78HGFD7",
+    });
+    expect(result.error).toBeNull();
+    expect(mockCreateLedgerEntry).toHaveBeenCalledTimes(2);
+    expect(mockCreateLedgerEntry).toHaveBeenNthCalledWith(
+      1,
+      "org-1",
+      expect.objectContaining({
+        contact_type: "client",
+        amount_in: 38650,
+        amount_out: 0,
+        ledger_category: "compliance_advance",
+      }),
+    );
+    expect(mockCreateLedgerEntry).toHaveBeenNthCalledWith(
+      2,
+      "org-1",
+      expect.objectContaining({
+        contact_id: "sup-1",
+        contact_type: "supplier",
+        party_name: "RAJASTHAN ROADWAYS",
+        amount_in: 0,
+        amount_out: 38650,
+        ledger_category: "compliance_supplier_advance",
+        ledger_flow_type: "payable",
+        payment_reference: "78HGFD7",
+      }),
+    );
   });
 
   it("blocks a balance payment for a trip with no hard-copy POD received, without calling createLedgerEntry", async () => {

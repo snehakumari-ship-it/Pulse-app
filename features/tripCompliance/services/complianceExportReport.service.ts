@@ -23,6 +23,7 @@ import {
   buildAdvanceProcessedExportWorkbook,
   type AdvanceProcessedExportRow,
 } from "@/features/tripCompliance/utils/complianceAdvanceProcessedExport.util";
+import { sortAdvanceProcessedSummaries } from "@/features/tripCompliance/utils/complianceAdvanceProcessedSort.util";
 import {
   resolveComplianceTdsRate,
   type ComplianceDocumentChargeConfig,
@@ -300,7 +301,9 @@ export async function prepareAdvanceProcessedReport(
   orgId: string,
   summaries: ComplianceTripSummary[],
 ): Promise<AdvanceProcessedExportRow[]> {
-  const withAdvance = summaries.filter((summary) => summary.advance);
+  const withAdvance = sortAdvanceProcessedSummaries(
+    summaries.filter((summary) => summary.advance),
+  );
   if (withAdvance.length === 0) return [];
   const enrichment = await fetchAdvanceProcessedEnrichment(orgId, withAdvance);
   return withAdvance.map((summary) => buildAdvanceProcessedExportRow(summary, enrichment[summary.trip.id]));

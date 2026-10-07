@@ -1,7 +1,5 @@
 import { PartyAvatar } from "@/components/PartyAvatar";
-import { HubPromoHeroLottie } from "@/components/hub/HubPromoLottie";
 import Theme from "@/constants/Theme";
-import { EMPTY_STATE_LOTTIE } from "@/lib/emptyStateLottieAssets";
 import { rejectDocument, verifyDocument } from "@/features/compliance/services/documents.service";
 import { NoDocumentPreviewEmpty, NoTripsFoundEmpty } from "@/features/tripCompliance/components/ComplianceEmptyState";
 import { ComplianceInputModal, type ComplianceInputField } from "@/features/tripCompliance/components/ComplianceInputModal";
@@ -3008,11 +3006,11 @@ export function ComplianceDocumentWorkspace({
                         accessibilityElementsHidden
                         importantForAccessibility="no-hide-descendants"
                       >
-                        <HubPromoHeroLottie
-                          source={EMPTY_STATE_LOTTIE.documents}
-                          width={240}
-                          height={152}
-                          renderScale={1.06}
+                        <Image
+                          source={require("@/assets/illustrations/compliance-checklist-gap.png")}
+                          style={styles.checklistListGapArtImage}
+                          resizeMode="contain"
+                          accessibilityIgnoresInvertColors
                         />
                       </View>
                     </ScrollView>
@@ -5092,16 +5090,23 @@ const styles = StyleSheet.create({
   checklistListGapArt: {
     flexGrow: 1,
     flexShrink: 1,
-    minHeight: 120,
-    maxHeight: 200,
+    minHeight: 128,
+    maxHeight: 220,
     width: "100%",
     maxWidth: "100%",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "stretch",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
     overflow: "hidden",
+  },
+  checklistListGapArtImage: {
+    width: "100%",
+    maxWidth: 240,
+    aspectRatio: 1024 / 671,
+    maxHeight: 168,
   },
   checklistPreviewActionsSection: {
     flexShrink: 0,
