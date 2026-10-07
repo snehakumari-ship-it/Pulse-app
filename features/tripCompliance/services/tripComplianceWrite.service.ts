@@ -20,6 +20,7 @@ import {
 } from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
+import { complianceSupplierLedgerCategory } from "@/features/finance/utils/complianceSupplierLedger.util";
 import { recordAdvanceDocumentCostSnapshot } from "@/features/debit-control/services/debitControlPod.service";
 import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
@@ -303,10 +304,11 @@ async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedge
 
 /**
  * Post a compliance advance/balance payment through the canonical Finance
- * ledger write path (`createLedgerEntry` → `transactions`). This is the ONLY
- * write path — Compliance never inserts into `transactions` directly, and
- * never maintains its own amount/status copy (Phase 7/9/12's explicit rule).
- * Shared by both the single-payment and bulk-import flows.
+ * ledger write path (`createLedgerEntry` → `transactions`). Customer Cash IN
+ * always; when the trip has a supplier, also post supplier Cash OUT
+ * (`compliance_supplier_*`) so partner Finance · Statement shows the payment.
+ * Prefers atomic RPC `post_compliance_settlement_pair` (migration
+ * 20261007130944); falls back to two `createLedgerEntry` calls (heal on retry).
  */
 export async function postCompliancePayment(params: {
   organizationId: string;
@@ -336,6 +338,31 @@ export async function postCompliancePayment(params: {
     notes: params.notes,
   });
 
+  const rpc = await tryPostComplianceSettlementPairRpc({
+    organizationId: params.organizationId,
+    trip: params.trip,
+    category: params.category,
+    amount: params.amount,
+    description,
+    transactionDate: params.transactionDate,
+    utr: params.utr,
+  });
+  if (rpc.ok) {
+    if (rpc.alreadyPosted) {
+      return {
+        error: new Error(
+          `This ${params.category === "compliance_advance" ? "advance" : "balance"} payment has already been posted for this trip. Refresh to see the existing entry.`,
+        ),
+      };
+    }
+    if (params.category === "compliance_advance") {
+      await recordAdvanceDocCostSafe(params);
+    }
+    return { error: null };
+  }
+  if (rpc.reason === "error") return { error: rpc.error };
+
+  // RPC missing (migration not applied yet) — dual createLedgerEntry + heal.
   const entry: CreateLedgerEntryData = {
     trip_id: params.trip.id,
     trip_number: params.trip.booking_ref ?? null,
@@ -353,17 +380,10 @@ export async function postCompliancePayment(params: {
   };
 
   const { error } = await createLedgerEntry(params.organizationId, entry);
+  let clientAlreadyPosted = false;
   if (error && isDuplicateComplianceLedgerWrite(error)) {
-    return {
-      error: new Error(
-        `This ${params.category === "compliance_advance" ? "advance" : "balance"} payment has already been posted for this trip. Refresh to see the existing entry.`,
-      ),
-    };
-  }
-  if (error && isComplianceLedgerPrerequisiteRejection(error)) {
-    // Reached only if server-side trip state disagreed with the client-side
-    // pre-check above (e.g. stale cached trip data) — the RLS policy is the
-    // real boundary here, this is just a clearer message than a raw 42501.
+    clientAlreadyPosted = true;
+  } else if (error && isComplianceLedgerPrerequisiteRejection(error)) {
     return {
       error: new Error(
         params.category === "compliance_advance"
@@ -371,21 +391,192 @@ export async function postCompliancePayment(params: {
           : "Hard-copy POD must be received before a balance payment can be posted. Refresh and try again.",
       ),
     };
+  } else if (error) {
+    return { error };
   }
-  if (!error && params.category === "compliance_advance") {
-    try {
-      await recordAdvanceDocumentCostSnapshot(params.trip.id, {
-        organizationId: params.trip.organization_id || params.organizationId,
-        supplierRate: params.trip.supplier_rate,
-        supplierRateBasis:
-          (params.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
-        loadTons: params.trip.load_tons ?? null,
-      });
-    } catch {
-      // The ledger row is already posted. POD validation still resolves the slab.
+
+  const mirror = await ensureComplianceSupplierMirrorPayment({
+    organizationId: params.organizationId,
+    trip: params.trip,
+    category: params.category,
+    amount: params.amount,
+    description,
+    transactionDate: params.transactionDate,
+    utr: params.utr,
+  });
+  if (mirror.error) return { error: mirror.error };
+
+  if (clientAlreadyPosted && !mirror.created) {
+    return {
+      error: new Error(
+        `This ${params.category === "compliance_advance" ? "advance" : "balance"} payment has already been posted for this trip. Refresh to see the existing entry.`,
+      ),
+    };
+  }
+
+  if (!clientAlreadyPosted && params.category === "compliance_advance") {
+    await recordAdvanceDocCostSafe(params);
+  }
+  return { error: null };
+}
+
+async function recordAdvanceDocCostSafe(params: {
+  organizationId: string;
+  trip: TripRow;
+}): Promise<void> {
+  try {
+    await recordAdvanceDocumentCostSnapshot(params.trip.id, {
+      organizationId: params.trip.organization_id || params.organizationId,
+      supplierRate: params.trip.supplier_rate,
+      supplierRateBasis:
+        (params.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+      loadTons: params.trip.load_tons ?? null,
+    });
+  } catch {
+    // The ledger row is already posted. POD validation still resolves the slab.
+  }
+}
+
+type SettlementPairRpcResult =
+  | { ok: true; alreadyPosted: boolean }
+  | { ok: false; reason: "missing" }
+  | { ok: false; reason: "error"; error: Error };
+
+/**
+ * Atomic client+supplier post (migration 20261007130944). Returns `missing`
+ * when the RPC is not on the linked DB yet so callers can fall back.
+ */
+async function tryPostComplianceSettlementPairRpc(params: {
+  organizationId: string;
+  trip: TripRow;
+  category: ComplianceLedgerCategory;
+  amount: number;
+  description: string;
+  transactionDate?: string;
+  utr?: string | null;
+}): Promise<SettlementPairRpcResult> {
+  const supplierId = (params.trip.supplier_id ?? "").trim() || null;
+  const { data, error } = await supabase().rpc("post_compliance_settlement_pair", {
+    p_organization_id: params.organizationId,
+    p_trip_id: params.trip.id,
+    p_client_category: params.category,
+    p_amount: params.amount,
+    p_description: params.description,
+    p_transaction_date: params.transactionDate?.slice(0, 10) ?? null,
+    p_payment_reference: params.utr?.trim() || null,
+    p_client_contact_id: params.trip.client_id || null,
+    p_client_party_name: params.trip.client_name || "Client",
+    p_supplier_contact_id: supplierId,
+    p_supplier_party_name: params.trip.supplier_name || "Supplier",
+    p_created_by: null,
+  });
+  if (error) {
+    const msg = error.message ?? "";
+    const code = (error as { code?: string }).code;
+    if (
+      code === "PGRST202" ||
+      code === "42883" ||
+      /could not find the function|does not exist/i.test(msg)
+    ) {
+      return { ok: false, reason: "missing" };
     }
+    if (code === "23505" || isDuplicateComplianceLedgerWrite(Object.assign(new Error(msg), { code }))) {
+      return { ok: true, alreadyPosted: true };
+    }
+    if (code === "42501" || isComplianceLedgerPrerequisiteRejection(Object.assign(new Error(msg), { code }))) {
+      return {
+        ok: false,
+        reason: "error",
+        error: new Error(
+          params.category === "compliance_advance"
+            ? "Compliance must be approved before an advance payment can be posted. Refresh and try again."
+            : "Hard-copy POD must be received before a balance payment can be posted. Refresh and try again.",
+        ),
+      };
+    }
+    return { ok: false, reason: "error", error: new Error(msg) };
   }
-  return { error };
+  const payload = data as { already_posted?: boolean } | null;
+  return { ok: true, alreadyPosted: payload?.already_posted === true };
+}
+
+/**
+ * When the trip has a supplier, post (or no-op if present) the AP Cash OUT
+ * mirror. Used when the atomic RPC is not available yet.
+ */
+async function ensureComplianceSupplierMirrorPayment(params: {
+  organizationId: string;
+  trip: TripRow;
+  category: ComplianceLedgerCategory;
+  amount: number;
+  description: string;
+  transactionDate?: string;
+  utr?: string | null;
+}): Promise<{ error: Error | null; created: boolean }> {
+  const supplierId = (params.trip.supplier_id ?? "").trim();
+  if (!supplierId) return { error: null, created: false };
+
+  const mirrorCategory = complianceSupplierLedgerCategory(params.category);
+  const { data: existing, error: readError } = await supabase()
+    .from("transactions")
+    .select("id")
+    .eq("trip_id", params.trip.id)
+    .eq("ledger_category", mirrorCategory)
+    .limit(1)
+    .maybeSingle();
+  if (readError) return { error: new Error(readError.message), created: false };
+  if (existing?.id) return { error: null, created: false };
+
+  const { error } = await createLedgerEntry(params.organizationId, {
+    trip_id: params.trip.id,
+    trip_number: params.trip.booking_ref ?? null,
+    party_name: params.trip.supplier_name || "Supplier",
+    description: params.description,
+    amount_in: 0,
+    amount_out: params.amount,
+    transaction_date: params.transactionDate,
+    contact_id: supplierId,
+    contact_type: "supplier",
+    ledger_category: mirrorCategory,
+    ledger_entity_type: "supplier",
+    ledger_flow_type: "payable",
+    payment_reference: params.utr?.trim() || null,
+  });
+  if (error && isDuplicateComplianceLedgerWrite(error)) {
+    return { error: null, created: false };
+  }
+  if (error) return { error, created: false };
+  return { error: null, created: true };
+}
+
+async function findComplianceSupplierMirrorId(params: {
+  tripId: string;
+  category: ComplianceLedgerCategory;
+}): Promise<string | null> {
+  const mirrorCategory = complianceSupplierLedgerCategory(params.category);
+  const { data } = await supabase()
+    .from("transactions")
+    .select("id")
+    .eq("trip_id", params.tripId)
+    .eq("ledger_category", mirrorCategory)
+    .limit(1)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
+/** Keep supplier mirror description / date / UTR in sync with the client row. */
+async function syncComplianceSupplierMirrorRow(params: {
+  tripId: string;
+  category: ComplianceLedgerCategory;
+  payload: Record<string, unknown>;
+  fallbackPayload?: Record<string, unknown>;
+}): Promise<{ error: Error | null }> {
+  const mirrorId = await findComplianceSupplierMirrorId({
+    tripId: params.tripId,
+    category: params.category,
+  });
+  if (!mirrorId) return { error: null };
+  return writeCompliancePaymentRow(mirrorId, params.payload, params.fallbackPayload);
 }
 
 type CompliancePaymentRowTarget = {
@@ -447,10 +638,18 @@ export async function updateCompliancePaymentTransactionDate(
   if (invalid) return { error: new Error(invalid) };
   const { row, error } = await readCompliancePaymentRow(params);
   if (!row) return { error };
-  return writeCompliancePaymentRow(params.transactionId, {
-    transaction_date: normalized,
-    description: withLedgerDescriptionTxnDateConfirmed(row.description),
-  });
+  const description = withLedgerDescriptionTxnDateConfirmed(row.description);
+  const payload = { transaction_date: normalized, description };
+  const written = await writeCompliancePaymentRow(params.transactionId, payload);
+  if (written.error) return written;
+  if (params.category === "compliance_advance" || params.category === "compliance_balance") {
+    return syncComplianceSupplierMirrorRow({
+      tripId: params.tripId,
+      category: params.category,
+      payload,
+    });
+  }
+  return { error: null };
 }
 
 /**
@@ -472,7 +671,18 @@ export async function updateCompliancePaymentReference(
     return { error: new Error("Cash payments don't carry a UTR.") };
   }
   const description = withLedgerDescriptionUtr(row.description, utr);
-  return writeCompliancePaymentRow(params.transactionId, { description, payment_reference: utr }, { description });
+  const payload = { description, payment_reference: utr };
+  const written = await writeCompliancePaymentRow(params.transactionId, payload, { description });
+  if (written.error) return written;
+  if (params.category === "compliance_advance" || params.category === "compliance_balance") {
+    return syncComplianceSupplierMirrorRow({
+      tripId: params.tripId,
+      category: params.category,
+      payload,
+      fallbackPayload: { description },
+    });
+  }
+  return { error: null };
 }
 
 /** Edit only the Request ID of a posted compliance payment (stored on its description). */
@@ -484,9 +694,19 @@ export async function updateCompliancePaymentRequestId(
   const requestId = normalizeComplianceRequestId(params.requestId);
   const { row, error } = await readCompliancePaymentRow(params);
   if (!row) return { error };
-  return writeCompliancePaymentRow(params.transactionId, {
+  const payload = {
     description: withLedgerDescriptionRequestId(row.description, requestId),
-  });
+  };
+  const written = await writeCompliancePaymentRow(params.transactionId, payload);
+  if (written.error) return written;
+  if (params.category === "compliance_advance" || params.category === "compliance_balance") {
+    return syncComplianceSupplierMirrorRow({
+      tripId: params.tripId,
+      category: params.category,
+      payload,
+    });
+  }
+  return { error: null };
 }
 
 /**
@@ -524,5 +744,37 @@ export async function updateCompliancePaymentUtr(params: {
     ledger_flow_type: "receivable",
     payment_reference: params.utr?.trim() || null,
   });
-  return { error };
+  if (error) return { error };
+
+  const supplierId = (params.trip.supplier_id ?? "").trim();
+  if (!supplierId) return { error: null };
+
+  const mirrorId = await findComplianceSupplierMirrorId({
+    tripId: params.trip.id,
+    category: params.category,
+  });
+  if (mirrorId) {
+    return updateLedgerEntry(params.organizationId, mirrorId, {
+      trip_id: params.trip.id,
+      party_name: params.trip.supplier_name || "Supplier",
+      description,
+      amount_in: 0,
+      amount_out: params.amount,
+      contact_id: supplierId,
+      contact_type: "supplier",
+      ledger_category: complianceSupplierLedgerCategory(params.category),
+      ledger_entity_type: "supplier",
+      ledger_flow_type: "payable",
+      payment_reference: params.utr?.trim() || null,
+    });
+  }
+
+  return ensureComplianceSupplierMirrorPayment({
+    organizationId: params.organizationId,
+    trip: params.trip,
+    category: params.category,
+    amount: params.amount,
+    description,
+    utr: params.utr,
+  }).then(({ error: mirrorError }) => ({ error: mirrorError }));
 }
