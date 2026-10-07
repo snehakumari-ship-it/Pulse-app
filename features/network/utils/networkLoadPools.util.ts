@@ -119,10 +119,34 @@ export function buildNetworkLoadPools<L extends NetworkPoolLoad>(
   return { pools, unpooled };
 }
 
+/** Drops pools the server does not list for this org; no-op until the server list is known. */
+export function keepServerPools<P extends { id: string }>(
+  pools: readonly P[],
+  serverPoolIds: ReadonlySet<string> | null,
+): P[] {
+  return serverPoolIds ? pools.filter((p) => serverPoolIds.has(p.id)) : [...pools];
+}
+
 const KNOWN_QUOTE_FAILURES: Record<string, { reason: string; because: string }> = {
   indent_not_open: {
     reason: "This indent is no longer open for quoting.",
     because: "the indent is no longer open",
+  },
+  quote_locked: {
+    reason: "Your quote on this indent was countered or decided and can no longer be changed.",
+    because: "your quote was already countered or decided",
+  },
+  indent_not_visible: {
+    reason: "This indent is no longer available to your organization.",
+    because: "the indent is no longer available to your organization",
+  },
+  own_indent: {
+    reason: "You can't quote on your own organization's indent.",
+    because: "it is your own organization's indent",
+  },
+  invalid_amount: {
+    reason: "Enter an amount greater than 0.",
+    because: "the amount was not valid",
   },
 };
 

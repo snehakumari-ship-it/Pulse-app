@@ -1,0 +1,5 @@
+# Network pools: _network_pool_rows, get_org_network_pool and list_network_pool_lanes_for_org,
+# caller-scoped over market_indents_for_org (suite in supabase/tests/network_pools); no index.
+# Requires pooled-marketplace-manifests (20271006181500) for _pool_key/_pool_key_part.
+# Apply only after explicit production authorization.
+20271007091500

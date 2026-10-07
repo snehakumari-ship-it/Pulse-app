@@ -43,3 +43,23 @@ describe('formatMarketplaceTransactionError submit_market_bid indent checks', ()
     ).toBe("You can't bid on your own organization's load.");
   });
 });
+
+describe('formatMarketplaceTransactionError quote checks', () => {
+  it('maps quote_locked to a countered-or-decided message', () => {
+    expect(
+      formatMarketplaceTransactionError('quote_locked: quote has been countered or decided'),
+    ).toBe('This quote has been countered or decided and can no longer be changed.');
+  });
+
+  it('maps invalid_amount to an actionable message', () => {
+    expect(
+      formatMarketplaceTransactionError('invalid_amount: amount must be greater than zero'),
+    ).toBe('Enter a valid bid amount greater than zero.');
+  });
+
+  it('maps indent_not_visible without leaking the raw code', () => {
+    expect(
+      formatMarketplaceTransactionError('indent_not_visible: indent is not visible to this organization'),
+    ).toBe('This load is not available to your organization.');
+  });
+});

@@ -33,6 +33,29 @@ export const POOL_BID_MAX_LOADS = 150;
 export const POOL_TOO_LARGE_MESSAGE =
   "This pool contains more loads than Marketplace can currently process. Nothing was submitted.";
 
+export const POOL_CHANGED_MESSAGE =
+  "This pool changed while you were bidding. Nothing was submitted — review the updated pool and submit again.";
+
+/**
+ * Outcome to show after the re-read manifest no longer matches what was on
+ * screen. A pool that became too large is already explained by the bid panel.
+ */
+export function poolDriftResult(stillComplete: boolean): PoolBidSubmissionResult | null {
+  return stillComplete
+    ? { blocked: POOL_CHANGED_MESSAGE, attempted: 0, succeeded: [], failed: [] }
+    : null;
+}
+
+/** Read progress of a server manifest: it is either the whole pool or, when too large, none of it. */
+export function manifestFetchProgress(
+  manifest: { complete: boolean } | null | undefined,
+): PoolFetchProgress {
+  if (!manifest) return { nextOffset: 0, complete: false, truncated: false };
+  return manifest.complete
+    ? { nextOffset: null, complete: true, truncated: false }
+    : { nextOffset: null, complete: false, truncated: true };
+}
+
 export type PoolCommercialState =
   "open" | "submitted" | "awarded" | "not_selected" | "closed";
 
@@ -307,6 +330,58 @@ export function summarizePool<B extends PoolBid, L extends PoolLoad>(input: {
   const members = poolMembers(rows, key).filter(
     (load) => !isSponsoredReachLoad(load),
   );
+  const lane = laneLoadCount == null ? null : Number(laneLoadCount) || 0;
+  return summarizePoolCore({
+    members,
+    excludedRowCount: rows.length - members.length,
+    poolSize: lane == null ? null : Math.max(lane, members.length),
+    bids,
+    priorMemberIds,
+    isBiddable: (load, existing) =>
+      (existing == null || existing.status === "pending") && canBidLoad(load),
+  });
+}
+
+/** Server pool manifest fields the summary needs (get_org_/get_dco_marketplace_pool). */
+export type ServerPoolManifest<M, B> = {
+  member_count: number;
+  complete: boolean;
+  members: readonly M[];
+  biddable_ids: readonly string[];
+  bids: readonly B[];
+};
+
+/**
+ * Summary of a server manifest: membership and biddable set are the server's,
+ * not recomputed here. `canBid` is only the viewer-level gate (capability,
+ * fleet fit) applied on top; it can remove loads, never add them.
+ */
+export function summarizeServerPool<B extends PoolBid, L extends PoolLoad>(input: {
+  manifest: ServerPoolManifest<L, B>;
+  priorMemberIds?: ReadonlySet<string>;
+  canBid: (load: L) => boolean;
+}): PoolDetailSummary<B, L> {
+  const { manifest, priorMemberIds, canBid } = input;
+  const serverBiddable = new Set(manifest.biddable_ids);
+  return summarizePoolCore({
+    members: [...manifest.members],
+    excludedRowCount: 0,
+    poolSize: manifest.member_count,
+    bids: manifest.bids,
+    priorMemberIds,
+    isBiddable: (load) => serverBiddable.has(load.id) && canBid(load),
+  });
+}
+
+function summarizePoolCore<B extends PoolBid, L extends PoolLoad>(input: {
+  members: L[];
+  excludedRowCount: number;
+  poolSize: number | null;
+  bids: readonly B[];
+  priorMemberIds?: ReadonlySet<string>;
+  isBiddable: (load: L, existing: B | undefined) => boolean;
+}): PoolDetailSummary<B, L> {
+  const { members, excludedRowCount, poolSize, bids, priorMemberIds, isBiddable } = input;
   const memberIds = new Set(members.map((l) => l.id));
   const attributable = new Set(memberIds);
   for (const id of priorMemberIds ?? []) attributable.add(id);
@@ -346,8 +421,7 @@ export function summarizePool<B extends PoolBid, L extends PoolLoad>(input: {
       rateMax = rateMax == null ? rate : Math.max(rateMax, rate);
     }
     const existing = bidByIndentId.get(load.id);
-    const bidOpen = existing == null || existing.status === "pending";
-    if (bidOpen && canBidLoad(load)) {
+    if (isBiddable(load, existing)) {
       biddableIds.push(load.id);
       if (existing == null) unbidBiddable += 1;
     }
@@ -370,15 +444,13 @@ export function summarizePool<B extends PoolBid, L extends PoolLoad>(input: {
       ? `Open${awardedSuffix}`
       : `${POOL_STATE_COPY[state].label}${awardedSuffix}`;
 
-  const lane = laneLoadCount == null ? null : Number(laneLoadCount) || 0;
-
   return {
     state,
     stateLabel,
     members,
     memberIds,
-    excludedRowCount: rows.length - members.length,
-    poolSize: lane == null ? null : Math.max(lane, members.length),
+    excludedRowCount,
+    poolSize,
     shipperCount: shippers.size,
     loadTypes: [...loadTypes],
     earliestPickup: earliest,

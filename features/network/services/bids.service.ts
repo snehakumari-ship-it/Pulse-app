@@ -333,6 +333,13 @@ export async function submitPulseBidWithDirectQuote(input: {
       msg =
         'This load has already been awarded or closed. Bidding is no longer available on this story.';
     }
+    if (msg.includes('quote_locked')) {
+      msg =
+        'Your quote on this load has been countered or decided, so it can no longer be changed here.';
+    }
+    if (msg.includes('invalid_amount')) {
+      msg = 'Enter an amount greater than 0.';
+    }
     if (msg.includes('Post is not active')) {
       // Legacy server message — P0.1 uses indent gate; keep mapping for older remotes.
       msg =

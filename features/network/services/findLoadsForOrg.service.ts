@@ -248,6 +248,73 @@ export async function submitOrgMarketBid(
   return { error: null, bidId };
 }
 
+export type MarketplacePoolMember = {
+  id: string;
+  indent_number: string | null;
+  pickup_area: string | null;
+  drop_location: string | null;
+  vehicle_type: string | null;
+  load_type: string | null;
+  pickup_date: string | null;
+  status: string | null;
+  circulation_target: string | null;
+  rate_offer: number | null;
+  weight: number | null;
+  creator_organization_id: string | null;
+  created_at: string | null;
+};
+
+/** One org bid state per member indent; `status` is the organization's, `my_status` the caller's own. */
+export type MarketplacePoolOrgBid = {
+  id: string;
+  indent_id: string;
+  status: MyOrgMarketBidStatus;
+  amount: number;
+  fee_payment_status: FeePaymentStatus;
+  is_mine: boolean;
+  my_status: MyOrgMarketBidStatus | null;
+  updated_at: string;
+};
+
+/** get_org_marketplace_pool: the caller-scoped pool, its biddable set and org bid state. */
+export type OrgMarketplacePoolManifest = {
+  pool_key: string;
+  as_of: string;
+  max_members: number;
+  member_count: number;
+  excluded_sponsored_count: number;
+  complete: boolean;
+  fingerprint: string | null;
+  members: MarketplacePoolMember[];
+  biddable_ids: string[];
+  organization_blocked: { indent_id: string; reason: string; message: string }[];
+  org_bids: MarketplacePoolOrgBid[];
+};
+
+export async function getOrgMarketplacePool(
+  orgId: string,
+  key: MarketplaceLoadSearch,
+): Promise<{ error: Error | null; pool: OrgMarketplacePoolManifest | null }> {
+  const { data, error } = await supabase().rpc('get_org_marketplace_pool', {
+    p_org_id: orgId,
+    p_pickup: key.pickup,
+    p_drop: key.drop,
+    p_vehicle_type: key.vehicleType,
+  });
+  if (error) return { error: new Error(error.message), pool: null };
+  return { error: null, pool: (data ?? null) as OrgMarketplacePoolManifest | null };
+}
+
+/** A manifest member as the row shape composeFindLoadsOpportunity reads; sponsored loads are never members. */
+export function marketplacePoolMemberAsLoad(member: MarketplacePoolMember): OrgOpenMarketplaceLoad {
+  return {
+    ...member,
+    creator_organization_name: null,
+    is_sponsored: false,
+    reach_campaign_id: null,
+  };
+}
+
 /**
  * Pooled opportunity bid: the same rate on each selected indent via the
  * existing per-indent submit_market_bid. Not atomic — each indent is its own

@@ -24,7 +24,6 @@ import { KeypadDisplayValueWithCaret } from '@/components/party/keypad/KeypadDis
 import { PersonNameKeypad } from '@/components/party/keypad/PersonNameKeypad';
 import Theme from '@/constants/Theme';
 import { useOrganization } from '@/contexts/OrganizationContext';
-import { createDirectQuote } from '@/features/indents/services/direct-quotes.service';
 import {
   getBroadcastIndentTarget,
   getVisibleIndentById,
@@ -34,7 +33,7 @@ import { BidConfirmModal, type BidConfirmPhase } from '@/features/network/compon
 import { type BidRow } from '@/features/network/services/bids.service';
 import { type PostRow } from '@/features/network/services/posts.service';
 import { formatINR } from '@/lib/format';
-import { useSubmitBidMutation, useUpdateBidMutation } from '@/lib/queries/useBidsQuery';
+import { useSubmitBidMutation } from '@/lib/queries/useBidsQuery';
 import { queryKeys } from '@/lib/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, MessageSquare } from 'lucide-react-native';
@@ -204,8 +203,6 @@ export function BidSheet({
       opportunity.bidding.acceptsNewBids);
 
   const submitMutation = useSubmitBidMutation(post?.id ?? null, orgId);
-  const updateMutation = useUpdateBidMutation(post?.id ?? null, orgId);
-
   useEffect(() => {
     if (!visible) {
       celebrationLockRef.current = false;
@@ -385,30 +382,14 @@ export function BidSheet({
     const indentIdForCache = post.source_indent_id;
 
     try {
-      if (isEditMode && existingBid) {
-        const updateRes = await updateMutation.mutateAsync({
-          bidId: existingBid.id,
-          amount,
-          note: bidNote || undefined,
-        });
-        submitError = updateRes.error ?? null;
-        if (!submitError) {
-          const quoteRes = await createDirectQuote(
-            indentIdForCache,
-            orgId,
-            amount,
-            bidNote || null,
-          );
-          submitError = quoteRes.error ?? null;
-        }
-      } else {
-        const submitRes = await submitMutation.mutateAsync({
-          amount,
-          note: bidNote || undefined,
-          orgName: currentOrganization?.name ?? '',
-        });
-        submitError = submitRes.error;
-      }
+      // New bid and edit share one RPC: it revises this org's pending bid and
+      // its direct quote together, and refuses decided or countered quotes.
+      const submitRes = await submitMutation.mutateAsync({
+        amount,
+        note: bidNote || undefined,
+        orgName: currentOrganization?.name ?? '',
+      });
+      submitError = submitRes.error;
     } finally {
       setSubmitting(false);
     }
@@ -434,10 +415,7 @@ export function BidSheet({
     amountRaw,
     note,
     isEditMode,
-    existingBid,
-    updateMutation,
     submitMutation,
-    orgId,
     currentOrganization?.name,
   ]);
 

@@ -2515,6 +2515,7 @@ export function LoadCenterView({
                       renderColumnBody={(col) =>
                         col.id === "OPEN" ? (
                           <NetworkLoadPoolList
+                            orgId={orgId}
                             openLoads={getLoadOpenPoolUniverse}
                             shownLoads={col.loads}
                             canQuote={Boolean(orgId)}
@@ -2570,6 +2571,7 @@ export function LoadCenterView({
                 ) : null}
                 {statusFilterTab === "OPEN" ? (
                   <NetworkLoadPoolList
+                    orgId={orgId}
                     openLoads={findWorkOpenPoolLoads}
                     shownLoads={filteredFindWorkList}
                     canQuote={Boolean(orgId)}
@@ -2749,6 +2751,7 @@ export function LoadCenterView({
         onQuotePool={expandedKanbanMode === "get" ? setQuotePool : undefined}
         renderPoolMemberCard={renderGetLoadPoolMemberCard}
         poolLoads={expandedKanbanMode === "get" ? getLoadOpenPoolUniverse : undefined}
+        poolOrgId={orgId}
         initialOpenPoolId={kanbanInitialPoolId}
         canQuotePools={Boolean(orgId)}
       >

@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { FleetOwnerOpenLoad } from '@/features/driver/services/fleetOwnerLoads.service';
 import { FindLoadsContent } from '@/features/driver/components/AvailableLoadsScreen';
 import DriverMarketPoolScreen from '@/features/driver/components/DriverMarketPoolScreen';
-import { DRIVER_POOL_INCOMPLETE_MESSAGE } from '@/features/driver/utils/driverMarketPools.util';
+import {
+  POOL_CHANGED_MESSAGE,
+  POOL_TOO_LARGE_MESSAGE,
+} from '@/features/network/utils/pooledOpportunity.util';
 import { ROUTES } from '@/lib/routes';
 
 jest.mock('react-native', () => jest.requireActual('react-native'));
@@ -189,16 +192,73 @@ describe('Driver Marketplace list', () => {
 });
 
 describe('Driver Marketplace pool screen', () => {
-  it('a one-load pool is a pool with one rate', () => {
-    mockLoads = [load('a')];
+  /** get_dco_marketplace_pool shape: members carry no shipper names. */
+  function manifest(loads: FleetOwnerOpenLoad[], over: Record<string, unknown> = {}) {
+    return {
+      pool_key: 'chennai|bengaluru|32 ft',
+      as_of: '2026-10-07T00:00:00Z',
+      max_members: 150,
+      member_count: loads.length,
+      excluded_sponsored_count: 0,
+      complete: true,
+      fingerprint: 'fp-1',
+      members: loads.map(
+        ({
+          creator_organization_name: _n,
+          creator_organization_logo_url: _l,
+          creator_organization_avatar_seed: _s,
+          ...m
+        }) => ({ weight: null, ...m }),
+      ),
+      biddable_ids: loads.map((l) => l.id),
+      my_bids: [],
+      ...over,
+    };
+  }
+
+  let pools: ReturnType<typeof manifest>[] = [];
+  let submitResults: { data: unknown; error: unknown }[] = [];
+  const poolReads = () => mockRpc.mock.calls.filter((c) => c[0] === 'get_dco_marketplace_pool');
+  const bidCalls = () => mockRpc.mock.calls.filter((c) => c[0] === 'submit_market_bid');
+
+  beforeEach(() => {
+    pools = [manifest([load('a'), mockLoads[1]!])];
+    submitResults = [];
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'get_dco_marketplace_pool') {
+        return { data: pools.length > 1 ? pools.shift() : pools[0], error: null };
+      }
+      return submitResults.shift() ?? { data: { bid_id: 'bid' }, error: null };
+    });
+  });
+
+  async function openAndSubmit(s: ReturnType<typeof wrap>) {
+    fireEvent.press(await s.findByLabelText('Submit rate for pool'));
+    await act(async () => {
+      fireEvent.press(s.getByLabelText('Sheet: Submit rate for pool'));
+    });
+  }
+
+  it('reads the pool from the server by its canonical key', async () => {
     const s = wrap(<DriverMarketPoolScreen />);
-    expect(s.getByText('POOLED · 1 LOAD')).toBeTruthy();
+    await s.findByText('POOLED · 2 LOADS');
+    expect(poolReads()[0]?.[1]).toEqual({
+      p_pickup: 'Chennai',
+      p_drop: 'Bengaluru',
+      p_vehicle_type: '32 FT',
+    });
+  });
+
+  it('a one-load pool is a pool with one rate', async () => {
+    pools = [manifest([load('a')])];
+    const s = wrap(<DriverMarketPoolScreen />);
+    expect(await s.findByText('POOLED · 1 LOAD')).toBeTruthy();
     expect(s.getByText('All 1 eligible load')).toBeTruthy();
   });
 
-  it('is anonymous, offers exactly one pooled rate and no per-load choice', () => {
+  it('is anonymous, offers exactly one pooled rate and no per-load choice', async () => {
     const s = wrap(<DriverMarketPoolScreen />);
-    expect(s.getByText('POOLED · 2 LOADS')).toBeTruthy();
+    expect(await s.findByText('POOLED · 2 LOADS')).toBeTruthy();
     expect(s.getByText('Chennai → Bengaluru')).toBeTruthy();
     expect(s.getByText('Identity hidden')).toBeTruthy();
     expect(s.getByText('Your rate for this pooled opportunity')).toBeTruthy();
@@ -208,56 +268,82 @@ describe('Driver Marketplace pool screen', () => {
     expect(text(s)).not.toMatch(/Other Co/);
   });
 
-  it('submits one rate to every eligible member', async () => {
-    mockRpc.mockResolvedValue({ data: { bid_id: 'bid' }, error: null });
+  it('submits one rate to every eligible member, after re-reading the pool', async () => {
     const s = wrap(<DriverMarketPoolScreen />);
-    fireEvent.press(s.getByLabelText('Submit rate for pool'));
+    fireEvent.press(await s.findByLabelText('Submit rate for pool'));
     const sheet = s.getByTestId('bid-sheet');
     expect(within(sheet).getByText('Applies to all 2 eligible loads in this pool')).toBeTruthy();
     expect(text(s)).not.toMatch(IDENTITY);
     await act(async () => {
       fireEvent.press(s.getByLabelText('Sheet: Submit rate for pool'));
     });
-    expect(mockRpc.mock.calls.map((c) => [c[0], c[1].p_indent_id, c[1].p_amount])).toEqual([
-      ['submit_market_bid', 'a', 18500],
-      ['submit_market_bid', 'b', 18500],
+    expect(bidCalls().map((c) => [c[1].p_indent_id, c[1].p_amount])).toEqual([
+      ['a', 18500],
+      ['b', 18500],
     ]);
+    const order = mockRpc.mock.invocationCallOrder;
+    const names = mockRpc.mock.calls.map((c) => c[0]);
+    expect(order[names.indexOf('get_dco_marketplace_pool', 1)]).toBeLessThan(
+      order[names.indexOf('submit_market_bid')]!,
+    );
     expect(s.queryByTestId('bid-sheet')).toBeNull();
   });
 
   it('reports a partial backend failure honestly', async () => {
-    mockRpc
-      .mockResolvedValueOnce({ data: { bid_id: '1' }, error: null })
-      .mockResolvedValueOnce({ data: null, error: { message: 'indent_not_open' } });
+    submitResults = [
+      { data: { bid_id: '1' }, error: null },
+      { data: null, error: { message: 'indent_not_open' } },
+    ];
     const s = wrap(<DriverMarketPoolScreen />);
-    fireEvent.press(s.getByLabelText('Submit rate for pool'));
-    await act(async () => {
-      fireEvent.press(s.getByLabelText('Sheet: Submit rate for pool'));
-    });
+    await openAndSubmit(s);
     expect(s.getByText('Partly submitted: your rate reached 1 of 2 loads')).toBeTruthy();
     expect(text(s)).not.toMatch(IDENTITY);
   });
 
-  it('blocks submission when the pool cannot be read completely', () => {
-    mockReadComplete = false;
+  it('submits nothing when the pool changed between display and submit', async () => {
+    pools = [
+      manifest([load('a'), mockLoads[1]!]),
+      manifest([load('a'), mockLoads[1]!], { fingerprint: 'fp-2' }),
+    ];
     const s = wrap(<DriverMarketPoolScreen />);
-    expect(s.getByText(DRIVER_POOL_INCOMPLETE_MESSAGE)).toBeTruthy();
-    expect(s.getByText('2+')).toBeTruthy();
+    await openAndSubmit(s);
+    expect(bidCalls()).toHaveLength(0);
+    expect(s.queryByTestId('bid-sheet')).toBeNull();
+    expect(s.getByText(POOL_CHANGED_MESSAGE)).toBeTruthy();
+  });
+
+  it('blocks submission when the pool is larger than the server lists', async () => {
+    pools = [
+      manifest([], { member_count: 200, complete: false, fingerprint: null, biddable_ids: [] }),
+    ];
+    const s = wrap(<DriverMarketPoolScreen />);
+    expect(await s.findByText(POOL_TOO_LARGE_MESSAGE)).toBeTruthy();
+    expect(s.getByText('POOLED · 200 LOADS')).toBeTruthy();
     const cta = s.getByLabelText('Submit rate for pool');
     expect(cta.props.accessibilityState).toEqual({ disabled: true });
     fireEvent.press(cta);
     expect(s.queryByTestId('bid-sheet')).toBeNull();
-    expect(mockRpc).not.toHaveBeenCalled();
+    expect(bidCalls()).toHaveLength(0);
   });
 
-  it('only targets members still open for a bid', async () => {
-    mockBids = [{ indent_id: 'b', status: 'rejected' }];
-    mockRpc.mockResolvedValue({ data: { bid_id: 'bid' }, error: null });
+  it("only targets the server's biddable members", async () => {
+    pools = [
+      manifest([load('a'), mockLoads[1]!], {
+        biddable_ids: ['a'],
+        my_bids: [
+          {
+            id: 'bid-b',
+            indent_id: 'b',
+            status: 'rejected',
+            amount: 19000,
+            fee_payment_status: 'not_required',
+            updated_at: '2026-10-06T00:00:00Z',
+          },
+        ],
+      }),
+    ];
     const s = wrap(<DriverMarketPoolScreen />);
-    fireEvent.press(s.getByLabelText('Submit rate for pool'));
-    await act(async () => {
-      fireEvent.press(s.getByLabelText('Sheet: Submit rate for pool'));
-    });
-    expect(mockRpc.mock.calls.map((c) => c[1].p_indent_id)).toEqual(['a']);
+    await openAndSubmit(s);
+    expect(bidCalls().map((c) => c[1].p_indent_id)).toEqual(['a']);
   });
 });

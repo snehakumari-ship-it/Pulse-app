@@ -1,0 +1,5 @@
+# Bidder accept of an owner counter (Release 2): accept_direct_quote_counter.
+# Replaces the direct direct_quotes UPDATE in acceptDirectQuoteCounter.
+# Requires direct-quotes-hardening (20271007093000) for is_org_staff quote locking.
+# No RLS policy change. Apply only after explicit production authorization.
+20271007114500

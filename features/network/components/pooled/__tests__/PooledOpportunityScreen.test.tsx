@@ -61,8 +61,7 @@ jest.mock("@/features/network/services/findLoadsForOrg.service", () => {
   );
   return {
     ...actual,
-    listOpenMarketplaceLoadsPage: jest.fn(),
-    listMarketplaceSearchLanes: jest.fn(),
+    getOrgMarketplacePool: jest.fn(),
     listMyOrgMarketBids: jest.fn(),
     submitOrgPoolBid: jest.fn(),
   };
@@ -143,34 +142,44 @@ const LOADS = [
 
 const IDENTITY = /IND-0|acme steel|Acme Steel|Bolt Logistics|shipper-1|shipper-2/;
 
-function lane(count: number) {
+/** get_org_marketplace_pool shape: members carry no shipper names. */
+function manifest(
+  loads: ReturnType<typeof load>[],
+  over: Record<string, unknown> = {},
+) {
   return {
-    error: null,
-    lanes: [
-      {
-        pickup_area: "Bhandara",
-        drop_location: "Bengaluru",
-        vehicle_type: "40 FT",
-        load_count: count,
-      },
-    ],
+    pool_key: "bhandara|bengaluru|40 ft",
+    as_of: "2026-10-07T00:00:00Z",
+    max_members: 150,
+    member_count: loads.length,
+    excluded_sponsored_count: 0,
+    complete: true,
+    fingerprint: "fp-1",
+    members: loads.map(
+      ({ creator_organization_name: _n, is_sponsored: _s, reach_campaign_id: _r, ...m }) => ({
+        weight: null,
+        ...m,
+      }),
+    ),
+    biddable_ids: loads.map((l) => l.id),
+    organization_blocked: [],
+    org_bids: [],
+    ...over,
   };
 }
 
-function pagedLoads(total: number) {
-  const all = Array.from({ length: total }, (_, i) =>
-    load(`p${i}`, `IND-P${i}`),
-  );
-  svc.listOpenMarketplaceLoadsPage.mockImplementation(async (_org, offset = 0) => {
-    const page = all.slice(offset, offset + 15);
-    return {
-      error: null,
-      loads: page as never,
-      hasMore: page.length === 15,
-      nextOffset: page.length === 15 ? offset + 15 : undefined,
-    };
+function serves(...pools: ReturnType<typeof manifest>[]) {
+  for (const pool of pools) {
+    svc.getOrgMarketplacePool.mockResolvedValueOnce({ error: null, pool: pool as never });
+  }
+  svc.getOrgMarketplacePool.mockResolvedValue({
+    error: null,
+    pool: pools[pools.length - 1] as never,
   });
-  return all;
+}
+
+function manyLoads(total: number) {
+  return Array.from({ length: total }, (_, i) => load(`p${i}`, `IND-P${i}`));
 }
 
 function renderScreen() {
@@ -200,13 +209,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockDesktop = false;
   mockCanBid = true;
-  svc.listMarketplaceSearchLanes.mockResolvedValue(lane(3));
-  svc.listOpenMarketplaceLoadsPage.mockResolvedValue({
-    error: null,
-    loads: LOADS as never,
-    hasMore: false,
-    nextOffset: undefined,
-  });
+  svc.getOrgMarketplacePool.mockReset();
+  serves(manifest(LOADS));
   svc.listMyOrgMarketBids.mockResolvedValue({ error: null, bids: [] });
 });
 
@@ -235,47 +239,34 @@ describe("PooledOpportunityScreen — anonymous pooled requirement", () => {
   });
 
   it("treats a one-indent lane as a pool of one", async () => {
-    svc.listMarketplaceSearchLanes.mockResolvedValue(lane(1));
-    svc.listOpenMarketplaceLoadsPage.mockResolvedValue({
-      error: null,
-      loads: [LOADS[0]] as never,
-      hasMore: false,
-      nextOffset: undefined,
-    });
+    svc.getOrgMarketplacePool.mockReset();
+    serves(manifest([LOADS[0]!]));
     const screen = renderScreen();
     expect(await screen.findByText("1 LOAD IN THIS POOL")).toBeTruthy();
     expect(await screen.findByText("All 1 eligible load")).toBeTruthy();
     expect(screen.getByLabelText("Submit rate for pool")).toBeTruthy();
   });
 
-  it("drops contaminated RPC rows from the count and the bid scope", async () => {
-    svc.listOpenMarketplaceLoadsPage.mockResolvedValue({
-      error: null,
-      loads: [
-        ...LOADS,
-        load("x1", "IND-RURAL", { pickup_area: "Bhandara Rural" }),
-        load("x2", "IND-CONT", { vehicle_type: "Container 40 FT" }),
-        load("i4", "IND-004", {
-          pickup_area: " bhandara ",
-          drop_location: "BENGALURU",
-          vehicle_type: "40 ft",
-        }),
-      ] as never,
-      hasMore: false,
-      nextOffset: undefined,
-    });
+  it("bids only on the server's biddable set, while counting the whole pool", async () => {
+    const withColleagueBid = [
+      ...LOADS,
+      load("i4", "IND-004", { pickup_area: " bhandara ", drop_location: "BENGALURU" }),
+    ];
+    svc.getOrgMarketplacePool.mockReset();
+    serves(manifest(withColleagueBid, { biddable_ids: ["i1", "i2", "i3"] }));
     svc.submitOrgPoolBid.mockResolvedValue({
       blocked: null,
-      attempted: 4,
-      succeeded: ["i1", "i2", "i3", "i4"],
+      attempted: 3,
+      succeeded: ["i1", "i2", "i3"],
       failed: [],
     });
     const screen = renderScreen();
     expect(await screen.findByText("4 LOADS IN THIS POOL")).toBeTruthy();
+    expect(await screen.findByText("All 3 eligible loads")).toBeTruthy();
     await openSheetAndSubmit(screen);
     const [, pool] = svc.submitOrgPoolBid.mock.calls[0]!;
-    expect(pool.indentIds).toEqual(["i1", "i2", "i3", "i4"]);
-    expect(pool.memberIds.has("x1") || pool.memberIds.has("x2")).toBe(false);
+    expect(pool.indentIds).toEqual(["i1", "i2", "i3"]);
+    expect([...pool.memberIds].sort()).toEqual(["i1", "i2", "i3", "i4"]);
   });
 });
 
@@ -311,9 +302,10 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     ).toBeTruthy();
   });
 
-  it("reads every page of a 43-load pool automatically and bids on all 43", async () => {
-    svc.listMarketplaceSearchLanes.mockResolvedValue(lane(43));
-    const all = pagedLoads(43);
+  it("bids on all 43 members of a 43-load pool from one manifest read", async () => {
+    const all = manyLoads(43);
+    svc.getOrgMarketplacePool.mockReset();
+    serves(manifest(all));
     svc.submitOrgPoolBid.mockResolvedValue({
       blocked: null,
       attempted: 43,
@@ -322,28 +314,60 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     });
     const screen = renderScreen();
     expect(await screen.findByText("All 43 eligible loads")).toBeTruthy();
-    expect(
-      svc.listOpenMarketplaceLoadsPage.mock.calls.map((c) => c[1]),
-    ).toEqual([0, 15, 30]);
+    expect(svc.getOrgMarketplacePool).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Load more/i)).toBeNull();
     await openSheetAndSubmit(screen);
+    expect(svc.getOrgMarketplacePool.mock.invocationCallOrder[1]).toBeLessThan(
+      svc.submitOrgPoolBid.mock.invocationCallOrder[0]!,
+    );
     const [, pool] = svc.submitOrgPoolBid.mock.calls[0]!;
-    expect(pool.indentIds).toHaveLength(43);
     expect(pool.indentIds).toEqual(all.map((l) => l.id));
   });
 
+  it("submits nothing when the pool changed between display and submit", async () => {
+    svc.getOrgMarketplacePool.mockReset();
+    serves(manifest(LOADS), manifest(LOADS, { fingerprint: "fp-2" }));
+    const screen = renderScreen();
+    await openSheetAndSubmit(screen);
+    expect(svc.submitOrgPoolBid).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("bid-sheet")).toBeNull();
+    expect(
+      await screen.findByText(
+        "This pool changed while you were bidding. Nothing was submitted — review the updated pool and submit again.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("submits nothing when the pool cannot be re-read", async () => {
+    svc.getOrgMarketplacePool.mockReset();
+    svc.getOrgMarketplacePool
+      .mockResolvedValueOnce({ error: null, pool: manifest(LOADS) as never })
+      .mockResolvedValue({ error: new Error("timeout"), pool: null });
+    const screen = renderScreen();
+    await openSheetAndSubmit(screen);
+    expect(svc.submitOrgPoolBid).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Couldn't load this pool. Nothing was submitted — try again."),
+    ).toBeTruthy();
+  });
+
   it("blocks a pool larger than Marketplace can read instead of bidding on part of it", async () => {
-    svc.listMarketplaceSearchLanes.mockResolvedValue(lane(200));
-    pagedLoads(200);
+    svc.getOrgMarketplacePool.mockReset();
+    serves(
+      manifest([], {
+        member_count: 200,
+        complete: false,
+        fingerprint: null,
+        biddable_ids: [],
+      }),
+    );
     const screen = renderScreen();
     expect(
       await screen.findByText(
         "This pool contains more loads than Marketplace can currently process. Nothing was submitted.",
       ),
     ).toBeTruthy();
-    const offsets = svc.listOpenMarketplaceLoadsPage.mock.calls.map((c) => c[1]);
-    expect(Math.max(...(offsets as number[]))).toBe(150);
-    expect(offsets).not.toContain(165);
+    expect(screen.getByText("200 LOADS IN THIS POOL")).toBeTruthy();
     const cta = screen.getByLabelText("Submit rate for pool");
     expect(cta.props.accessibilityState).toMatchObject({ disabled: true });
     fireEvent.press(cta);
@@ -393,6 +417,32 @@ describe("PooledOpportunityScreen — one rate for the whole pool", () => {
     ).toBeTruthy();
     expect(screen.getByLabelText("Update rate for pool")).toBeTruthy();
     expect(svc.listMyOrgMarketBids).toHaveBeenCalledWith("org-1", 100);
+  });
+
+  it("takes the organization's bid state from the manifest, including a colleague's bid", async () => {
+    svc.getOrgMarketplacePool.mockReset();
+    serves(
+      manifest(LOADS, {
+        biddable_ids: ["i2", "i3"],
+        org_bids: [
+          {
+            id: "b2",
+            indent_id: "i1",
+            status: "pending",
+            amount: 19000,
+            fee_payment_status: "not_required",
+            is_mine: false,
+            my_status: null,
+            updated_at: "2026-10-06T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    const screen = renderScreen();
+    expect(
+      await screen.findByLabelText("Pool status: Your bid submitted"),
+    ).toBeTruthy();
+    expect(screen.getByText("All 2 eligible loads")).toBeTruthy();
   });
 
   it("disables the rate for roles without the bid capability", async () => {
@@ -470,20 +520,14 @@ describe("PooledOpportunityScreen — identity gate", () => {
 
 describe("PooledOpportunityScreen — states and layout", () => {
   it("shows error with Retry, then empty copy", async () => {
-    svc.listOpenMarketplaceLoadsPage.mockResolvedValueOnce({
+    svc.getOrgMarketplacePool.mockReset();
+    svc.getOrgMarketplacePool.mockResolvedValueOnce({
       error: new Error("timeout"),
-      loads: [],
-      hasMore: false,
-      nextOffset: undefined,
+      pool: null,
     });
     const screen = renderScreen();
     expect(await screen.findByText("Couldn't load this pool.")).toBeTruthy();
-    svc.listOpenMarketplaceLoadsPage.mockResolvedValueOnce({
-      error: null,
-      loads: [],
-      hasMore: false,
-      nextOffset: undefined,
-    });
+    serves(manifest([]));
     fireEvent.press(screen.getByText("Retry"));
     expect(
       await screen.findByText("No loads in this pool are open right now."),
@@ -498,12 +542,13 @@ describe("PooledOpportunityScreen — states and layout", () => {
     expect(screen.getByTestId("pool-identity-gate-hidden")).toBeTruthy();
   });
 
-  it("fetches only this pool's lane loads", async () => {
+  it("reads only this pool's manifest, by lane key", async () => {
     const screen = renderScreen();
     await waitFor(() =>
-      expect(svc.listOpenMarketplaceLoadsPage).toHaveBeenCalledTimes(1),
+      expect(svc.getOrgMarketplacePool).toHaveBeenCalledTimes(1),
     );
-    expect(svc.listOpenMarketplaceLoadsPage.mock.calls[0]?.[3]).toEqual({
+    expect(svc.getOrgMarketplacePool.mock.calls[0]?.[0]).toBe("org-1");
+    expect(svc.getOrgMarketplacePool.mock.calls[0]?.[1]).toEqual({
       pickup: "Bhandara",
       drop: "Bengaluru",
       vehicleType: "40 FT",

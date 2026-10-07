@@ -73,6 +73,57 @@ export async function submitDcoPoolBid(
   });
 }
 
+export type DcoMarketplacePoolMember = {
+  id: string;
+  indent_number: string | null;
+  pickup_area: string | null;
+  drop_location: string | null;
+  vehicle_type: string | null;
+  load_type: string | null;
+  pickup_date: string | null;
+  status: string | null;
+  circulation_target: string | null;
+  rate_offer: number | null;
+  weight: number | null;
+  creator_organization_id: string | null;
+  created_at: string | null;
+};
+
+/** get_dco_marketplace_pool: the caller-scoped DCO pool, its biddable set and own bids. */
+export type DcoMarketplacePoolManifest = {
+  pool_key: string;
+  as_of: string;
+  max_members: number;
+  member_count: number;
+  excluded_sponsored_count: number;
+  complete: boolean;
+  fingerprint: string | null;
+  members: DcoMarketplacePoolMember[];
+  biddable_ids: string[];
+  my_bids: {
+    id: string;
+    indent_id: string;
+    status: MarketBidStatus;
+    amount: number;
+    fee_payment_status: FeePaymentStatus;
+    updated_at: string;
+  }[];
+};
+
+export async function getDcoMarketplacePool(key: {
+  pickup: string;
+  drop: string;
+  vehicleType: string;
+}): Promise<{ error: Error | null; pool: DcoMarketplacePoolManifest | null }> {
+  const { data, error } = await supabase().rpc('get_dco_marketplace_pool', {
+    p_pickup: key.pickup,
+    p_drop: key.drop,
+    p_vehicle_type: key.vehicleType,
+  });
+  if (error) return { error: new Error(error.message), pool: null };
+  return { error: null, pool: (data ?? null) as DcoMarketplacePoolManifest | null };
+}
+
 /** This bidder's own bid on one indent, if any — RLS permits reading own rows. */
 export async function getMyMarketBidForIndent(
   uid: string,

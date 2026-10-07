@@ -1,7 +1,9 @@
 /**
  * Driver Marketplace pooled opportunity: one pickup × drop × vehicle pool from
- * the DCO open-loads feed, bid on with one rate for every eligible load. The
- * shipper stays anonymous and no individual load can be picked or bid on here.
+ * the server DCO manifest (get_dco_marketplace_pool), bid on with one rate for
+ * every eligible load; the scope is re-read and fingerprint-checked before any
+ * write. The shipper stays anonymous and no individual load can be picked or
+ * bid on here.
  */
 import {
   DRIVER_DETAIL_HORIZONTAL_PAD,
@@ -15,29 +17,33 @@ import { MarketLoadBidSheet } from '@/features/driver/components/MarketLoadBidSh
 import { isLoadCompatibleWithFleet } from '@/features/driver/services/fleetOwnerLoads.service';
 import {
   formatMarketBidSubmitError,
+  getDcoMarketplacePool,
   submitDcoPoolBid,
 } from '@/features/driver/services/marketBids.service';
 import {
   driverPoolEyebrow,
   driverPoolReadiness,
-  summarizeDriverPool,
+  summarizeDcoManifestPool,
 } from '@/features/driver/utils/driverMarketPools.util';
 import { plural, PoolBidPanel } from '@/features/network/components/pooled/PoolBidPanel';
 import {
   POOL_STATE_COPY,
+  POOL_TOO_LARGE_MESSAGE,
+  poolDriftResult,
   poolKey,
+  poolKeyId,
   poolSubmissionBlockReason,
   type PoolBidSubmissionResult,
 } from '@/features/network/utils/pooledOpportunity.util';
 import { isVehicleTypeCompatibleWithFleet } from '@/features/marketplace/utils/fleetFit.util';
 import { formatINR } from '@/lib/format';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
-import { useFleetOwnerOpenLoadsQuery } from '@/lib/queries/useFleetOwnerOpenLoadsQuery';
 import { useMyMarketBidsQuery } from '@/lib/queries/useMyMarketBidsQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
+import { STALE } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { ROUTES } from '@/lib/routes';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -85,7 +91,21 @@ export default function DriverMarketPoolScreen() {
   const keyReady = !!(key.pickup && key.drop && key.vehicleType);
 
   const { marketplaceAllowed, isLoading: modeLoading } = useDriverOperatingModeQuery(uid);
-  const { loads, readComplete, isLoading, error, refetch } = useFleetOwnerOpenLoadsQuery(uid);
+  const poolId = keyReady ? poolKeyId(key) : '';
+  const poolQueryKey = queryKeys.driverApp.dcoMarketPool(uid, poolId);
+  const poolQ = useQuery({
+    queryKey: poolQueryKey,
+    queryFn: async () => {
+      const { error: poolError, pool } = await getDcoMarketplacePool(key);
+      if (poolError) throw poolError;
+      if (!pool) throw new Error('Pool not found.');
+      return pool;
+    },
+    enabled: !!uid && keyReady && marketplaceAllowed,
+    staleTime: STALE.frequent,
+  });
+  const { isLoading, error, refetch } = poolQ;
+  const manifest = poolQ.data ?? null;
   const { bids } = useMyMarketBidsQuery(uid);
   const { vehicles } = useOwnerVehiclesQuery(uid);
 
@@ -102,19 +122,26 @@ export default function DriverMarketPoolScreen() {
   );
 
   const summary = useMemo(
-    () => summarizeDriverPool({ key, loads, bids, priorMemberIds, canBid }),
-    [key, loads, bids, priorMemberIds, canBid],
+    () => summarizeDcoManifestPool({ manifest, bids, priorMemberIds, canBid }),
+    [manifest, bids, priorMemberIds, canBid],
   );
   const members = summary.members;
   const eligibleCount = summary.biddableIds.length;
-  const readiness = driverPoolReadiness({ readComplete, eligibleCount });
-  const countLabel = plural(members.length, 'load');
+  const readiness = !manifest
+    ? { ready: false, blocked: null }
+    : manifest.complete
+      ? driverPoolReadiness({ readComplete: true, eligibleCount })
+      : { ready: false, blocked: POOL_TOO_LARGE_MESSAGE };
+  /** Server member count: the whole pool, also when it is too large to list. */
+  const poolCount = manifest?.member_count ?? members.length;
+  const countLabel = plural(poolCount, 'load');
   const targetCount = bidTargets?.length ?? 0;
   const targetsLabel = plural(targetCount, 'eligible load');
 
   const refreshAfterBid = () => {
     if (!uid) return;
     void queryClient.invalidateQueries({ queryKey: queryKeys.driverApp.myMarketBids(uid) });
+    void queryClient.invalidateQueries({ queryKey: poolQueryKey });
     void queryClient.invalidateQueries({
       queryKey: queryKeys.driverApp.fleetOwnerOpenLoads(uid),
     });
@@ -132,12 +159,24 @@ export default function DriverMarketPoolScreen() {
       setBidError(blocked);
       return false;
     }
+    const { error: freshError, pool: fresh } = await getDcoMarketplacePool(key);
+    if (freshError || !fresh) {
+      setBidError("Couldn't load this pool. Nothing was submitted — try again.");
+      return false;
+    }
+    if (!fresh.complete || fresh.fingerprint !== manifest?.fingerprint) {
+      queryClient.setQueryData(poolQueryKey, fresh);
+      setBidTargets(null);
+      setBidError(undefined);
+      setResult(poolDriftResult(fresh.complete));
+      return false;
+    }
     const preferredVehicle =
       activeVehicles.find((v) =>
         members[0] ? isLoadCompatibleWithFleet(members[0], [v.vehicle_type]) : false,
       ) ?? activeVehicles[0];
     const outcome = await submitDcoPoolBid(
-      { indentIds: bidTargets, memberIds: summary.memberIds },
+      { indentIds: bidTargets, memberIds: new Set(fresh.members.map((m) => m.id)) },
       amount,
       preferredVehicle?.id ?? null,
     );
@@ -190,21 +229,21 @@ export default function DriverMarketPoolScreen() {
         <Text style={styles.retryText}>Retry</Text>
       </Pressable>
     </View>
-  ) : members.length === 0 && summary.awardedBids.length === 0 ? (
+  ) : poolCount === 0 && summary.awardedBids.length === 0 ? (
     <Text style={[styles.message, { color: colors.textMuted }]}>
       No loads in this pool are open right now.
     </Text>
   ) : (
     <>
       <View style={styles.card} testID="driver-pool-requirement">
-        <Text style={styles.eyebrow}>{driverPoolEyebrow(members.length, readComplete)}</Text>
+        <Text style={styles.eyebrow}>{driverPoolEyebrow(poolCount, true)}</Text>
         <Text style={styles.route} numberOfLines={2}>
           {key.pickup} → {key.drop}
         </Text>
         <Text style={styles.stateDetail}>{POOL_STATE_COPY[summary.state].detail}</Text>
         <View style={styles.facts}>
           <Fact label="Vehicle" value={key.vehicleType} />
-          <Fact label="Loads in pool" value={readComplete ? String(members.length) : `${members.length}+`} />
+          <Fact label="Loads in pool" value={String(poolCount)} />
           <Fact
             label="Pickup window"
             value={pickupWindow(summary.earliestPickup, summary.latestPickup) ?? 'Not listed'}
