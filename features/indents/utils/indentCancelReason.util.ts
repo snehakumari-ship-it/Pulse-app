@@ -3,7 +3,7 @@
  * "Indent expired" is recorded as status `expired`; the other three as `cancelled`.
  */
 export const INDENT_CANCEL_REASONS = [
-  { id: "cancelled_by_client", label: "Cancelled by client" },
+  { id: "client_cancelled", label: "Cancelled by client" },
   { id: "indent_expired", label: "Indent expired" },
   { id: "no_rates_available", label: "No rates available" },
   { id: "wrong_entry", label: "Wrong entry" },

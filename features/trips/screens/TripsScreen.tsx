@@ -539,7 +539,7 @@ export default function TripsScreen() {
     canViewIndentPools && indentPoolView.view === "indents";
   const failedReasonCounts = useMemo(() => {
     const counts: Record<IndentCancelReasonId, number> = {
-      cancelled_by_client: 0,
+      client_cancelled: 0,
       indent_expired: 0,
       no_rates_available: 0,
       wrong_entry: 0,
