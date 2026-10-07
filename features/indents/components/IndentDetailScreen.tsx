@@ -175,6 +175,17 @@ const LOCKED_INDENT_STATUSES = new Set([
   "broadcast",
 ]);
 
+/** Edit stays locked while a load is broadcast. Cancel stays available. */
+const CANCEL_BLOCKED_STATUSES = new Set([
+  "awarded",
+  "assigned",
+  "deployed",
+  "completed",
+  "cancelled",
+  "closed",
+  "expired",
+]);
+
 const SUPPLIER_BID_ENABLED_STATUSES = new Set([
   "open",
   "pending",
@@ -1072,7 +1083,7 @@ export function IndentDetailScreen({
   const canCancelLoad =
     canUseSuppliers &&
     isOwner &&
-    !isLockedStatus &&
+    !CANCEL_BLOCKED_STATUSES.has(statusLower) &&
     canSurface("tripops.indents.cancel");
   const cancelIndentButton = canCancelLoad ? (
     <TouchableOpacity
@@ -2771,14 +2782,16 @@ const styles = StyleSheet.create({
   },
   footerCancelBtn: {
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Theme.negative,
     backgroundColor: Theme.screenBackground,
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: 8,
     marginRight: 8,
+    flexShrink: 0,
   },
   footerCancelBtnMobile: {
     minHeight: 36,
@@ -2872,6 +2885,8 @@ const styles = StyleSheet.create({
   },
   footerListeningPill: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     height: 44,
     borderRadius: 14,
     backgroundColor: Theme.positiveMuted,

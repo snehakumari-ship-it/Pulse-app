@@ -1381,59 +1381,60 @@ export function TripsHubTableView({
     toolbarCountLabel ??
     `Showing ${rowsForTableBody.length} of ${displayedTrips.length} trips`;
 
-  const toolbarHasReasonTags = toolbarTags?.some((tag) => tag.kind === "reason");
-  const toolbarStatusTags =
-    toolbarTags && toolbarTags.length > 0 ? (
-      <View
-        style={[
-          styles.indentStatusTagRow,
-          toolbarHasReasonTags &&
-            useDesktopToolbarRow &&
-            styles.indentStatusTagRowExpanded,
-        ]}
-      >
-        {toolbarTags.map((tag) => {
-          const tone = indentStatusTagTone(tag.id);
-          return (
-            <TouchableOpacity
-              key={tag.id}
+  const renderIndentStatusTags = (
+    tags: NonNullable<typeof toolbarTags>,
+  ) => (
+    <View style={styles.indentStatusTagRow}>
+      {tags.map((tag) => {
+        const tone = indentStatusTagTone(tag.id);
+        return (
+          <TouchableOpacity
+            key={tag.id}
+            style={[
+              styles.indentStatusTag,
+              {
+                backgroundColor: tag.selected ? tone.selectedBg : tone.bg,
+                borderColor: tag.selected ? tone.selectedBorder : tone.border,
+              },
+            ]}
+            onPress={tag.onPress}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityState={{ selected: tag.selected }}
+            accessibilityLabel={tag.accessibilityLabel ?? tag.label}
+          >
+            <View
               style={[
-                styles.indentStatusTag,
+                styles.indentStatusTagDot,
                 {
-                  backgroundColor: tag.selected ? tone.selectedBg : tone.bg,
-                  borderColor: tag.selected ? tone.selectedBorder : tone.border,
+                  backgroundColor: tag.selected ? tone.selectedDot : tone.dot,
                 },
               ]}
-              onPress={tag.onPress}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityState={{ selected: tag.selected }}
-              accessibilityLabel={tag.accessibilityLabel ?? tag.label}
+            />
+            <Text
+              style={[
+                styles.indentStatusTagText,
+                {
+                  color: tag.selected ? tone.selectedText : tone.text,
+                },
+              ]}
+              numberOfLines={1}
             >
-              <View
-                style={[
-                  styles.indentStatusTagDot,
-                  {
-                    backgroundColor: tag.selected
-                      ? tone.selectedDot
-                      : tone.dot,
-                  },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.indentStatusTagText,
-                  {
-                    color: tag.selected ? tone.selectedText : tone.text,
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {tag.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+              {tag.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+  const statusToolbarTags = (toolbarTags ?? []).filter((tag) => tag.kind !== "reason");
+  const reasonToolbarTags = (toolbarTags ?? []).filter((tag) => tag.kind === "reason");
+  const toolbarStatusTags =
+    statusToolbarTags.length > 0 ? renderIndentStatusTags(statusToolbarTags) : null;
+  const toolbarReasonTags =
+    reasonToolbarTags.length > 0 ? (
+      <View style={styles.indentFailedReasonRow}>
+        {renderIndentStatusTags(reasonToolbarTags)}
       </View>
     ) : null;
 
@@ -1862,6 +1863,8 @@ export function TripsHubTableView({
           </>
         )}
       </View>
+
+      {toolbarReasonTags}
 
       {renderAboveBody}
 
@@ -3767,7 +3770,7 @@ const styles = StyleSheet.create({
     gap: 6,
     width: "100%",
     minWidth: 0,
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     justifyContent: "flex-start",
   },
   auditToolbarMobileCards: {
@@ -4008,13 +4011,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    flexShrink: 0,
-  },
-  indentStatusTagRowExpanded: {
-    flex: 1,
     flexShrink: 1,
     flexWrap: "wrap",
     minWidth: 0,
+  },
+  indentFailedReasonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+    width: "100%",
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    backgroundColor: Theme.screenBackground,
   },
   indentStatusTag: {
     minHeight: 26,
