@@ -71,6 +71,11 @@ export type ComplianceTripsTableProps = {
   /** Date column sort. The page owns this so pagination and export follow it. */
   dateSort?: RequiredDateSort;
   onDateSortChange?: (sort: RequiredDateSort) => void;
+  /**
+   * When false, Date is a plain header and row order is left to the parent
+   * (e.g. Advance Processed newest-posted sort while search uses this table).
+   */
+  dateSortEnabled?: boolean;
   /** POD Received stage only: IBond column. */
   showIbondColumn?: boolean;
 };
@@ -542,6 +547,7 @@ export function ComplianceTripsTable({
   compliancePendingLayout = false,
   dateSort,
   onDateSortChange,
+  dateSortEnabled = true,
   showIbondColumn = false,
 }: ComplianceTripsTableProps) {
   const [internalDateSort, setInternalDateSort] = useState<RequiredDateSort>("desc");
@@ -553,10 +559,11 @@ export function ComplianceTripsTable({
   };
 
   const sortedSummaries = useMemo(() => {
+    if (!dateSortEnabled) return summaries;
     const copy = [...summaries];
     copy.sort((a, b) => compareComplianceSummariesByEvent(a, b, requiredDateSort));
     return copy;
-  }, [summaries, requiredDateSort]);
+  }, [summaries, requiredDateSort, dateSortEnabled]);
 
   return (
     <View style={styles.tableScroll}>
@@ -564,11 +571,17 @@ export function ComplianceTripsTable({
         <View style={[styles.row, styles.headerRow]}>
           <View style={styles.expandToggle} />
           <Text style={[styles.cell, styles.colTripId, styles.headerText]}>Trip ID</Text>
-          <SortHeader
-            label="Date"
-            sort={requiredDateSort}
-            onToggle={toggleDateSort}
-          />
+          {dateSortEnabled ? (
+            <SortHeader
+              label="Date"
+              sort={requiredDateSort}
+              onToggle={toggleDateSort}
+            />
+          ) : (
+            <View style={styles.colRequiredDate}>
+              <Text style={[styles.cell, styles.headerText]}>Date</Text>
+            </View>
+          )}
           <Text style={[styles.cell, styles.colLoc, styles.headerText]}>From</Text>
           <Text style={[styles.cell, styles.colLoc, styles.headerText]}>To</Text>
           <Text style={[styles.cell, styles.colEway, styles.headerText]}>E-way Bill</Text>

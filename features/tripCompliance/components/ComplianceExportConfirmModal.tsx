@@ -1,6 +1,6 @@
 /**
  * Compact confirm card for Compliance → Export Report (Verified by default;
- * Advance Processed passes its own subtitle and tiles).
+ * Advance Processed passes its own subtitle and a single total tile).
  */
 import Theme from "@/constants/Theme";
 import { COMPLIANCE_STAGE_TONE } from "@/features/tripCompliance/utils/complianceCardVisual.util";
@@ -62,7 +62,11 @@ export function ComplianceExportConfirmModal({
     { key: "verified", label: "Verified", value: verified, tone: VERIFIED_TONE },
     { key: "rejected", label: "Rejected", value: rejected, tone: REJECTED_TONE },
   ];
-  const total = includedCount != null ? Math.max(0, Math.floor(includedCount)) : verified + rejected;
+  const singleStat = stats.length === 1;
+  const total =
+    includedCount != null
+      ? Math.max(0, Math.floor(includedCount))
+      : stats.reduce((sum, s) => sum + Math.max(0, Math.floor(s.value)), 0);
   const ready = !preparing && total > 0;
   const confirmDisabled = !ready || exporting;
 
@@ -96,40 +100,67 @@ export function ComplianceExportConfirmModal({
             </View>
           </View>
 
-          <View style={styles.stats}>
+          <View style={[styles.stats, singleStat && styles.statsSingle]}>
             {stats.map((stat) => (
               <View
                 key={stat.key}
-                style={styles.statTile}
+                style={[styles.statTile, singleStat && styles.statTileSingle]}
                 accessible
-                accessibilityLabel={`${stat.value} ${stat.label.toLowerCase()} ${stat.value === 1 ? "trip" : "trips"}`}
+                accessibilityLabel={`${stat.value} ${stat.label.toLowerCase()}`}
               >
-                <View style={styles.statLabelRow}>
-                  <View style={[styles.statDot, { backgroundColor: stat.tone.fg }]} />
-                  <Text style={styles.statLabel}>{stat.label}</Text>
-                </View>
-                {preparing ? (
-                  <View style={styles.statValueLoading}>
-                    <ActivityIndicator size="small" color={Theme.textMuted} />
-                  </View>
+                {singleStat ? (
+                  <>
+                    <Text style={styles.statLabelSingle}>{stat.label}</Text>
+                    {preparing ? (
+                      <View style={styles.statValueLoadingSingle}>
+                        <ActivityIndicator size="small" color={Theme.textMuted} />
+                      </View>
+                    ) : (
+                      <Text
+                        style={[
+                          styles.statValueSingle,
+                          stat.value > 0 && { color: stat.tone.fg },
+                        ]}
+                      >
+                        {stat.value}
+                      </Text>
+                    )}
+                    <Text style={styles.statUnitSingle}>
+                      {stat.value === 1 ? "trip in this stage" : "trips in this stage"}
+                    </Text>
+                  </>
                 ) : (
-                  <Text style={[styles.statValue, stat.value > 0 && { color: stat.tone.fg }]}>
-                    {stat.value}
-                  </Text>
+                  <>
+                    <View style={styles.statLabelRow}>
+                      <View style={[styles.statDot, { backgroundColor: stat.tone.fg }]} />
+                      <Text style={styles.statLabel}>{stat.label}</Text>
+                    </View>
+                    {preparing ? (
+                      <View style={styles.statValueLoading}>
+                        <ActivityIndicator size="small" color={Theme.textMuted} />
+                      </View>
+                    ) : (
+                      <Text style={[styles.statValue, stat.value > 0 && { color: stat.tone.fg }]}>
+                        {stat.value}
+                      </Text>
+                    )}
+                    <Text style={styles.statUnit}>{stat.value === 1 ? "trip" : "trips"}</Text>
+                  </>
                 )}
-                <Text style={styles.statUnit}>{stat.value === 1 ? "trip" : "trips"}</Text>
               </View>
             ))}
           </View>
 
           {preparing ? (
-            <Text style={styles.message}>Preparing payment details…</Text>
+            <Text style={[styles.message, singleStat && styles.messageCentered]}>
+              Preparing payment details…
+            </Text>
           ) : ready ? (
-            <Text style={styles.message}>
+            <Text style={[styles.message, singleStat && styles.messageCentered]}>
               {total} {total === 1 ? "trip" : "trips"} will be included in the report
             </Text>
           ) : (
-            <Text style={styles.emptyHint}>{emptyHint}</Text>
+            <Text style={[styles.emptyHint, singleStat && styles.messageCentered]}>{emptyHint}</Text>
           )}
 
           <View style={styles.actions}>
@@ -223,6 +254,9 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 8,
   },
+  statsSingle: {
+    flexDirection: "column",
+  },
   statTile: {
     flex: 1,
     minWidth: 0,
@@ -233,6 +267,15 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
     gap: 2,
+  },
+  statTileSingle: {
+    flex: 0,
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    backgroundColor: Theme.brandBlueSoft,
+    borderColor: Theme.complianceTripCardBorder,
+    gap: 4,
   },
   statLabelRow: {
     flexDirection: "row",
@@ -246,6 +289,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     color: Theme.textSecondary,
   },
+  statLabelSingle: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: Theme.textSecondary,
+  },
   statValue: {
     marginTop: 2,
     fontSize: 24,
@@ -255,17 +305,42 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
     letterSpacing: -0.4,
   },
+  statValueSingle: {
+    marginTop: 2,
+    fontSize: 36,
+    lineHeight: 40,
+    fontWeight: "800",
+    color: Theme.textMuted,
+    fontVariant: ["tabular-nums"],
+    letterSpacing: -0.6,
+    textAlign: "center",
+  },
   statValueLoading: { marginTop: 2, height: 28, justifyContent: "center", alignItems: "flex-start" },
+  statValueLoadingSingle: {
+    marginTop: 2,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   statUnit: {
     fontSize: 11,
     fontWeight: "500",
     color: Theme.textMuted,
+  },
+  statUnitSingle: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.textMuted,
+    textAlign: "center",
   },
   message: {
     fontSize: 12,
     fontWeight: "500",
     lineHeight: 16,
     color: Theme.textMuted,
+  },
+  messageCentered: {
+    textAlign: "center",
   },
   emptyHint: {
     fontSize: 12,
