@@ -128,9 +128,12 @@ BEGIN
   RAISE NOTICE 'PASS: bid on manually-inactive-but-open post self-heals is_active';
 
   -- ── 5. Award: post deactivates, feed empties, late bid rejected ─────────
+  -- Only staff of the load-owning org may accept a quote (Gate 1A C2).
+  PERFORM set_config('request.jwt.claim.sub', v_shipper_usr::text, true);
   UPDATE public.direct_quotes SET status = 'accepted' WHERE indent_id = v_indent_id AND bidder_organization_id = v_bidder;
   UPDATE public.indents SET status = 'awarded' WHERE id = v_indent_id;
 
+  PERFORM set_config('request.jwt.claim.sub', v_bidder_usr::text, true);
   SELECT count(*) INTO v_feed_count FROM public.get_network_feed(v_bidder, 50, 0) WHERE id = v_post_id OR source_indent_id = v_indent_id;
   IF v_feed_count <> 0 THEN
     RAISE EXCEPTION 'FAIL: an awarded indent''s story must not appear in another org''s feed';
