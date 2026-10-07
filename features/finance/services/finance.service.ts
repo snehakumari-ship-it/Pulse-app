@@ -1150,52 +1150,6 @@ export async function getTransactionsByOrganizationAndContactId(
   return { error: null, transactions: rows.map(toLedgerRow) };
 }
 
-const COMPLIANCE_LEDGER_CATEGORIES_FOR_SUPPLIER_STATEMENT = [
-  "compliance_advance",
-  "compliance_balance",
-  "compliance_supplier_advance",
-  "compliance_supplier_balance",
-] as const;
-
-/**
- * Trip-linked Compliance settlement rows (client AR + supplier AP mirror).
- * Used by supplier Finance Statement so advances posted against the customer
- * still appear on the partner ledger for those trips.
- */
-export async function getComplianceTransactionsForTripIds(
-  orgId: string,
-  tripIds: readonly string[],
-): Promise<{ error: Error | null; transactions: LedgerRow[] }> {
-  const ids = [...new Set(tripIds.map((id) => id.trim()).filter(Boolean))];
-  if (!ids.length) return { error: null, transactions: [] };
-
-  let { data, error } = await supabase()
-    .from("transactions")
-    .select(LEDGER_TX_SELECT_WITH_TRIPS)
-    .eq("organization_id", orgId)
-    .in("trip_id", ids)
-    .in("ledger_category", [...COMPLIANCE_LEDGER_CATEGORIES_FOR_SUPPLIER_STATEMENT])
-    .order("transaction_date", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(500);
-
-  if (error && isMissingTripsDisplayTripIdError(error)) {
-    ({ data, error } = await supabase()
-      .from("transactions")
-      .select(LEDGER_TX_SELECT_WITH_TRIPS_LEGACY)
-      .eq("organization_id", orgId)
-      .in("trip_id", ids)
-      .in("ledger_category", [...COMPLIANCE_LEDGER_CATEGORIES_FOR_SUPPLIER_STATEMENT])
-      .order("transaction_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(500));
-  }
-
-  if (error) return { error: new Error(error.message), transactions: [] };
-  const rows = (data ?? []) as Array<Parameters<typeof toLedgerRow>[0]>;
-  return { error: null, transactions: rows.map(toLedgerRow) };
-}
-
 /** Fetch ledger transactions for a driver (contact_type=driver, contact_id=driverId). Used for driver LEDGER tab. */
 export async function getTransactionsByOrganizationAndDriver(
   orgId: string,

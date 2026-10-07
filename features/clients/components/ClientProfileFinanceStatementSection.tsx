@@ -19,11 +19,9 @@ import {
 } from "@/features/clients/components/clientProfileLedgerTrip.util";
 import { ClientProfileFinanceStatementModal } from "@/features/clients/components/ClientProfileFinanceStatementModal";
 import {
-  getComplianceTransactionsForTripIds,
   getTransactionsByOrganizationAndContactId,
   type LedgerRow,
 } from "@/features/finance/services/finance.service";
-import { mergeComplianceRowsIntoSupplierLedger } from "@/features/finance/utils/complianceSupplierLedger.util";
 import { getTripOperationalDisplay } from "@/features/operations/display";
 import { getTripsForOrg, type TripRow } from "@/features/trips/services/trips.service";
 import { STALE } from "@/lib/queryClient";
@@ -149,43 +147,8 @@ export function ClientProfileFinanceStatementSection({
     [tripsQ.data, clientId, isSupplier],
   );
   const clientTrips = partyTrips;
-  const supplierTripIds = useMemo(
-    () => (isSupplier ? partyTrips.map((t) => t.id) : []),
-    [isSupplier, partyTrips],
-  );
 
-  // Compliance posts customer Cash IN; supplier statement also needs those
-  // trip-linked rows (plus AP mirrors) so advances appear under the partner.
-  const complianceTxQ = useQuery({
-    queryKey: [
-      ...queryKeys.transactions.byContact(organizationId, clientId),
-      "complianceTripLinked",
-      supplierTripIds.join(","),
-    ],
-    queryFn: async () => {
-      const { transactions, error } = await getComplianceTransactionsForTripIds(
-        organizationId,
-        supplierTripIds,
-      );
-      if (error) throw error;
-      return transactions;
-    },
-    enabled: isSupplier && !!organizationId && supplierTripIds.length > 0,
-    staleTime: STALE.realtime,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
-  });
-
-  const txs = useMemo(() => {
-    const contactRows = txQ.data ?? [];
-    if (!isSupplier) return contactRows;
-    return mergeComplianceRowsIntoSupplierLedger(
-      contactRows,
-      complianceTxQ.data ?? [],
-      new Set(supplierTripIds),
-    );
-  }, [txQ.data, complianceTxQ.data, isSupplier, supplierTripIds]);
-
+  const txs = txQ.data ?? [];
   const tripById = useMemo(
     () => buildTripByIdMap(tripsQ.data ?? []),
     [tripsQ.data],

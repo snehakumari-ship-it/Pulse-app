@@ -780,8 +780,8 @@ export default function ComplianceScreen() {
     if (!orgId) return;
     const request = ++apExportRequest.current;
     setApExport({ open: true, preparing: true, exporting: false, rows: [] });
-    // Same newest-first order as the Advance Processed Cards / Table list.
-    prepareAdvanceProcessedReport(orgId, ordered)
+    // Stage-scoped (`filtered`), not cross-stage `searched` — then newest posted first.
+    prepareAdvanceProcessedReport(orgId, sortAdvanceProcessedSummaries(filtered))
       .then((rows) => {
         if (request !== apExportRequest.current) return;
         setApExport((cur) => ({ ...cur, preparing: false, rows }));
@@ -791,7 +791,7 @@ export default function ComplianceScreen() {
         setApExport((cur) => ({ ...cur, open: false, preparing: false }));
         alertMessage("Couldn't prepare report", error instanceof Error ? error.message : "Please try again.");
       });
-  }, [currentOrganization?.id, ordered]);
+  }, [currentOrganization?.id, filtered]);
 
   const closeAdvanceProcessedExport = useCallback(() => {
     apExportRequest.current += 1;
@@ -1163,8 +1163,9 @@ export default function ComplianceScreen() {
             }}
             canManageFinance={canManageFinance}
             compliancePendingLayout={stage === "compliance_pending"}
-            dateSort={tableDateSort}
-            onDateSortChange={setTableDateSort}
+            dateSort={isAdvanceProcessedStage ? undefined : tableDateSort}
+            onDateSortChange={isAdvanceProcessedStage ? undefined : setTableDateSort}
+            dateSortEnabled={!isAdvanceProcessedStage}
           />
         </ScrollView>
       ) : (
