@@ -19,7 +19,7 @@ import {
   formatCityStateLabel,
 } from "@/lib/placeCityState.util";
 import { scrollFocusedWebInputIntoView } from "@/lib/webKeyboard";
-import { WebOverlayPortal, webFixedFill } from "@/lib/webOverlayPortal";
+import { webFixedFill } from "@/lib/webOverlayPortal";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { MapPin, Search, X, ChevronDown } from "lucide-react-native";
 import { createTripDesktopStyles as desktopShellStyles } from "@/features/trips/components/add-trip/createTripDesktop.styles";
@@ -151,7 +151,19 @@ export function LocationSearchField({
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDropdown();
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeDropdown();
+      // The parent RN Web modal also closes on Escape keyup. Swallow that
+      // keyup so dismissing the place picker does not dismiss the form under it.
+      const swallowKeyUp = (up: KeyboardEvent) => {
+        if (up.key !== "Escape") return;
+        up.preventDefault();
+        up.stopPropagation();
+        document.removeEventListener("keyup", swallowKeyUp, true);
+      };
+      document.addEventListener("keyup", swallowKeyUp, true);
     };
     document.addEventListener("visibilitychange", closeIfHidden);
     document.addEventListener("keydown", onKeyDown);
@@ -172,14 +184,21 @@ export function LocationSearchField({
     onDropdownOpenChange?.(true);
     onFocusScroll?.();
     /**
-     * Do not auto-focus search — show popular / matching list first (same as
-     * vehicle-type picker). Keyboard only opens when the user taps search.
-     * Signup map sheet still focuses so typing starts immediately.
+     * On native, leave the list focused first so the keyboard does not cover
+     * popular places until the user taps search. Signup still focuses so
+     * typing starts immediately. Web focuses in an effect below — a parent
+     * modal's focus trap must release before the input can hold the cursor.
      */
-    if (isSignupSheet) {
+    if (isSignupSheet && Platform.OS !== "web") {
       setTimeout(() => modalInputRef.current?.focus(), 0);
     }
   }, [isSignupSheet, onDropdownOpenChange, onFocusScroll, value]);
+
+  useEffect(() => {
+    if (!dropdownOpen || Platform.OS !== "web") return;
+    const id = setTimeout(() => modalInputRef.current?.focus(), 50);
+    return () => clearTimeout(id);
+  }, [dropdownOpen]);
 
   const query = draft.trim();
   const popularForDisplay =
@@ -482,6 +501,7 @@ export function LocationSearchField({
       </Pressable>
       <View style={styles.centerWrap} pointerEvents="box-none">
         <View
+          pointerEvents="auto"
           style={[
             styles.sheet,
             isDesktopShell && styles.sheetWizard,
@@ -558,7 +578,8 @@ export function LocationSearchField({
                 autoCapitalize="words"
                 spellCheck={false}
                 autoComplete="off"
-                autoFocus={false}
+                autoFocus={Platform.OS === "web"}
+                selectTextOnFocus={Platform.OS === "web"}
                 compactChat
                 compactChatSize={isDesktopShell ? "md" : "sm"}
                 shellStyle={
@@ -695,20 +716,17 @@ export function LocationSearchField({
         )}
       </View>
       )}
-      {dropdownOpen &&
-        (Platform.OS === "web" ? (
-          <WebOverlayPortal>{overlayBody}</WebOverlayPortal>
-        ) : (
-          <Modal
-            visible
-            transparent
-            animationType="fade"
-            statusBarTranslucent
-            onRequestClose={closeDropdown}
-          >
-            {overlayBody}
-          </Modal>
-        ))}
+      {dropdownOpen ? (
+        <Modal
+          visible
+          transparent
+          animationType={Platform.OS === "web" ? "none" : "fade"}
+          statusBarTranslucent
+          onRequestClose={closeDropdown}
+        >
+          {overlayBody}
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -847,6 +865,7 @@ const styles = StyleSheet.create({
   },
   backdropPress: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
   },
   backdropDim: {
     flex: 1,
@@ -854,6 +873,7 @@ const styles = StyleSheet.create({
   },
   centerWrap: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Layout.screenPaddingHorizontal,

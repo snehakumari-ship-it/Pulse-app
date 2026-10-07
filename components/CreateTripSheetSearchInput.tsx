@@ -29,6 +29,7 @@ export interface CreateTripSheetSearchInputProps {
   autoCorrect?: boolean;
   spellCheck?: boolean;
   autoComplete?: TextInputProps["autoComplete"];
+  selectTextOnFocus?: boolean;
   /**
    * Dense strip matching Chat trip sidebar search (`ChatScreen` tripSearchScopeSearchWrap).
    */
@@ -53,6 +54,7 @@ export const CreateTripSheetSearchInput = forwardRef<
     autoCorrect = false,
     spellCheck = false,
     autoComplete = "off",
+    selectTextOnFocus = false,
     compactChat = false,
     compactChatSize = "md",
   },
@@ -101,6 +103,7 @@ export const CreateTripSheetSearchInput = forwardRef<
         autoCorrect={autoCorrect}
         spellCheck={spellCheck}
         autoComplete={autoComplete}
+        selectTextOnFocus={selectTextOnFocus}
         accessibilityLabel={accessibilityLabel ?? placeholder}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
