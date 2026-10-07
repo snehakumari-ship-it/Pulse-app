@@ -1,0 +1,6 @@
+# direct_quotes backend hardening (Release 2 Phase C): award_direct_quote (search_path '',
+# open/broadcast, anon revoked), set_direct_quote_assignment (new), submit_pulse_bid_with_direct_quote
+# (quote_locked, invalid_amount, indent-then-quote locking). Suite in supabase/tests/direct_quotes_hardening.
+# Bodies start from the live production definitions (is_org_staff), not the older in-repo text.
+# No RLS policy change. Apply only after explicit production authorization.
+20271007093000

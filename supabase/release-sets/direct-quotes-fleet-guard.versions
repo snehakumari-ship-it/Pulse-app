@@ -1,0 +1,7 @@
+# direct_quotes fleet trust boundary (Release 2 Phase D): trigger keeping driver_id / vehicle_id
+# inside the bidder organization on every write, so create_trip_from_direct_quote (production body,
+# 20271006184500, unchanged) only copies the bidder's own fleet onto the shipper trip.
+# Suite: supabase/tests/direct_quotes_hardening (40_fleet_belongs_to_bidder.sql).
+# Requires direct-quotes-hardening (20271007093000). No RLS policy change.
+# Apply only after explicit production authorization.
+20271007094500
