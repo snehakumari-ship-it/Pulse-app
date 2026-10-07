@@ -62,6 +62,8 @@ export interface TripFinanceAdjustmentsPanelProps {
   onViewNotePdf?: (adj: TripAdjustment) => void;
   onEditAdjustment?: (adj: TripAdjustment) => void;
   capturePaymentSlot?: ReactNode;
+  /** Pulse Exchange settlement; hidden by the panel when the trip is not enrolled. */
+  exchangeSlot?: ReactNode;
   layout?: ProvisionFinanceLayout;
 }
 
@@ -400,6 +402,9 @@ export const TripFinanceAdjustmentsPanel = memo(function TripFinanceAdjustmentsP
       {!isDesktop && props.capturePaymentSlot ? (
         <View style={styles.mobileCaptureFirst}>{props.capturePaymentSlot}</View>
       ) : null}
+      {!isDesktop && props.exchangeSlot ? (
+        <View style={styles.mobileCaptureFirst}>{props.exchangeSlot}</View>
+      ) : null}
 
       {props.onRequestDeduction && passThroughRecommendations.length > 0 ? (
         <ProvisionPassThroughCard
@@ -412,6 +417,7 @@ export const TripFinanceAdjustmentsPanel = memo(function TripFinanceAdjustmentsP
       {!isDesktop ? adjustmentLinesEl : null}
 
       {isDesktop ? props.capturePaymentSlot : null}
+      {isDesktop ? props.exchangeSlot : null}
 
       {isDesktop ? (
       <View style={styles.header}>

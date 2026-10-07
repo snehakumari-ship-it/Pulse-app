@@ -38,6 +38,7 @@ import {
   pushTripLedgerQuickEntry,
 } from "@/features/finance/ledger/tripLedgerEntryChooser";
 import { TripPayableReceivableSummaryCard } from "@/features/trips/components/trip-detail/adjustment/TripPayableReceivableSummaryCard";
+import { ExchangePaymentsPanel } from "@/features/marketplace/components/ExchangePaymentsPanel";
 import { TripLedgerTransactionPreviewModal } from "@/features/trips/components/trip-detail/TripLedgerTransactionPreviewModal";
 import { TripAuditLogPanel } from "@/features/trips/components/trip-detail/TripAuditLogPanel";
 import { TripPodStatusSection } from "@/features/trips/components/trip-detail/TripPodStatusSection";
@@ -3802,6 +3803,7 @@ export default function TripDetailScreen({
       }}
       onEditAdjustment={openProvisionEdit}
       capturePaymentSlot={financeCapturePaymentSlot}
+      exchangeSlot={<ExchangePaymentsPanel tripId={trip.id} />}
     />
   );
 

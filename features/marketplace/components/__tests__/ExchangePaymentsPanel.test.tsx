@@ -74,6 +74,22 @@ describe("ExchangePaymentsPanel", () => {
     expect(queryByTestId("exchange-payments-panel")).toBeNull();
   });
 
+  it("shows payer totals and Record payment made only on an enrolled Exchange trip", () => {
+    mockSummary = summary({
+      viewer_side: "payer",
+      payments: [],
+      claimed_amount: 0,
+      agreed_amount: 43500,
+    });
+    const { getByText, getByTestId } = render(<ExchangePaymentsPanel tripId="trip-191" />);
+
+    expect(getByTestId("exchange-payments-panel")).toBeTruthy();
+    expect(getByText("Pulse Exchange")).toBeTruthy();
+    expect(getByText("Agreed")).toBeTruthy();
+    expect(getByText("Marketplace settlement to Bidder Co")).toBeTruthy();
+    expect(getByText("Record payment made")).toBeTruthy();
+  });
+
   it("lets the other side confirm or reject a claim", () => {
     mockSummary = summary();
     const { getByText, queryByText } = render(<ExchangePaymentsPanel tripId="trip-1" />);
