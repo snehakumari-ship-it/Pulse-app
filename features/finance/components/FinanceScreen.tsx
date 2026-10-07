@@ -419,7 +419,6 @@ export function FinanceScreen() {
   const [financeDateModalVisible, setFinanceDateModalVisible] = useState(false);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
-  const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
   const [showAddDriverModal, setShowAddDriverModal] = useState(false);
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<LedgerRow | null>(null);
@@ -674,7 +673,6 @@ export function FinanceScreen() {
     setEntitiesRefreshKey,
     setShowAddClientModal,
     setShowAddSupplierModal,
-    setShowAddVehicleModal,
     setShowAddDriverModal,
   });
   const {
@@ -1401,7 +1399,6 @@ export function FinanceScreen() {
     () =>
       showTransactionModal ||
       showAddClientModal ||
-      showAddVehicleModal ||
       showAddDriverModal ||
       showAddSupplierModal ||
       showEditClientModal ||
@@ -1412,7 +1409,6 @@ export function FinanceScreen() {
     [
       showTransactionModal,
       showAddClientModal,
-      showAddVehicleModal,
       showAddDriverModal,
       showAddSupplierModal,
       showEditClientModal,
@@ -1954,9 +1950,6 @@ export function FinanceScreen() {
         }}
         onEditSupplierComplete={handleEditSupplierComplete}
         onEditSupplier={handleEditSupplier}
-        showAddVehicleModal={showAddVehicleModal}
-        onCloseAddVehicleModal={() => setShowAddVehicleModal(false)}
-        onAddVehicleComplete={handleAddVehicleComplete}
         showAddDriverModal={showAddDriverModal}
         onCloseAddDriverModal={() => setShowAddDriverModal(false)}
         onAddDriverInviteComplete={handleAddDriverInviteComplete}
