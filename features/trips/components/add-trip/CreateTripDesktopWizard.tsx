@@ -129,6 +129,7 @@ export function CreateTripDesktopWizard({
   const [partnerListExpanded, setPartnerListExpanded] = useState(() => !state.supplierId);
   const [selectedLaneId, setSelectedLaneId] = useState<string | null>(null);
   const [laneSearch, setLaneSearch] = useState("");
+  const [laneGateActive, setLaneGateActive] = useState(false);
   const debouncedLaneSearch = useDebouncedValue(laneSearch, 250);
 
   useEffect(() => {
@@ -619,7 +620,10 @@ export function CreateTripDesktopWizard({
           onClearLane={handleClearLane}
           laneSearch={laneSearch}
           onLaneSearchChange={setLaneSearch}
-          onLaneGateActiveChange={onLaneGateActiveChange}
+          onLaneGateActiveChange={(active) => {
+            setLaneGateActive(active);
+            onLaneGateActiveChange?.(active);
+          }}
           saleRateBasis={state.saleRateBasis}
           saleUnitRate={state.saleUnitRate}
           onSaleRateBasisChange={handleSaleRateBasisChange}
@@ -1026,7 +1030,7 @@ export function CreateTripDesktopWizard({
 
   const mobileKeypadFill =
     isMobileLayout &&
-    ((wizardStep === "client" && Boolean(state.clientId)) ||
+    ((wizardStep === "client" && Boolean(state.clientId) && !laneGateActive) ||
       (wizardStep === "source" &&
         state.supplySource === "aggregate" &&
         Boolean(state.supplierId)) ||

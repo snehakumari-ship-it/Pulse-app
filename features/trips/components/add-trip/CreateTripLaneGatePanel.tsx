@@ -36,7 +36,7 @@ export function CreateTripLaneGatePanel({
   compact = false,
 }: Props) {
   return (
-    <View style={[styles.root, compact && styles.rootCompact]}>
+    <View style={[styles.root, !compact && styles.rootFill, compact && styles.rootCompact]}>
       <View style={[styles.header, compact && styles.headerCompact]}>
         <Text style={[styles.kicker, compact && styles.kickerCompact]}>Lane preference</Text>
         <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={compact ? 1 : 2}>
@@ -71,7 +71,10 @@ export function CreateTripLaneGatePanel({
             color={Theme.textOnPrimary}
             strokeWidth={2.3}
           />
-          <Text style={[styles.modeChipTextActive, compact && styles.modeChipTextCompact]}>
+          <Text
+            style={[styles.modeChipTextActive, compact && styles.modeChipTextCompact]}
+            numberOfLines={1}
+          >
             Contract
           </Text>
         </View>
@@ -82,7 +85,12 @@ export function CreateTripLaneGatePanel({
           accessibilityLabel="Continue as adhoc trip"
         >
           <Route size={compact ? 11 : 13} color={METRONIC.text} strokeWidth={2.3} />
-          <Text style={[styles.modeChipText, compact && styles.modeChipTextCompact]}>Adhoc</Text>
+          <Text
+            style={[styles.modeChipText, compact && styles.modeChipTextCompact]}
+            numberOfLines={1}
+          >
+            Adhoc
+          </Text>
         </Pressable>
       </View>
 
@@ -132,13 +140,18 @@ export function CreateTripLaneGatePanel({
 
 const styles = StyleSheet.create({
   root: {
-    flex: 1,
     gap: 12,
     paddingBottom: 8,
+    width: "100%",
+    alignSelf: "stretch",
+  },
+  rootFill: {
+    flex: 1,
+    minHeight: 0,
   },
   rootCompact: {
-    gap: 8,
-    paddingBottom: 4,
+    gap: 10,
+    paddingBottom: 8,
   },
   header: {
     gap: 4,
@@ -201,18 +214,23 @@ const styles = StyleSheet.create({
   },
   modeRow: {
     flexDirection: "row",
+    alignItems: "stretch",
     gap: 8,
+    width: "100%",
+    flexShrink: 0,
   },
   modeRowCompact: {
-    gap: 6,
+    gap: 8,
   },
   modeChip: {
     flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: METRONIC.border,
@@ -220,9 +238,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   modeChipCompact: {
-    minHeight: 34,
-    borderRadius: 8,
-    gap: 5,
+    minHeight: 44,
+    borderRadius: 10,
+    gap: 6,
     paddingHorizontal: 8,
   },
   modeChipActive: {

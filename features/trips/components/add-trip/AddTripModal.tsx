@@ -385,7 +385,8 @@ export function AddTripModal({
     useEnterpriseSteps &&
     !isDesktopWizard &&
     wizardStep === "client" &&
-    Boolean(form.state.clientId);
+    Boolean(form.state.clientId) &&
+    !laneGateActive;
   const partnerRateFillBody =
     useEnterpriseSteps &&
     !isDesktopWizard &&
