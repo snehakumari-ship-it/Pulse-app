@@ -1032,6 +1032,8 @@ export type TripsHubTableViewProps = {
     selected: boolean;
     onPress: () => void;
     accessibilityLabel?: string;
+    /** Reason chips expand under Failed and use the failed tone. */
+    kind?: "status" | "reason";
   }>;
   /** Controlled hub search. When omitted, the table keeps internal search state. */
   searchQuery?: string;
@@ -1130,6 +1132,18 @@ function indentStatusTagTone(id: string): {
       dot: Theme.positive,
       selectedBg: Theme.positive,
       selectedBorder: Theme.positive,
+      selectedText: Theme.buttonDarkText,
+      selectedDot: Theme.buttonDarkText,
+    };
+  }
+  if (id === "failed" || id.startsWith("reason:")) {
+    return {
+      bg: Theme.screenBackground,
+      border: Theme.negative,
+      text: Theme.negative,
+      dot: Theme.negative,
+      selectedBg: Theme.negative,
+      selectedBorder: Theme.negative,
       selectedText: Theme.buttonDarkText,
       selectedDot: Theme.buttonDarkText,
     };
@@ -1367,9 +1381,17 @@ export function TripsHubTableView({
     toolbarCountLabel ??
     `Showing ${rowsForTableBody.length} of ${displayedTrips.length} trips`;
 
+  const toolbarHasReasonTags = toolbarTags?.some((tag) => tag.kind === "reason");
   const toolbarStatusTags =
     toolbarTags && toolbarTags.length > 0 ? (
-      <View style={styles.indentStatusTagRow}>
+      <View
+        style={[
+          styles.indentStatusTagRow,
+          toolbarHasReasonTags &&
+            useDesktopToolbarRow &&
+            styles.indentStatusTagRowExpanded,
+        ]}
+      >
         {toolbarTags.map((tag) => {
           const tone = indentStatusTagTone(tag.id);
           return (
@@ -3987,6 +4009,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     flexShrink: 0,
+  },
+  indentStatusTagRowExpanded: {
+    flex: 1,
+    flexShrink: 1,
+    flexWrap: "wrap",
+    minWidth: 0,
   },
   indentStatusTag: {
     minHeight: 26,

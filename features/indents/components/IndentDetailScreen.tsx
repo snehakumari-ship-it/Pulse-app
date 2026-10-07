@@ -12,6 +12,7 @@ import type { IndentAwardCelebrationData } from "@/features/indents/components/b
 import { IndentAwardCelebrationModal } from "@/features/indents/components/bidding/IndentAwardCelebrationModal";
 import { IndentBidAmountEntry } from "@/features/indents/components/bidding/IndentBidAmountEntry";
 import { IndentCounterOfferEntry } from "@/features/indents/components/bidding/IndentCounterOfferEntry";
+import { CancelIndentReasonModal } from "@/features/indents/components/CancelIndentReasonModal";
 import { IndentGiveLoadPartiesStrip } from "@/features/indents/components/IndentGiveLoadPartiesStrip";
 import { IndentLinkedTripCard } from "@/features/indents/components/IndentLinkedTripCard";
 import { IndentReviewHubCard } from "@/features/indents/components/IndentReviewHubCard";
@@ -46,6 +47,7 @@ import {
     indentReviewHubText,
 } from "@/features/indents/styles/indentReviewHubStyles";
 import { buildIndentAwardedBidAlert } from "@/features/indents/utils/bidding/indentBidAlert.util";
+import type { IndentCancelReasonId } from "@/features/indents/utils/indentCancelReason.util";
 import {
     bidMarginFromClient,
     buildSupplierQuoteFooterInsight,
@@ -271,6 +273,7 @@ export function IndentDetailScreen({
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelReasonOpen, setCancelReasonOpen] = useState(false);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [confirmShareVisible, setConfirmShareVisible] = useState(false);
   const [sharingDraft, setSharingDraft] = useState(false);
@@ -759,34 +762,32 @@ export function IndentDetailScreen({
   );
   const handleCancelLoad = useCallback(() => {
     if (!indent || cancelling) return;
-    Alert.alert(
-      "Cancel load",
-      "Are you sure you want to cancel this load? Connected suppliers will no longer see it under Find Work.",
-      [
-        { text: "Keep load", style: "cancel" },
-        {
-          text: "Cancel load",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setCancelling(true);
-              const { error: cancelError } = await cancelIndent(indent.id);
-              setCancelling(false);
-              if (cancelError) {
-                Alert.alert("Could not cancel", cancelError.message);
-                return;
-              }
-              await load();
-            } catch (e) {
-              setCancelling(false);
-              const msg = e instanceof Error ? e.message : "Unknown error";
-              Alert.alert("Could not cancel", msg);
-            }
-          },
-        },
-      ],
-    );
-  }, [cancelling, indent, load]);
+    setCancelReasonOpen(true);
+  }, [cancelling, indent]);
+  const confirmCancelLoad = useCallback(
+    async (reason: IndentCancelReasonId) => {
+      if (!indent || cancelling) return;
+      try {
+        setCancelling(true);
+        const { error: cancelError } = await cancelIndent(indent.id, reason);
+        setCancelling(false);
+        if (cancelError) {
+          Alert.alert("Could not cancel", cancelError.message);
+          return;
+        }
+        setCancelReasonOpen(false);
+        if (indent.organization_id) {
+          invalidateIndents(indent.organization_id);
+        }
+        await load();
+      } catch (e) {
+        setCancelling(false);
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        Alert.alert("Could not cancel", msg);
+      }
+    },
+    [cancelling, indent, invalidateIndents, load],
+  );
 
   useEffect(() => {
     load();
@@ -1073,6 +1074,27 @@ export function IndentDetailScreen({
     isOwner &&
     !isLockedStatus &&
     canSurface("tripops.indents.cancel");
+  const cancelIndentButton = canCancelLoad ? (
+    <TouchableOpacity
+      style={[styles.footerCancelBtn, stackedHub && styles.footerCancelBtnMobile]}
+      onPress={handleCancelLoad}
+      disabled={cancelling}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel="Cancel indent"
+      hitSlop={Layout.touchTargetHitSlop}
+    >
+      <Text
+        style={[
+          styles.footerCancelBtnText,
+          stackedHub && styles.footerCancelBtnTextMobile,
+        ]}
+        numberOfLines={1}
+      >
+        {cancelling ? "Cancelling…" : "Cancel indent"}
+      </Text>
+    </TouchableOpacity>
+  ) : null;
   const canEditLoad =
     canUseSuppliers &&
     isOwner &&
@@ -1766,6 +1788,7 @@ export function IndentDetailScreen({
                       </Text>
                     ) : null}
                   </View>
+                  {cancelIndentButton}
                   <TouchableOpacity
                     style={[
                       styles.footerAwardBtn,
@@ -1802,19 +1825,22 @@ export function IndentDetailScreen({
                   </TouchableOpacity>
                 </>
               ) : isListeningForBids ? (
-                <View style={styles.footerListeningPill}>
-                  <View style={styles.footerListeningDot} />
-                  <Text style={styles.footerListeningText}>
-                    Live bidding · awaiting quotes
-                  </Text>
-                </View>
+                <>
+                  <View style={styles.footerListeningPill}>
+                    <View style={styles.footerListeningDot} />
+                    <Text style={styles.footerListeningText}>
+                      Live bidding · awaiting quotes
+                    </Text>
+                  </View>
+                  {cancelIndentButton}
+                </>
               ) : !canCancelLoad ? (
                 <View style={styles.footerLockedPill}>
                   <FontAwesome name="lock" size={14} color={Theme.textMuted} />
                   <Text style={styles.footerLockedText}>LOAD LOCKED</Text>
                 </View>
               ) : (
-                <View style={styles.footerSpacer} />
+                cancelIndentButton ?? <View style={styles.footerSpacer} />
               )}
             </>
           ) : canOpenQuoteModal ? (
@@ -2048,6 +2074,18 @@ export function IndentDetailScreen({
           setCounterQuoteId(null);
         }}
         onSubmitAmount={handleSubmitCounter}
+      />
+
+      <CancelIndentReasonModal
+        visible={cancelReasonOpen}
+        submitting={cancelling}
+        onClose={() => {
+          if (cancelling) return;
+          setCancelReasonOpen(false);
+        }}
+        onSelect={(reason) => {
+          void confirmCancelLoad(reason);
+        }}
       />
 
       <ThemedConfirmModal
@@ -2730,6 +2768,30 @@ const styles = StyleSheet.create({
   footerMetaMarginMobile: {
     fontSize: 10,
     fontWeight: "600",
+  },
+  footerCancelBtn: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.negative,
+    backgroundColor: Theme.screenBackground,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  footerCancelBtnMobile: {
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  footerCancelBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Theme.negative,
+  },
+  footerCancelBtnTextMobile: {
+    fontSize: 11,
   },
   footerAwardBtn: {
     minWidth: 132,

@@ -6,6 +6,11 @@ import { getClientById } from "@/features/clients/services/clients.service";
 import { findIndentInMarketList } from "@/features/indents/utils/findIndentInList.util";
 import { createSharedIndentCopiesWithOps } from "@/features/indents/utils/indentShareCopies.util";
 import {
+  indentCancelReasonId,
+  indentStatusForCancelReason,
+  type IndentCancelReasonId,
+} from "@/features/indents/utils/indentCancelReason.util";
+import {
   deactivatePostsForIndent,
   ensureIndentStory,
   isIndentTerminalForStory,
@@ -112,6 +117,8 @@ export interface IndentRow {
   client_price: number;
   supplier_target: number;
   status: string;
+  /** Shipper reason when status is cancelled or expired. */
+  cancel_reason?: string | null;
   client_id?: string | null;
   lane_id?: string | null;
   sale_rate_basis?: "per_mt" | "per_trip" | null;
@@ -1122,15 +1129,21 @@ export async function shareDraftIndent(
 }
 
 /**
- * Soft-cancel an indent by setting status to 'cancelled'.
+ * Soft-cancel an indent. A reason records why it left the pool and
+ * drives the Failed tag. Indent expired uses status `expired`.
  * Caller must have permission via RLS (indent owner org).
  */
 export async function cancelIndent(
   indentId: string,
+  reason?: IndentCancelReasonId | null,
 ): Promise<{ error: Error | null }> {
+  const reasonId = indentCancelReasonId(reason);
   const { error } = await supabase()
     .from("indents")
-    .update({ status: "cancelled" })
+    .update({
+      status: reasonId ? indentStatusForCancelReason(reasonId) : "cancelled",
+      cancel_reason: reasonId,
+    })
     .eq("id", indentId);
 
   if (error) return { error: new Error(error.message) };

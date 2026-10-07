@@ -92,6 +92,12 @@ import {
   hubAssignmentAuditTripIds,
 } from "@/features/trips/utils/hubAssignmentAuditTripIds.util";
 import {
+  INDENT_CANCEL_REASONS,
+  indentCancelReasonId,
+  isIndentFailedStatus,
+  type IndentCancelReasonId,
+} from "@/features/indents/utils/indentCancelReason.util";
+import {
   indentHubStatusTag,
   type IndentHubStatusTag,
 } from "@/features/trips/utils/indentHubCardPresentation";
@@ -301,8 +307,11 @@ export default function TripsScreen() {
     useState<AttributionFilter>("all");
   const [loadTypeFilter, setLoadTypeFilter] = useState<string>("all");
   const [dateRangeFilter, setDateRangeFilter] = useState<DateFilter>("all");
-  const [indentStatusTag, setIndentStatusTag] =
-    useState<IndentHubStatusTag | null>(null);
+  const [indentStatusTag, setIndentStatusTag] = useState<
+    IndentHubStatusTag | "failed" | null
+  >(null);
+  const [indentFailedReason, setIndentFailedReason] =
+    useState<IndentCancelReasonId | null>(null);
   const [customDateFrom, setCustomDateFrom] = useState<string | null>(null);
   const [customDateTo, setCustomDateTo] = useState<string | null>(null);
   const [tripLedgerExportOpen, setTripLedgerExportOpen] = useState(false);
@@ -428,6 +437,31 @@ export default function TripsScreen() {
       ),
     [dateFilteredUnallocatedIndents, searchQuery],
   );
+  const failedStageIndents = useMemo(() => {
+    if (!orgId) return [];
+    return allIndents.filter((indent) => {
+      if ((indent.organization_id ?? "") !== orgId) return false;
+      if (indentIdsWithTrip.has(indent.id)) return false;
+      if (!isIndentFailedStatus(indent.status)) return false;
+      if (
+        !indentMatchesHubDateFilter(indent, dateRangeFilter, {
+          customFrom: customDateFrom,
+          customTo: customDateTo,
+        })
+      ) {
+        return false;
+      }
+      return indentMatchesHubSearch(indent, searchQuery);
+    });
+  }, [
+    allIndents,
+    orgId,
+    indentIdsWithTrip,
+    dateRangeFilter,
+    customDateFrom,
+    customDateTo,
+    searchQuery,
+  ]);
   /**
    * INDENT-stage membership is `isIndentUnallocated` (`trips.indent_id`).
    * Cards use the same trip ticket shell with indent bidding status +
@@ -450,6 +484,12 @@ export default function TripsScreen() {
     indentOfferCountIds,
   );
   const indentStageIndents = useMemo(() => {
+    if (activeMetricTab === "indent" && indentStatusTag === "failed") {
+      if (!indentFailedReason) return failedStageIndents;
+      return failedStageIndents.filter(
+        (indent) => indentCancelReasonId(indent.cancel_reason) === indentFailedReason,
+      );
+    }
     if (activeMetricTab !== "indent" || indentStatusTag == null) {
       return visibleUnallocatedIndents;
     }
@@ -461,6 +501,8 @@ export default function TripsScreen() {
   }, [
     activeMetricTab,
     indentStatusTag,
+    indentFailedReason,
+    failedStageIndents,
     visibleUnallocatedIndents,
     indentOfferCounts,
   ]);
@@ -495,6 +537,19 @@ export default function TripsScreen() {
   });
   const showIndentPoolView =
     canViewIndentPools && indentPoolView.view === "indents";
+  const failedReasonCounts = useMemo(() => {
+    const counts: Record<IndentCancelReasonId, number> = {
+      cancelled_by_client: 0,
+      indent_expired: 0,
+      no_rates_available: 0,
+      wrong_entry: 0,
+    };
+    for (const indent of failedStageIndents) {
+      const reason = indentCancelReasonId(indent.cancel_reason);
+      if (reason) counts[reason] += 1;
+    }
+    return counts;
+  }, [failedStageIndents]);
   const indentHubActionOrgId =
     activeMetricTab === "all" || activeMetricTab === "indent" ? orgId : null;
   const handleOpenUnallocatedIndent = useCallback(
@@ -1060,6 +1115,7 @@ export default function TripsScreen() {
         customDateFrom ?? "",
         customDateTo ?? "",
         indentStatusTag ?? "",
+        indentFailedReason ?? "",
       ].join("|"),
     [
       effectiveListLayout,
@@ -1076,6 +1132,7 @@ export default function TripsScreen() {
       customDateFrom,
       customDateTo,
       indentStatusTag,
+      indentFailedReason,
     ],
   );
 
@@ -2503,38 +2560,82 @@ export default function TripsScreen() {
                 />
               }
               renderBody={() => null}
-              toolbarCountLabel={`Showing ${indentStageIndents.length} of ${dateFilteredUnallocatedIndents.length}`}
+              toolbarCountLabel={
+                indentStatusTag === "failed"
+                  ? `Showing ${indentStageIndents.length} of ${failedStageIndents.length}`
+                  : `Showing ${indentStageIndents.length} of ${dateFilteredUnallocatedIndents.length}`
+              }
               toolbarTags={[
                 {
                   id: "pending",
+                  kind: "status",
                   label: `Pending ${indentStatusTagCounts.pending}`,
                   selected: indentStatusTag === "pending",
                   accessibilityLabel: "Pending, waiting for bid",
-                  onPress: () =>
+                  onPress: () => {
+                    setIndentFailedReason(null);
                     setIndentStatusTag((current) =>
                       current === "pending" ? null : "pending",
-                    ),
+                    );
+                  },
                 },
                 {
                   id: "bids",
+                  kind: "status",
                   label: `Bids received ${indentStatusTagCounts.bids}`,
                   selected: indentStatusTag === "bids",
                   accessibilityLabel: "Bids received, receiving bids",
-                  onPress: () =>
+                  onPress: () => {
+                    setIndentFailedReason(null);
                     setIndentStatusTag((current) =>
                       current === "bids" ? null : "bids",
-                    ),
+                    );
+                  },
                 },
                 {
                   id: "awarded",
+                  kind: "status",
                   label: `Awarded ${indentStatusTagCounts.awarded}`,
                   selected: indentStatusTag === "awarded",
                   accessibilityLabel: "Awarded",
-                  onPress: () =>
+                  onPress: () => {
+                    setIndentFailedReason(null);
                     setIndentStatusTag((current) =>
                       current === "awarded" ? null : "awarded",
-                    ),
+                    );
+                  },
                 },
+                {
+                  id: "failed",
+                  kind: "status",
+                  label: `Failed ${failedStageIndents.length}`,
+                  selected: indentStatusTag === "failed",
+                  accessibilityLabel: indentStatusTag === "failed"
+                    ? "Failed, tap again to clear"
+                    : "Failed indents",
+                  onPress: () => {
+                    setIndentFailedReason(null);
+                    setIndentStatusTag((current) =>
+                      current === "failed" ? null : "failed",
+                    );
+                  },
+                },
+                ...(indentStatusTag === "failed"
+                  ? INDENT_CANCEL_REASONS.map((reason) => ({
+                      id: `reason:${reason.id}`,
+                      kind: "reason" as const,
+                      label: `${reason.label} ${failedReasonCounts[reason.id]}`,
+                      selected: indentFailedReason === reason.id,
+                      accessibilityLabel:
+                        indentFailedReason === reason.id
+                          ? `${reason.label}, tap again to clear`
+                          : reason.label,
+                      onPress: () =>
+                        setIndentFailedReason((current) =>
+                          current === reason.id ? null : reason.id,
+                        ),
+                    }))
+                  : []),
               ]}
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
