@@ -10,6 +10,15 @@ import { isDcoOperatingTrip } from "@/features/trips/domain/tripDcoOperating";
 import { shouldFallbackTripsTableScan } from "@/features/trips/utils/tripOrgFetch.util";
 import { shouldMarkAssignedOnFirstAssign } from "@/features/trips/utils/tripReassign.util";
 import { TRIP_REASSIGN_STALE_ERROR } from "@/features/trips/utils/tripReassignConflict.util";
+import {
+    copyIndentExtraStopsToTrip,
+    insertRouteExtraStops,
+} from "@/features/trips/services/routeExtraStops.service";
+import {
+    freightWithExtraStops,
+    summarizeRouteExtraStops,
+    type RouteExtraStopInput,
+} from "@/features/trips/utils/routeExtraStops.util";
 import { getExchangeTripSummary } from "@/features/marketplace/services/exchangePayments.service";
 import { TimeoutError, withTimeout } from "@/lib/authEngine";
 import type { DeltaResponse } from "@/lib/cache/deltaTypes";
@@ -1022,6 +1031,12 @@ export interface CreateTripData {
   id?: string;
   pickup_area: string;
   drop_location: string;
+  /**
+   * Stops between pickup and drop. client_price / supplier_rate are the base
+   * freight; createTrip adds these stop charges to them. When omitted on an
+   * indent trip, the indent's stops are copied (its prices already include them).
+   */
+  extra_stops?: RouteExtraStopInput[];
   /** From place search; optional. */
   pickup_lat?: number | null;
   pickup_lon?: number | null;
@@ -1811,6 +1826,43 @@ export async function createTrip(
   orgId: string,
   userId: string,
   data: CreateTripData,
+): Promise<{ error: Error | null; trip: TripRow | null; warning?: string }> {
+  const stops = data.extra_stops ?? [];
+  const totals = freightWithExtraStops(
+    {
+      client: Number(data.client_price) || 0,
+      supplier: Number(data.supplier_rate) || 0,
+    },
+    summarizeRouteExtraStops(stops),
+  );
+  const result = await insertTripRow(orgId, userId, {
+    ...data,
+    client_price: totals.client,
+    supplier_rate: data.supplier_rate == null ? data.supplier_rate : totals.supplier,
+  });
+  const trip = result.trip;
+  if (result.error || !trip) return result;
+
+  const indentId = normalizeNullableUuid(data.indent_id);
+  const { error: stopsError } =
+    stops.length > 0
+      ? await insertRouteExtraStops(orgId, { tripId: trip.id }, stops)
+      : indentId && data.extra_stops === undefined
+        ? await copyIndentExtraStopsToTrip(orgId, indentId, trip.id)
+        : { error: null };
+  if (stopsError) {
+    return {
+      ...result,
+      warning: `Trip created, but its extra stops were not saved: ${stopsError.message}`,
+    };
+  }
+  return result;
+}
+
+async function insertTripRow(
+  orgId: string,
+  userId: string,
+  data: CreateTripData,
 ): Promise<{ error: Error | null; trip: TripRow | null }> {
   const initialStatus = String(data.status ?? "assigned").trim() || "assigned";
   const skipAssignmentConflictCheck =
@@ -2132,8 +2184,9 @@ export async function createTripWithOtp(
   error: Error | null;
   trip: TripRow | null;
   otp: TripOtpInfo | null;
+  warning?: string;
 }> {
-  const { error, trip } = await createTrip(orgId, userId, data);
+  const { error, trip, warning } = await createTrip(orgId, userId, data);
   if (error || !trip)
     return {
       error: error ?? new Error("No trip returned"),
@@ -2148,16 +2201,16 @@ export async function createTripWithOtp(
     !isAggregate ||
     !hasAssignment
   ) {
-    return { error: null, trip, otp: null };
+    return { error: null, trip, otp: null, warning };
   }
 
   const { generateTripOtp } =
     await import("@/features/trips/services/tripOtp.service");
   const { error: otpError, code, expires_at } = await generateTripOtp(trip.id);
   if (otpError || !code || !expires_at) {
-    return { error: null, trip, otp: null };
+    return { error: null, trip, otp: null, warning };
   }
-  return { error: null, trip, otp: { code, expires_at } };
+  return { error: null, trip, otp: { code, expires_at }, warning };
 }
 
 /** Update only driver and/or vehicle assignment (e.g. assign after create). */

@@ -24,6 +24,15 @@ import { syncDomainRows } from "@/lib/cache/domainSync";
 import { mergeDeltaRows } from "@/lib/cache/mergeDelta";
 import { DEFAULT_PAGE_SIZE, FINITE_LIST_CAP, type PageOpts } from "@/lib/pagination";
 import { isIndentWriteTimeout } from "@/features/indents/utils/indentCreateTimeout.util";
+import {
+  insertRouteExtraStops,
+  replaceRouteExtraStops,
+} from "@/features/trips/services/routeExtraStops.service";
+import {
+  freightWithExtraStops,
+  summarizeRouteExtraStops,
+  type RouteExtraStopInput,
+} from "@/features/trips/utils/routeExtraStops.util";
 import { supabase } from "@/lib/supabase";
 import {
   VALIDATION,
@@ -76,6 +85,11 @@ export interface CreateIndentInput {
     area: string;
     address?: string;
   }>;
+  /**
+   * Stops between pickup and drop. client_price / supplier_target are the
+   * base freight; createIndent adds these stop charges to them.
+   */
+  extraStops?: RouteExtraStopInput[];
   /** Sequential ID owner (auth.uid). Next IND001 is per this user. */
   owner_user_id?: string | null;
   /** User who created this row. */
@@ -685,6 +699,42 @@ export async function createIndent(
   orgId: string,
   data: CreateIndentInput,
   options?: { action?: IndentAction },
+): Promise<{ error: Error | null; indent: IndentRow | null; warning?: string }> {
+  const stops = data.extraStops ?? [];
+  const totals = freightWithExtraStops(
+    {
+      client: Number(data.client_price) || 0,
+      supplier: Number(data.supplier_target) || 0,
+    },
+    summarizeRouteExtraStops(stops),
+  );
+  // A per-MT supplier target is a unit rate, not a total; a lump-sum stop
+  // charge cannot be folded into it.
+  const supplierTarget =
+    data.supplier_rate_basis === "per_mt" ? data.supplier_target : totals.supplier;
+  const result = await insertIndentRow(
+    orgId,
+    { ...data, client_price: totals.client, supplier_target: supplierTarget },
+    options,
+  );
+  if (result.error || !result.indent || stops.length === 0) return result;
+  const { error: stopsError } = await insertRouteExtraStops(
+    orgId,
+    { indentId: result.indent.id },
+    stops,
+  );
+  return stopsError
+    ? {
+        ...result,
+        warning: `Indent saved, but its extra stops were not saved: ${stopsError.message}`,
+      }
+    : result;
+}
+
+async function insertIndentRow(
+  orgId: string,
+  data: CreateIndentInput,
+  options?: { action?: IndentAction },
 ): Promise<{ error: Error | null; indent: IndentRow | null }> {
   const action = options?.action ?? "share";
   const shouldValidateShare = action === "share";
@@ -1010,7 +1060,13 @@ type DraftEditableFields = Partial<
     | "owner_user_id"
     | "created_by_user_id"
   >
->;
+> & {
+  /**
+   * When set, replaces the draft's stops. client_price / supplier_target in
+   * the same update are then the base freight and the charges are added.
+   */
+  extraStops?: RouteExtraStopInput[];
+};
 
 function toIndentUpdateError(message: string): Error {
   const lower = message.toLowerCase();
@@ -1024,7 +1080,25 @@ function toIndentUpdateError(message: string): Error {
 export async function updateIndentDraft(
   indentId: string,
   updates: DraftEditableFields,
-): Promise<{ error: Error | null; indent: IndentRow | null }> {
+): Promise<{ error: Error | null; indent: IndentRow | null; warning?: string }> {
+  const stops = updates.extraStops;
+  if (stops) {
+    const summary = summarizeRouteExtraStops(stops);
+    const totals = freightWithExtraStops(
+      {
+        client: Number(updates.client_price) || 0,
+        supplier: Number(updates.supplier_target) || 0,
+      },
+      summary,
+    );
+    updates = {
+      ...updates,
+      ...(updates.client_price !== undefined ? { client_price: totals.client } : {}),
+      ...(updates.supplier_target !== undefined && updates.supplier_rate_basis !== "per_mt"
+        ? { supplier_target: totals.supplier }
+        : {}),
+    };
+  }
   const payload: Record<string, unknown> = {};
   if (updates.pickup_area !== undefined)
     payload.pickup_area = updates.pickup_area;
@@ -1070,7 +1144,22 @@ export async function updateIndentDraft(
       error: new Error("This indent has been shared and cannot be edited"),
       indent: null,
     };
-  return { error: null, indent: data as IndentRow };
+  const indent = data as IndentRow;
+  if (stops) {
+    const { error: stopsError } = await replaceRouteExtraStops(
+      indent.organization_id,
+      { indentId: indent.id },
+      stops,
+    );
+    if (stopsError) {
+      return {
+        error: null,
+        indent,
+        warning: `Draft saved, but its extra stops were not saved: ${stopsError.message}`,
+      };
+    }
+  }
+  return { error: null, indent };
 }
 
 export async function shareDraftIndent(
@@ -1173,11 +1262,16 @@ export async function createSharedIndentCopies(
   data: CreateIndentInput,
   count: number,
   options?: { existingDraftId?: string | null },
-): Promise<{ error: Error | null; indents: IndentRow[] }> {
-  return createSharedIndentCopiesWithOps(
+): Promise<{ error: Error | null; indents: IndentRow[]; warning?: string }> {
+  let warning: string | undefined;
+  const keepWarning = <R extends { warning?: string }>(result: R): R => {
+    warning ??= result.warning;
+    return result;
+  };
+  const result = await createSharedIndentCopiesWithOps(
     {
-      createIndent,
-      updateIndentDraft,
+      createIndent: async (o, d, opts) => keepWarning(await createIndent(o, d, opts)),
+      updateIndentDraft: async (id, d) => keepWarning(await updateIndentDraft(id, d)),
       shareDraftIndent,
       cancelIndent,
     },
@@ -1186,4 +1280,5 @@ export async function createSharedIndentCopies(
     count,
     options,
   );
+  return { ...result, warning };
 }

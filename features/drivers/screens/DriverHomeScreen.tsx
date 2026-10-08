@@ -190,6 +190,7 @@ import {
   useKeyboardVisible,
 } from "@/lib/hooks/useKeyboardVisible";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { fetchRouteExtraStopsForTrips } from "@/features/trips/services/routeExtraStops.service";
 
 /** Default map region when driver location is not yet available (India center). */
 const DEFAULT_MAP_REGION = {
@@ -2319,7 +2320,24 @@ export default function DriverRadarScreen() {
     if (fallback.stops.length > 0) setRoutePlanMap(fallback);
     void fetchDriverStopExecution(trip.id).then((result) => {
       if (cancelled) return;
-      if (!result.ok || result.bundle.stops.length === 0) return;
+      if (!result.ok || result.bundle.stops.length === 0) {
+        void fetchRouteExtraStopsForTrips([trip.id]).then(({ rows }) => {
+          if (cancelled || rows.length === 0) return;
+          const withStops = buildTripRowRoutePlanMap(
+            trip.id,
+            pickup ? { ...pickup, label: trip.pickup_area?.trim() || "Pickup" } : null,
+            drop ? { ...drop, label: trip.drop_location?.trim() || "Drop" } : null,
+            rows.map((row) => ({
+              id: row.id,
+              latitude: row.latitude,
+              longitude: row.longitude,
+              label: row.location,
+            })),
+          );
+          if (withStops.stops.length > 0) setRoutePlanMap(withStops);
+        });
+        return;
+      }
       const fromStops = buildDriverRoutePlanMap(
         trip.id,
         result.bundle.stops,

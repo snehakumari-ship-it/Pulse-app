@@ -6,8 +6,10 @@ export type ManifestJourneyStepKey =
   | "assigned"
   | "driver_accepted"
   | "pickup"
+  | "loading"
   | "in_transit"
   | "drop_off"
+  | "unloading"
   | "delivered";
 
 export type ManifestJourneyLogEntry = {
@@ -605,8 +607,10 @@ export function manifestStepIndexForLog(
     assigned: 0,
     driver_accepted: 1,
     pickup: 2,
+    loading: 2,
     in_transit: 3,
     drop_off: 4,
+    unloading: 4,
     delivered: 5,
   };
   return map[stepKey];

@@ -40,6 +40,8 @@ import { useTripDriverPresenceQuery } from '@/lib/queries/useTripDriverPresenceQ
 import { openExternalNavigation } from '@/lib/mapsNavigation.util';
 import { DriverMissionStopsList } from '@/features/driver/components/DriverMissionStopsList';
 import { MissionCardLayout } from '@/features/driver/components/MissionCardLayout';
+import { planStopsFromLabeled } from '@/features/driver/components/missionPlanRows';
+import { useRouteExtraStopRowsFor } from '@/features/trips/hooks/useRouteExtraStopsQuery';
 import { useDriverStopExecution } from '@/features/driver/hooks/useDriverStopExecution';
 import { shouldShowDriverMultiStop } from '@/features/driver/execution/normalizeDriverStopExecution';
 import { DriverShipperFeedbackModal } from '@/features/chat/components/driver/DriverShipperFeedbackModal';
@@ -416,6 +418,7 @@ export function DriverTripFlowCard({
     complete: completeCurrentStop,
   } = useDriverStopExecution(skipStopExecution ? null : trip.id);
   const showMultiStop = !skipStopExecution && shouldShowDriverMultiStop(executionStops);
+  const ftlExtraStops = useRouteExtraStopRowsFor('trip', trip.id);
   const [step, setStep] = useState<StepId>(() => deriveDriverFlowStepFromTrip(trip));
   const [stepLoading, setStepLoading] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -821,6 +824,41 @@ export function DriverTripFlowCard({
   const dropLabel =
     (localTrip.drop_location || (localTrip as { drop_area?: string }).drop_area)?.trim() ||
     '—';
+  const missionPlan = useMemo(() => {
+    if (executionStops.length < 2) {
+      if (ftlExtraStops.length === 0) return null;
+      const atPickup = step === 'accepted' || step === 'pickup';
+      return planStopsFromLabeled([
+        { id: 'pickup', sequence: 0, type: 'pickup', place: pickupLabel, isCurrent: atPickup },
+        ...ftlExtraStops.map((stop) => ({
+          id: stop.id,
+          sequence: stop.sequence,
+          type: 'drop',
+          place: stop.location,
+        })),
+        {
+          id: 'drop',
+          sequence: ftlExtraStops.length + 1,
+          type: 'drop',
+          place: dropLabel,
+          isCurrent: !atPickup,
+        },
+      ]);
+    }
+    return planStopsFromLabeled(
+      executionStops.map((stop) => ({
+        id: stop.stopId,
+        sequence: stop.sequence,
+        type: String(stop.stopType),
+        place:
+          stop.displayName?.trim() ||
+          stop.city?.trim() ||
+          stop.addressLine?.trim() ||
+          `Stop ${stop.sequence}`,
+        isCurrent: stop.stopId === currentStop?.stopId,
+      })),
+    );
+  }, [executionStops, currentStop?.stopId, ftlExtraStops, step, pickupLabel, dropLabel]);
   const tripDateLabel = useMemo(() => {
     const raw = String(localTrip.pickup_date ?? localTrip.created_at ?? "").trim();
     if (!raw) return null;
@@ -1560,6 +1598,7 @@ export function DriverTripFlowCard({
           target={stageTarget}
           pickupLabel={pickupLabel}
           dropLabel={dropLabel}
+          planStops={missionPlan && missionPlan.length > 1 ? missionPlan : null}
           tripIdLabel={tripsService.resolveDriverFacingTripLabel(localTrip)}
           tripDateLabel={tripDateLabel}
           remainingKm={step === 'accepted' || step === 'pickup' || step === 'transit' ? distanceToTargetKm ?? null : null}

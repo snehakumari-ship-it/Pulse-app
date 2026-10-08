@@ -181,6 +181,7 @@ import {
     View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouteExtraStopsSummaries } from "@/features/trips/hooks/useRouteExtraStopsQuery";
 
 interface LoadCenterViewProps {
   /** Top padding (e.g. from parent sub-tab row + safe area). */
@@ -335,6 +336,14 @@ export function LoadCenterView({
   const { data: planRouteById } = useExecutionPlanRouteSummaries(
     orgId,
     commercePlanIds,
+  );
+  const extraStopIndentIds = useMemo(
+    () => [...indents, ...marketIndents].map((row) => row.id),
+    [indents, marketIndents],
+  );
+  const extraStopsByIndentId = useRouteExtraStopsSummaries(
+    "indent",
+    extraStopIndentIds,
   );
   const { data: planClientsById } = useExecutionPlanClients(
     orgId,
@@ -1425,6 +1434,7 @@ export function LoadCenterView({
       const route = indentDisplayOriginDest(load, planRouteById);
       return (
         <LoadCenterHubMobileIndentCard
+          routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
           key={load.id}
           indent={load}
           titleName={clientLabel}
@@ -1610,6 +1620,7 @@ export function LoadCenterView({
 
       return (
         <LoadCenterHubMobileIndentCard
+          routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
           indent={load}
           titleName={clientName}
           statusLabel={displayStatus}
@@ -1872,6 +1883,7 @@ export function LoadCenterView({
 
       return (
         <LoadCenterHubMobileIndentCard
+          routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
           indent={load}
           titleName={clientLabel}
           statusLabel={statusLabel}
@@ -2001,6 +2013,7 @@ export function LoadCenterView({
 
       return (
         <LoadCenterHubMobileIndentCard
+          routeExtraStops={extraStopsByIndentId.get(load.id) ?? null}
           indent={load}
           titleName={clientLabel}
           statusLabel={isDone ? "completed" : "action required"}

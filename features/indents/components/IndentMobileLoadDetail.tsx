@@ -23,6 +23,12 @@ import type { IndentFreightCardClientProps } from "@/features/indents/components
 import { IndentFreightClientEntity } from "@/features/indents/components/IndentFreightClientEntity";
 import { splitLocationParts } from "@/features/network/utils/storyDisplay";
 import { formatINR } from "@/lib/format";
+import {
+  EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
+  extraStopChipLabel,
+  extraStopPaidLabel,
+  type RouteExtraStopSummary,
+} from "@/features/trips/utils/routeExtraStops.util";
 
 const LINK = "#2563EB";
 const INK = "#111827";
@@ -63,6 +69,8 @@ export type IndentMobileLoadDetailProps = {
   marginPct?: number | null;
   clientPriceInr?: number;
   supplierTargetInr?: number;
+  /** Stops in between; their charges are already inside the shown rates. */
+  extraStops?: RouteExtraStopSummary;
   vendorName?: string | null;
   vendorRate?: string | null;
   client: IndentFreightCardClientProps;
@@ -370,6 +378,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
   marginPct = null,
   clientPriceInr = 0,
   supplierTargetInr = 0,
+  extraStops = EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
   vendorName = null,
   vendorRate = null,
   client,
@@ -439,8 +448,15 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
       ? clientPriceInr - supplierTargetInr
       : null;
 
+  const extraStopSide = isOwner ? "client" : "supplier";
+  const extraStopChip = extraStopChipLabel(extraStops.count);
+  const extraStopPaid = extraStopPaidLabel(extraStops, extraStopSide, formatINR);
+  const extraStopCharge =
+    extraStopSide === "client" ? extraStops.clientCharge : extraStops.supplierCharge;
+
   const chips = useMemo(() => {
     const list: { label: string; accent?: boolean }[] = [];
+    if (extraStopChip) list.push({ label: extraStopChip, accent: true });
     if (vehicleType && vehicleType !== "—") list.push({ label: vehicleType });
     if (weightKg && weightKg !== "—") list.push({ label: weightKg });
     if (material && material !== "—") list.push({ label: material });
@@ -448,7 +464,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
       list.push({ label: dateLabel, accent: true });
     }
     return list;
-  }, [vehicleType, weightKg, material, dateLabel]);
+  }, [extraStopChip, vehicleType, weightKg, material, dateLabel]);
 
   const title = isOwner ? "Load detail" : hasQuote ? "My bid" : "Load detail";
 
@@ -662,6 +678,11 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
               <Text style={styles.rateValue} numberOfLines={1}>
                 {rateValue}
               </Text>
+              {extraStopPaid ? (
+                <Text style={styles.rateDelta} numberOfLines={1}>
+                  {extraStopPaid}
+                </Text>
+              ) : null}
               {rateDelta ? (
                 <Text style={styles.rateDelta} numberOfLines={1}>
                   {rateDelta}
@@ -732,6 +753,12 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
                   ) : null}
                 </>
               )}
+              {extraStops.count > 0 && extraStopCharge > 0 ? (
+                <RateBreakupRow
+                  label={`Extra stops (${extraStops.count}) · included`}
+                  value={formatINR(extraStopCharge)}
+                />
+              ) : null}
               <RateBreakupRow
                 label="Total"
                 value={

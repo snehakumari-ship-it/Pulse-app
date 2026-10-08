@@ -270,6 +270,12 @@ import {
   manifestStepIndexForLog,
   type ManifestJourneyLogEntry,
 } from "@/features/trips/utils/manifestJourneyLog.util";
+import {
+  buildCommerceManifestJourneyLogs,
+  getCommerceManifestStepIndex,
+  isCommerceJourney,
+} from "@/features/trips/utils/commerceJourneyLog.util";
+import { useTripStopExecutionQuery } from "@/features/trips/hooks/useTripStopExecutionQuery";
 import { MANIFEST_PULSE_PING_DISPLAY_MAX } from "@/lib/trackingLocation.constants";
 import { formatTrackingDateTime } from "@/features/trips/utils/formatTrackingTimestamp.util";
 import { useTripVerificationSync } from "@/features/trips/verification";
@@ -2478,10 +2484,16 @@ export default function TripDetailScreen({
         }));
   }, [detail.locationTrailWithNames, detail.tripLocationPoints]);
 
+  const commerceStops = useTripStopExecutionQuery(
+    detail.trip?.id,
+    !!detail.trip && !isTripCompleted(detail.trip),
+  );
+  const commerceJourney = isCommerceJourney(commerceStops);
+
   const journeyLogs = useMemo((): ManifestJourneyLogEntry[] => {
     const tr = detail.trip;
     if (!tr) return [];
-    return buildManifestJourneyLogs({
+    const ftlLogs = buildManifestJourneyLogs({
       trip: tr,
       assignmentAuditRows: detail.assignmentAuditRows,
       driverLocationAddress: detail.driverLocationAddress,
@@ -2491,6 +2503,12 @@ export default function TripDetailScreen({
       simLocationByKey,
       locationLoadingLabel: MAP_LOCATION_LABEL_LOADING,
     });
+    if (!commerceJourney) return ftlLogs;
+    return buildCommerceManifestJourneyLogs({
+      trip: tr,
+      stops: commerceStops,
+      ftlLogs,
+    });
   }, [
     detail.trip,
     detail.assignmentAuditRows,
@@ -2499,6 +2517,8 @@ export default function TripDetailScreen({
     manifestJourneyPings,
     simLogEntries,
     simLocationByKey,
+    commerceJourney,
+    commerceStops,
   ]);
 
   const manifestDriverPings = useMemo(() => {
@@ -2520,12 +2540,16 @@ export default function TripDetailScreen({
   }, [detail.locationTrailWithNames, detail.tripLocationPoints]);
 
   const manifestPulseLastIndex = MANIFEST_PULSE_LAST_INDEX;
-  const currentStepIndex = detail.trip
+  const ftlStepIndex = detail.trip
     ? getManifestCurrentStepIndex(detail.trip, {
         assignmentAuditRows: detail.assignmentAuditRows,
         locationPings: manifestJourneyPings,
       })
     : 0;
+  const currentStepIndex =
+    detail.trip && commerceJourney
+      ? getCommerceManifestStepIndex(detail.trip, commerceStops, ftlStepIndex)
+      : ftlStepIndex;
   const visibleJourneyLogs = useMemo(
     () => getVisibleManifestJourneyLogs(journeyLogs, currentStepIndex),
     [journeyLogs, currentStepIndex],

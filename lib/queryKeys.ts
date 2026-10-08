@@ -38,6 +38,10 @@ export const queryKeys = {
       ["q", "trips", "operations", "vehicle", orgId, vehicleId, "ledger-entries", stateKey] as const,
     workflow: (tripId: string) => ["q", "trips", "workflow", tripId] as const,
     timeline: (tripId: string) => ["q", "trips", "timeline", tripId] as const,
+    stopExecution: (tripId: string) =>
+      ["q", "trips", "stop-execution", tripId] as const,
+    routeExtraStops: (parent: "indent" | "trip", idsKey: string) =>
+      ["q", "trips", "route-extra-stops", parent, idsKey] as const,
     driverPresence: (tripId: string) => ["q", "trips", "driver-presence", tripId] as const,
     checkpointDistance: (tripId: string) => ["q", "trips", "checkpoint-distance", tripId] as const,
     byDriver: (driverId: string, opts?: { limit?: number; offset?: number }) =>

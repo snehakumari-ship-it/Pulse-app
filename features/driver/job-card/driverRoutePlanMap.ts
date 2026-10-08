@@ -85,8 +85,30 @@ export function buildTripRowRoutePlanMap(
   tripId: string,
   pickup: { latitude: number; longitude: number; label: string } | null,
   drop: { latitude: number; longitude: number; label: string } | null,
+  /** FTL stops between pickup and drop; ones without coordinates stay off the map. */
+  via: readonly {
+    id: string;
+    latitude: number | null;
+    longitude: number | null;
+    label: string;
+  }[] = [],
 ): DriverRoutePlanMap {
   const stops: DriverRoutePlanMapStop[] = [];
+  const viaStops: DriverRoutePlanMapStop[] = [];
+  for (const stop of via) {
+    const coord = asCoord(stop.latitude, stop.longitude);
+    if (!coord) continue;
+    viaStops.push({
+      stopId: `${tripId}-via-${stop.id}`,
+      sequence: 2 + viaStops.length,
+      kindIndex: viaStops.length + 1,
+      kind: 'drop',
+      latitude: coord.latitude,
+      longitude: coord.longitude,
+      label: stop.label,
+      isCurrent: false,
+    });
+  }
   if (pickup) {
     stops.push({
       stopId: `${tripId}-pickup`,
@@ -99,11 +121,12 @@ export function buildTripRowRoutePlanMap(
       isCurrent: true,
     });
   }
+  stops.push(...viaStops);
   if (drop) {
     stops.push({
       stopId: `${tripId}-drop`,
-      sequence: 2,
-      kindIndex: 1,
+      sequence: 2 + viaStops.length,
+      kindIndex: viaStops.length + 1,
       kind: 'drop',
       latitude: drop.latitude,
       longitude: drop.longitude,

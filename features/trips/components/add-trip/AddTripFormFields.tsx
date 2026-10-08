@@ -40,6 +40,7 @@ import {
 import { ClientSaleKeypadFlow } from "@/features/trips/components/add-trip/ClientSaleKeypadFlow";
 import type { AddTripWizardStep } from "@/features/trips/components/add-trip/addTripWizardSteps";
 import { CreateTripDesktopRouteStep } from "@/features/trips/components/add-trip/CreateTripDesktopRouteStep";
+import { RouteExtraStopsEditor } from "@/features/trips/components/add-trip/RouteExtraStopsEditor";
 import { CreateTripDesktopCommodityClientStep } from "@/features/trips/components/add-trip/CreateTripDesktopCommodityClientStep";
 import { CreateTripDesktopSaleStep } from "@/features/trips/components/add-trip/CreateTripDesktopSaleStep";
 import { CreateTripDesktopPartnerRatesSection } from "@/features/trips/components/add-trip/CreateTripDesktopPartnerRatesSection";
@@ -1244,6 +1245,8 @@ export function AddTripFormFields({
                 fieldInvalid={invalid}
                 onPickupDropdownOpenChange={setPickupDropdownOpen}
                 onDropDropdownOpenChange={setDropDropdownOpen}
+                extraStops={sourceIndent ? undefined : state.extraStops}
+                onExtraStopsChange={sourceIndent ? undefined : setters.setExtraStops}
               />
             ) : (
             <View
@@ -1305,6 +1308,14 @@ export function AddTripFormFields({
                     compact
                     onDropdownOpenChange={setPickupDropdownOpen}
                   />
+                  {sourceIndent ? null : (
+                    <RouteExtraStopsEditor
+                      stops={state.extraStops}
+                      onChange={setters.setExtraStops}
+                      compact
+                      onDropdownOpenChange={setDropDropdownOpen}
+                    />
+                  )}
                   <LocationSearchField
                     label="Drop *"
                     placeholder="Search or pick drop location"

@@ -3,6 +3,11 @@
  * Only 2 Source of Supply: Asset (Own Fleet) | Aggregate (Associated Partner).
  */
 
+import type {
+  RouteExtraStopDraft,
+  RouteExtraStopInput,
+} from "@/features/trips/utils/routeExtraStops.util";
+
 export type SupplySource = 'asset' | 'aggregate';
 
 /** Market branch after Source: known partner trip vs indent bidding. */
@@ -52,11 +57,15 @@ export interface AddTripFormData {
   load_type?: string | null;
   /** Requested vehicle type (stored in trip notes when no vehicle_id). */
   vehicle_type?: string | null;
+  /** Stops between pickup and drop; createTrip adds their charges to the freight. */
+  extra_stops?: RouteExtraStopInput[];
 }
 
 export interface AddTripFormState {
   pickupArea: string;
   dropLocation: string;
+  /** FTL stops between pickup and drop ("Add stop"). */
+  extraStops: RouteExtraStopDraft[];
   /** Planned trip start date (YYYY-MM-DD). */
   tripStartDate: string;
   /** Optional load weight in tons as text input. */

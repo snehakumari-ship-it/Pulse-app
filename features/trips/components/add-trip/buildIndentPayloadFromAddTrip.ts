@@ -1,5 +1,6 @@
 import { computeClientPrice } from "@/features/clients/utils/saleRateSnapshot.util";
 import type { CreateIndentInput } from "@/features/indents/services/indents.service";
+import { routeExtraStopInputs } from "@/features/trips/utils/routeExtraStops.util";
 
 import type { AddTripFormState } from "./types";
 
@@ -50,5 +51,7 @@ export function buildIndentPayloadFromAddTripState(
     created_by_user_id: ids?.createdByUserId,
   };
   if (state.clientId) payload.client_id = state.clientId;
+  const extraStops = routeExtraStopInputs(state.extraStops);
+  if (extraStops.length > 0) payload.extraStops = extraStops;
   return payload;
 }

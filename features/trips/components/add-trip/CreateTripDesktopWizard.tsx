@@ -70,6 +70,11 @@ import {
 } from "./pickupRecommendations.util";
 import type { PickupRecommendation } from "./pickupRecommendations.util";
 import { useAddTripFleetResources } from "./useAddTripFleetResources";
+import { RouteExtraStopsCommercials } from "@/features/trips/components/RouteExtraStopsCommercials";
+import {
+  routeExtraStopInputs,
+  summarizeRouteExtraStops,
+} from "@/features/trips/utils/routeExtraStops.util";
 
 const STEP_FADE_EASE = Easing.bezier(0.16, 1, 0.3, 1);
 
@@ -173,6 +178,11 @@ export function CreateTripDesktopWizard({
   }, [state.clientPrice, state.saleRateBasis, state.saleUnitRate, state.tons]);
 
   const fleet = useAddTripFleetResources(organizationId, state, setters);
+
+  const extraStopSummary = useMemo(
+    () => summarizeRouteExtraStops(routeExtraStopInputs(state.extraStops)),
+    [state.extraStops],
+  );
 
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === state.clientId) ?? null,
@@ -645,6 +655,8 @@ export function CreateTripDesktopWizard({
           pickupLocationsLoading={pickupLocationsLoading}
           contractRouteLocked={Boolean(selectedLaneId)}
           onChangeLane={selectedLaneId ? handleChangeLaneFromRoute : undefined}
+          extraStops={sourceIndent ? undefined : state.extraStops}
+          onExtraStopsChange={sourceIndent ? undefined : setters.setExtraStops}
         />
       );
       break;
@@ -735,6 +747,7 @@ export function CreateTripDesktopWizard({
           weightTons={state.tons}
           clientUnitRatePerMt={state.saleUnitRate}
           onSupplierRateBasisChange={setters.setSupplierRateBasis}
+          extraStops={extraStopSummary}
           errorMessage={
             invalid("supplierTarget")
               ? "Enter a supplier target rate greater than 0"
@@ -993,7 +1006,22 @@ export function CreateTripDesktopWizard({
         break;
       }
 
+      const allocationExtraStops =
+        extraStopSummary.count > 0 ? (
+          <RouteExtraStopsCommercials
+            summary={extraStopSummary}
+            clientBase={Number(String(clientSaleTotalForTarget).replace(/[^\d.]/g, "")) || 0}
+            supplierBase={
+              state.supplySource === "aggregate"
+                ? Number(String(state.supplierRate).replace(/[^\d.]/g, "")) || 0
+                : null
+            }
+            style={{ marginBottom: 12 }}
+          />
+        ) : null;
       stepContent = (
+        <>
+        {allocationExtraStops}
         <CreateTripDesktopAllocationStep
           compact={isMobileLayout}
           state={state}
@@ -1018,6 +1046,7 @@ export function CreateTripDesktopWizard({
           onAddDriver={handleAddDriver}
           onAddVehicle={handleAddVehicle}
         />
+        </>
       );
       break;
     }

@@ -13,9 +13,13 @@ import {
     runValidators,
 } from '@/lib/validation';
 import { getOptimalRoute } from '@/lib/routingService';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type SetStateAction } from 'react';
 import { computeClientPrice } from "@/features/clients/utils/saleRateSnapshot.util";
 import type { AddTripFormData, AddTripFormState } from './types';
+import {
+  routeExtraStopInputs,
+  type RouteExtraStopDraft,
+} from '@/features/trips/utils/routeExtraStops.util';
 
 export type AddTripIssueField =
   | 'pickup'
@@ -226,6 +230,7 @@ export function computeCommodityStepIssues(
 const initialState: AddTripFormState = {
   pickupArea: '',
   dropLocation: '',
+  extraStops: [],
   tripStartDate: '',
   tons: '',
   vehicleType: '',
@@ -288,6 +293,7 @@ export function buildAddTripPayload(state: AddTripFormState): AddTripFormData {
       : parseAmount(state.clientPrice);
   const supplierRate =
     state.supplySource === "asset" ? 0 : parseAmount(state.supplierRate);
+  const extraStops = routeExtraStopInputs(state.extraStops);
   const advancePaid = parseAmount(state.advancePaid);
   let notes = state.notes.trim();
   if (state.vehicleType.trim()) {
@@ -363,6 +369,7 @@ export function buildAddTripPayload(state: AddTripFormState): AddTripFormData {
     tons: state.tons.trim() || null,
     load_type: state.loadType.trim() || null,
     vehicle_type: state.vehicleType.trim() || null,
+    ...(extraStops.length > 0 ? { extra_stops: extraStops } : {}),
   };
 }
 
@@ -393,6 +400,14 @@ export function useAddTripForm(options?: {
   const setPickupCoords = useCallback(
     (lat: number | null, lon: number | null) =>
       setState((s) => ({ ...s, pickupLat: lat, pickupLon: lon })),
+    [],
+  );
+  const setExtraStops = useCallback(
+    (next: SetStateAction<RouteExtraStopDraft[]>) =>
+      setState((s) => ({
+        ...s,
+        extraStops: typeof next === "function" ? next(s.extraStops) : next,
+      })),
     [],
   );
   const setDropCoords = useCallback((lat: number, lon: number) => setState((s) => ({ ...s, dropLat: lat, dropLon: lon })), []);
@@ -708,6 +723,7 @@ export function useAddTripForm(options?: {
     () => ({
       setPickupArea,
       setDropLocation,
+      setExtraStops,
       setPickupCoords,
       setDropCoords,
       setTripStartDate,
@@ -748,6 +764,7 @@ export function useAddTripForm(options?: {
     [
       setPickupArea,
       setDropLocation,
+      setExtraStops,
       setPickupCoords,
       setDropCoords,
       setTripStartDate,

@@ -1,6 +1,6 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { ArrowUpDown, ChevronRight, MapPin, Replace } from "lucide-react-native";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Modal,
   Platform,
@@ -14,10 +14,12 @@ import {
 import Theme from "@/constants/Theme";
 import { TypewriterText } from "@/components/TypewriterText";
 import type { AddTripIssueField } from "@/features/trips/components/add-trip/useAddTripForm";
+import type { RouteExtraStopDraft } from "@/features/trips/utils/routeExtraStops.util";
 
 import { CreateTripPickupLocationPicker } from "./CreateTripPickupLocationPicker";
 import { createTripDesktopStyles as s } from "./createTripDesktop.styles";
 import { LocationSearchField } from "./LocationSearchField";
+import { RouteExtraStopsEditor } from "./RouteExtraStopsEditor";
 import type { PickupRecommendation } from "./pickupRecommendations.util";
 
 function toISODate(d: Date): string {
@@ -80,6 +82,11 @@ export type CreateTripDesktopRouteStepProps = {
   contractRouteLocked?: boolean;
   /** Jump back to client / lane gate to pick a different contract lane. */
   onChangeLane?: () => void;
+  /** FTL stops between pickup and drop. Omit both to hide "Add stop". */
+  extraStops?: readonly RouteExtraStopDraft[];
+  onExtraStopsChange?: Dispatch<SetStateAction<RouteExtraStopDraft[]>>;
+  /** Show the per-stop supplier pay field (hide for own-fleet trips). */
+  showExtraStopSupplierCharge?: boolean;
 };
 
 export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteStep({
@@ -94,6 +101,9 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
   pickupLocationsLoading = false,
   contractRouteLocked = false,
   onChangeLane,
+  extraStops,
+  onExtraStopsChange,
+  showExtraStopSupplierCharge = true,
 }: CreateTripDesktopRouteStepProps) {
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
 
@@ -128,6 +138,17 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
     },
     [onSelectPickupRecommendation],
   );
+
+  const extraStopsEditor =
+    extraStops && onExtraStopsChange ? (
+      <RouteExtraStopsEditor
+        stops={extraStops}
+        onChange={onExtraStopsChange}
+        compact={compact}
+        showSupplierCharge={showExtraStopSupplierCharge}
+        onDropdownOpenChange={onDropDropdownOpenChange}
+      />
+    ) : null;
 
   const pickupLabel = state.pickupArea.trim() || "—";
   const dropLabel = state.dropLocation.trim() || "—";
@@ -342,6 +363,7 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
       <Text style={s.routeContractLockedHint}>
         From your selected contract lane. Use Change lane to pick a different corridor.
       </Text>
+      {extraStopsEditor}
     </View>
   );
 
@@ -380,6 +402,8 @@ export const CreateTripDesktopRouteStep = memo(function CreateTripDesktopRouteSt
           inputStyle={fieldInvalid("pickup") ? s.inputBoxCleanError : undefined}
           onDropdownOpenChange={onPickupDropdownOpenChange}
         />
+
+        {extraStopsEditor}
 
         <View style={[s.routeSwapRow, compact && s.compactRouteSwapRow]}>
           <Pressable

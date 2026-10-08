@@ -17,6 +17,9 @@ import { DesktopSectionHeading } from "@/features/trips/components/add-trip/Crea
 import { PartnerRateSaleMarginStrip } from "@/features/trips/components/add-trip/PartnerRateSaleMarginStrip";
 import { createTripDesktopStyles as s } from "@/features/trips/components/add-trip/createTripDesktop.styles";
 
+import { RouteExtraStopsCommercials } from "@/features/trips/components/RouteExtraStopsCommercials";
+import type { RouteExtraStopSummary } from "@/features/trips/utils/routeExtraStops.util";
+
 import { IndentTargetDesktopModal } from "./IndentTargetDesktopModal";
 
 const MARGIN_PRESETS = [5, 10, 15, 20] as const;
@@ -97,6 +100,8 @@ export type CreateIndentNetworkTargetStepProps = {
   compact?: boolean;
   partyPreview?: NumericEntryPartyPreview;
   onPartyPress?: () => void;
+  /** Stops in between; shown as base + charges = saved freight. */
+  extraStops?: RouteExtraStopSummary | null;
 };
 
 function MarginPresetChips({
@@ -170,6 +175,7 @@ export const CreateIndentNetworkTargetStep = memo(
     compact = false,
     partyPreview,
     onPartyPress,
+    extraStops = null,
   }: CreateIndentNetworkTargetStepProps) {
     const [targetModalOpen, setTargetModalOpen] = useState(false);
     const [doneAttempted, setDoneAttempted] = useState(false);
@@ -271,6 +277,17 @@ export const CreateIndentNetworkTargetStep = memo(
       return Math.round(rate * tons);
     }, [supplierRateBasis, supplierTarget, weightTons]);
 
+    const extraStopsCard =
+      extraStops && extraStops.count > 0 ? (
+        <RouteExtraStopsCommercials
+          summary={extraStops}
+          clientBase={parseAmount(clientPrice) ?? 0}
+          supplierBase={parseAmount(supplierTarget)}
+          supplierPerMt={supplierRateBasis === "per_mt"}
+          style={styles.extraStopsCard}
+        />
+      ) : null;
+
     const marginChips = (
       <MarginPresetChips
         clientPrice={clientPriceForCompare}
@@ -294,7 +311,10 @@ export const CreateIndentNetworkTargetStep = memo(
         }
         accessory={
           compact ? (
-            marginStrip
+            <View style={styles.modalAccessory}>
+              {marginStrip}
+              {extraStopsCard}
+            </View>
           ) : (
             <View style={styles.modalAccessory}>
               {marginStrip}
@@ -408,6 +428,7 @@ export const CreateIndentNetworkTargetStep = memo(
           <View style={styles.accessoryStack}>
             {marginStrip}
             {marginChips}
+            {extraStopsCard}
           </View>
         </View>
 
@@ -432,6 +453,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "500",
+  },
+  extraStopsCard: {
+    maxWidth: 420,
+    alignSelf: "center",
   },
   accessoryStack: {
     width: "100%",

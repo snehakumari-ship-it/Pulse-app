@@ -111,9 +111,10 @@ function AddTripPageContent() {
     const assignDriverByPhone = !!options?.driverPhone?.trim();
     const assignDriverName = options?.driverName?.trim() || undefined;
     if (isAggregate) {
-      const { error, trip, otp } = await createTripWithOtp(orgId, userId, {
+      const { error, trip, otp, warning } = await createTripWithOtp(orgId, userId, {
         pickup_area: data.pickup_area,
         drop_location: data.drop_location,
+        extra_stops: data.extra_stops,
         pickup_lat: data.pickup_lat ?? undefined,
         pickup_lon: data.pickup_lon ?? undefined,
         drop_lat: data.drop_lat ?? undefined,
@@ -142,6 +143,7 @@ function AddTripPageContent() {
         trip_payout_mode: 'market',
       }, { skipOtpGeneration: assignDriverByPhone });
       if (error) throw error;
+      if (warning) showAppAlert('Trip created', warning);
       const advancePaidAgg = normalizedAdvancePaid;
       const supplierIdAgg = data.supplier_id ?? null;
       if (trip && advancePaidAgg > 0 && supplierIdAgg) {
@@ -202,9 +204,10 @@ function AddTripPageContent() {
       }
       return;
     }
-    const { error, trip } = await createTrip(orgId, userId, {
+    const { error, trip, warning } = await createTrip(orgId, userId, {
       pickup_area: data.pickup_area,
       drop_location: data.drop_location,
+      extra_stops: data.extra_stops,
       pickup_lat: data.pickup_lat ?? undefined,
       pickup_lon: data.pickup_lon ?? undefined,
       drop_lat: data.drop_lat ?? undefined,
@@ -235,6 +238,7 @@ function AddTripPageContent() {
       trip_payout_mode: options?.supplySource === 'aggregate' ? 'market' : 'asset',
     });
     if (error) throw error;
+    if (warning) showAppAlert('Trip created', warning);
     if (trip && options?.supplySource === 'aggregate' && options?.driverPhone?.trim()) {
       const { error: assignErr } = await assignTripDriverByPhone(
         trip.id,
@@ -290,7 +294,7 @@ function AddTripPageContent() {
 
   const handleShareIndent = async (data: CreateIndentInput) => {
     const { orgId, userId } = ensureSessionReady();
-    const { error, indent } = await createIndent(
+    const { error, indent, warning } = await createIndent(
       orgId,
       {
         ...data,
@@ -301,6 +305,7 @@ function AddTripPageContent() {
     );
     if (error) throw error;
     if (!indent) throw new Error("Indent was not created.");
+    if (warning) showAppAlert("Indent shared", warning);
     try {
       invalidateIndents(orgId, { bustPartnerSupplierMarket: true });
       await refreshTripsAfterCreate(orgId);

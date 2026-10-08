@@ -47,6 +47,11 @@ import {
   HubMobileListCanvas,
   hubMobileListCanvasStyles,
 } from "@/components/hub";
+import {
+  extraStopChipLabel,
+  extraStopPaidLabel,
+  type RouteExtraStopSummary,
+} from "@/features/trips/utils/routeExtraStops.util";
 
 const INK = "#111827";
 const MUTED = "#6B7280";
@@ -248,6 +253,8 @@ export type LoadCenterHubMobileIndentCardProps = {
   rightFooterLabel: string;
   /** Ticket commerce: target rate / your quote / bids won. */
   ticketCommerce?: LoadCenterTicketCommerce | null;
+  /** FTL stops in between; their charges are already inside the indent rates. */
+  routeExtraStops?: RouteExtraStopSummary | null;
   /** Network partner vs market discovery (Reach / ad). */
   sourceTag?: GetLoadSourceTag | null;
   avatarUrl?: string | null;
@@ -301,6 +308,7 @@ export function LoadCenterHubMobileIndentCard({
   leftFooterLabel,
   rightFooterLabel,
   ticketCommerce,
+  routeExtraStops = null,
   sourceTag = null,
   avatarUrl,
   avatarSeed,
@@ -334,6 +342,9 @@ export function LoadCenterHubMobileIndentCard({
     showPlanInRoute && routeHierarchy.finalDropPlace
       ? routeHierarchy.finalDropPlace
       : dest;
+  const ftlStopLabel = showPlanInRoute
+    ? null
+    : extraStopChipLabel(routeExtraStops?.count ?? 0);
   const viaLabel =
     extraStops > 0
       ? `+${extraStops} ${extraStops === 1 ? "stop" : "stops"}`
@@ -399,6 +410,17 @@ export function LoadCenterHubMobileIndentCard({
     (isGetLoadCard && (commerce?.kicker ?? "").toUpperCase() === "YOUR BID")
       ? null
       : rawReferenceTarget;
+  const heroInr = commerce?.amountInr ?? 0;
+  const extraStopSide =
+    heroInr > 0 && heroInr === Number(indent.client_price ?? 0)
+      ? "client"
+      : heroInr > 0 && heroInr === Number(indent.supplier_target ?? 0)
+        ? "supplier"
+        : null;
+  const extraStopPaid =
+    routeExtraStops && extraStopSide && !compactKanbanFooter
+      ? extraStopPaidLabel(routeExtraStops, extraStopSide, formatINR)
+      : null;
   const priceHint =
     commerce?.kicker?.trim() ||
     (heroAmount ? "Offer" : null);
@@ -455,9 +477,7 @@ export function LoadCenterHubMobileIndentCard({
           accessibilityRole={onPress ? "button" : undefined}
           accessibilityLabel={
             onPress
-              ? anonymous
-                ? `${indentNumber}, ${asLabel(origin)} to ${asLabel(dest)}`
-                : `${indentNumber} ${displayName}, ${asLabel(origin)} to ${asLabel(dest)}`
+              ? `${anonymous ? indentNumber : `${indentNumber} ${displayName}`}, ${asLabel(origin)} to ${asLabel(dest)}${ftlStopLabel ? `, ${ftlStopLabel} in between` : ""}`
               : undefined
           }
         >
@@ -569,7 +589,7 @@ export function LoadCenterHubMobileIndentCard({
           <View
             style={[
               styles.routeGrid,
-              showPlanInRoute ? styles.routeGridWithVia : null,
+              showPlanInRoute || ftlStopLabel ? styles.routeGridWithVia : null,
             ]}
             testID={
               showPlanInRoute
@@ -611,13 +631,22 @@ export function LoadCenterHubMobileIndentCard({
               </Pressable>
             ) : (
               <View
-                style={styles.routeSep}
+                style={[styles.routeSep, ftlStopLabel ? styles.routeSepVia : null]}
                 pointerEvents="none"
                 accessibilityElementsHidden
               >
-                <View style={styles.routeSepLine} />
-                <ArrowRight size={11} color={MUTED} strokeWidth={2.4} />
-                <View style={styles.routeSepLine} />
+                <View style={styles.routeSepArrowRow}>
+                  <View style={styles.routeSepLine} />
+                  <ArrowRight size={11} color={MUTED} strokeWidth={2.4} />
+                  <View style={styles.routeSepLine} />
+                </View>
+                {ftlStopLabel ? (
+                  <View style={styles.routeViaChip}>
+                    <Text style={styles.routeViaText} numberOfLines={1}>
+                      {ftlStopLabel}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             )}
             <View style={[styles.routeCol, styles.routeColEnd]}>
@@ -753,6 +782,11 @@ export function LoadCenterHubMobileIndentCard({
                 >
                   {heroAmount}
                 </Text>
+                {extraStopPaid ? (
+                  <Text style={styles.priceRef} numberOfLines={1}>
+                    {extraStopPaid}
+                  </Text>
+                ) : null}
                 {referenceTarget ? (
                   <Text style={styles.priceRef} numberOfLines={1}>
                     {`${commerce?.referenceLabel?.trim() || "Client rate"} · ₹ ${referenceTarget}`}

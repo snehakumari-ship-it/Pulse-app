@@ -94,6 +94,14 @@ import { CreateTripDesktopRouteStep } from "@/features/trips/components/add-trip
 import { CreateTripDesktopStepper } from "@/features/trips/components/add-trip/CreateTripDesktopStepper";
 import { createTripDesktopStyles as createTripStyles } from "@/features/trips/components/add-trip/createTripDesktop.styles";
 import { LocationSearchField } from "@/features/trips/components/add-trip/LocationSearchField";
+import { RouteExtraStopsEditor } from "@/features/trips/components/add-trip/RouteExtraStopsEditor";
+import { fetchRouteExtraStopsForIndents } from "@/features/trips/services/routeExtraStops.service";
+import {
+  routeExtraStopDraftsFromRows,
+  routeExtraStopInputs,
+  summarizeRouteExtraStops,
+  type RouteExtraStopDraft,
+} from "@/features/trips/utils/routeExtraStops.util";
 import { useUserCommodityTypes } from "@/features/trips/hooks/useUserCommodityTypes";
 import {
   buildPickupRecommendations,
@@ -371,6 +379,13 @@ export default function CreateIndentScreen() {
   const [laneSearch, setLaneSearch] = useState("");
   const debouncedLaneSearch = useDebouncedValue(laneSearch, 250);
   const [pickupLat, setPickupLat] = useState<number | null>(null);
+  const [extraStops, setExtraStops] = useState<RouteExtraStopDraft[]>([]);
+  /** Draft had saved stops, so an empty list must still clear them. */
+  const draftHadStopsRef = useRef(false);
+  const extraStopSummary = useMemo(
+    () => summarizeRouteExtraStops(routeExtraStopInputs(extraStops)),
+    [extraStops],
+  );
   const [pickupLon, setPickupLon] = useState<number | null>(null);
   const [dropLat, setDropLat] = useState<number | null>(null);
   const [dropLon, setDropLon] = useState<number | null>(null);
@@ -644,6 +659,22 @@ export default function CreateIndentScreen() {
         }
         const { error, indent } = await getIndentById(routeDraftId);
         if (!error && indent) {
+          const { rows: stopRows } = await fetchRouteExtraStopsForIndents([
+            indent.id,
+          ]);
+          const loadedStops = routeExtraStopDraftsFromRows(stopRows);
+          const stopClientCharge = stopRows.reduce((n, r) => n + r.client_charge, 0);
+          const stopSupplierCharge = stopRows.reduce((n, r) => n + r.supplier_charge, 0);
+          const baseClientPrice =
+            indent.client_price != null && Number(indent.client_price) > 0
+              ? Number(indent.client_price) - stopClientCharge
+              : indent.client_price;
+          const baseSupplierTarget =
+            indent.supplier_target != null &&
+            Number(indent.supplier_target) > 0 &&
+            indent.supplier_rate_basis !== "per_mt"
+              ? Number(indent.supplier_target) - stopSupplierCharge
+              : indent.supplier_target;
           const nextForm: FormState = {
             client_name: String(indent.client_name ?? ""),
             client_id: (indent.client_id as string) ?? null,
@@ -656,9 +687,7 @@ export default function CreateIndentScreen() {
                 ? String((Number(indent.weight) / 1000).toFixed(2))
                 : "",
             client_price:
-              indent.client_price != null
-                ? String(Number(indent.client_price))
-                : "",
+              baseClientPrice != null ? String(Number(baseClientPrice)) : "",
             sale_rate_basis:
               indent.sale_rate_basis === "per_mt" ? "per_mt" : "per_trip",
             sale_unit_rate:
@@ -666,8 +695,8 @@ export default function CreateIndentScreen() {
                 ? String(Number(indent.sale_unit_rate))
                 : "",
             supplier_target:
-              indent.supplier_target != null
-                ? String(Number(indent.supplier_target))
+              baseSupplierTarget != null
+                ? String(Number(baseSupplierTarget))
                 : "",
             supplier_rate_basis:
               indent.supplier_rate_basis === "per_mt" ? "per_mt" : "per_trip",
@@ -685,6 +714,8 @@ export default function CreateIndentScreen() {
           };
           setForm(nextForm);
           setLastSavedForm(nextForm);
+          setExtraStops(loadedStops);
+          draftHadStopsRef.current = loadedStops.length > 0;
           setDraftIndentId(indent.id);
           const draftLaneId =
             typeof indent.lane_id === "string" ? indent.lane_id : null;
@@ -1066,8 +1097,12 @@ export default function CreateIndentScreen() {
       created_by_user_id: profile?.uid ?? user?.uid ?? undefined,
     };
     if (form.client_id) payload.client_id = form.client_id;
+    const stopInputs = routeExtraStopInputs(extraStops);
+    if (stopInputs.length > 0 || draftHadStopsRef.current) {
+      payload.extraStops = stopInputs;
+    }
     return payload;
-  }, [form, profile, selectedLaneId, user]);
+  }, [extraStops, form, profile, selectedLaneId, user]);
 
   const persistDraft = useCallback(async () => {
     if (shouldSkipLockedSubmit(submitting, submitLockRef)) return;
@@ -1100,11 +1135,12 @@ export default function CreateIndentScreen() {
         );
       };
       if (isUuid(draftIndentId)) {
-        const { error, indent } = await updateIndentDraft(
+        const { error, indent, warning } = await updateIndentDraft(
           draftIndentId,
           payload,
         );
         if (!error) {
+          if (warning) showDialog("Draft saved", warning);
           setLastSavedForm(form);
           invalidateIndents(orgId, { bustPartnerSupplierMarket: true });
           await rememberVehicleCount(indent?.id ?? draftIndentId);
@@ -1127,13 +1163,14 @@ export default function CreateIndentScreen() {
         await AsyncStorage.removeItem(`indent_draft_id_${orgId}`);
       }
 
-      const { error, indent } = await createIndent(orgId, payload, {
+      const { error, indent, warning } = await createIndent(orgId, payload, {
         action: "draft",
       });
       if (error) {
         showDialog("Could not save draft", error.message);
         return;
       }
+      if (warning) showDialog("Draft saved", warning);
       if (indent) {
         setDraftIndentId(indent.id);
         await AsyncStorage.setItem(`indent_draft_id_${orgId}`, indent.id);
@@ -1191,7 +1228,7 @@ export default function CreateIndentScreen() {
 
       setSubmitting(true);
       const payload = buildPayload();
-      const { error, indents } = await createSharedIndentCopies(
+      const { error, indents, warning } = await createSharedIndentCopies(
         orgId,
         payload,
         vehicleCount,
@@ -1218,6 +1255,7 @@ export default function CreateIndentScreen() {
       }
       const first = indents[0];
       if (!first) return;
+      if (warning) showDialog("Indent shared", warning);
       if (draftIndentId) {
         await AsyncStorage.removeItem(draftVehicleCountStorageKey(draftIndentId));
       }
@@ -1602,6 +1640,8 @@ export default function CreateIndentScreen() {
                 }
                 onPickupDropdownOpenChange={setPickupDropdownOpen}
                 onDropDropdownOpenChange={setDropDropdownOpen}
+                extraStops={extraStops}
+                onExtraStopsChange={setExtraStops}
                 pickupRecommendations={pickupRecommendations}
                 onSelectPickupRecommendation={(recommendation) => {
                   update({ pickup_area: recommendation.address });
@@ -1651,6 +1691,7 @@ export default function CreateIndentScreen() {
             {wizardStep === "prices" ? (
               <CreateIndentNetworkTargetStep
                 compact={compactWizard}
+                extraStops={extraStopSummary}
                 supplierTarget={form.supplier_target}
                 supplierRateBasis={form.supplier_rate_basis}
                 weightTons={form.weight}
@@ -1947,6 +1988,13 @@ export default function CreateIndentScreen() {
                     ) : null}
                   </View>
                 </View>
+
+                <RouteExtraStopsEditor
+                  stops={extraStops}
+                  onChange={setExtraStops}
+                  compact={isDenseForm}
+                  onDropdownOpenChange={setDropDropdownOpen}
+                />
 
                 <View
                   style={[styles.gridRow, isWide && styles.gridRowWide]}

@@ -113,3 +113,24 @@ describe('buildDriverRoutePlanMap', () => {
     });
   });
 });
+
+describe('buildTripRowRoutePlanMap with FTL stops', () => {
+  it('numbers en-route stops as drops before the final drop and skips stops without coordinates', () => {
+    const plan = buildTripRowRoutePlanMap(
+      't1',
+      { latitude: 12.9, longitude: 77.6, label: 'Bengaluru' },
+      { latitude: 13.0, longitude: 80.2, label: 'Chennai' },
+      [
+        { id: 'a', latitude: 12.7, longitude: 77.8, label: 'Hosur' },
+        { id: 'b', latitude: null, longitude: null, label: 'Unknown' },
+        { id: 'c', latitude: 12.5, longitude: 78.2, label: 'Krishnagiri' },
+      ],
+    );
+    expect(plan.stops.map((s) => [routePlanStopCaption(s), s.label, s.sequence])).toEqual([
+      ['Pickup 1', 'Bengaluru', 1],
+      ['Drop 1', 'Hosur', 2],
+      ['Drop 2', 'Krishnagiri', 3],
+      ['Drop 3', 'Chennai', 4],
+    ]);
+  });
+});
