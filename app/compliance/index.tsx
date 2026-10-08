@@ -640,41 +640,59 @@ export default function ComplianceScreen() {
       );
     }
     if (stage === "compliance_verified") {
+      const verifiedCounts = {
+        all: filtered.length,
+        verified: verifiedOnlyCount,
+        compliance: financeDeclinedCount,
+        pending_docs: pendingDocsRejectedCount,
+      };
       return (
-        <ComplianceSegmentedFilter
-          embedded={embedded}
-          compact
-          cardDense={cardDense}
-          value={verifiedSlice}
-          counts={{
-            all: filtered.length,
-            verified: verifiedOnlyCount,
-            compliance: financeDeclinedCount,
-            pending_docs: pendingDocsRejectedCount,
-          }}
-          options={[
-            { id: "all", label: "All", dot: null },
-            {
-              id: "verified",
-              label: "Verified",
-              a11yLabel: "Verified",
-              dot: COMPLIANCE_STAGE_TONE.compliance_verified.fg,
-            },
-            {
-              id: "compliance",
-              label: "Compliance",
-              a11yLabel: "Compliance declined by finance",
-              dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
-            },
-            {
-              id: "pending_docs",
-              label: "Docs Follow Up",
-              a11yLabel: "Docs Follow Up declined by finance",
-              dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
-            },
-          ]}
-          onChange={setVerifiedSlice}
-        />
+        <View style={styles.verifiedFilterRow}>
+          <View style={styles.verifiedFilterPrimary}>
+            <ComplianceSegmentedFilter
+              embedded={embedded}
+              compact
+              cardDense={cardDense}
+              value={verifiedSlice}
+              counts={verifiedCounts}
+              options={[
+                { id: "all", label: "All", dot: null },
+                {
+                  id: "verified",
+                  label: "Verified",
+                  a11yLabel: "Verified",
+                  dot: COMPLIANCE_STAGE_TONE.compliance_verified.fg,
+                },
+              ]}
+              onChange={setVerifiedSlice}
+            />
+          </View>
+          <View style={styles.verifiedFilterDeclined}>
+            <Text style={styles.verifiedDeclinedLabel}>Declined</Text>
+            <ComplianceSegmentedFilter
+              embedded={embedded}
+              compact
+              cardDense={cardDense}
+              value={verifiedSlice}
+              counts={verifiedCounts}
+              options={[
+                {
+                  id: "compliance",
+                  label: "Compliance",
+                  a11yLabel: "Compliance declined by finance",
+                  dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
+                },
+                {
+                  id: "pending_docs",
+                  label: "Docs Follow Up",
+                  a11yLabel: "Docs Follow Up declined by finance",
+                  dot: COMPLIANCE_STAGE_TONE.pending_for_docs.fg,
+                },
+              ]}
+              onChange={setVerifiedSlice}
+            />
+          </View>
+        </View>
       );
     }
     return null;
@@ -1554,6 +1572,31 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     marginTop: 8,
     marginBottom: 2,
+  },
+  /** Verified: All / Verified beside a Declined group (Compliance, Docs Follow Up). */
+  verifiedFilterRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  verifiedFilterPrimary: {
+    flex: 1,
+    minWidth: 0,
+  },
+  verifiedFilterDeclined: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "stretch",
+    gap: 4,
+  },
+  verifiedDeclinedLabel: {
+    width: "100%",
+    textAlign: "center",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: Theme.textSecondary,
   },
   pendingDocsFilterStack: {
     width: "100%",

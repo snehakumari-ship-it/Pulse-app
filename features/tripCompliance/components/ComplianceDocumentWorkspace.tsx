@@ -4716,51 +4716,51 @@ function ChecklistAdvancePaymentPanel({
     setRejectedPayOpen(false);
   }, [summary.trip.id]);
 
-  return (
-    <ScrollView
-      style={styles.checklistInfoScroll}
-      contentContainerStyle={styles.checklistInfoContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.checklistInfoTitle}>Advance payment</Text>
-      <Text style={styles.checklistInfoHint}>
-        {showInlineForm
-          ? "Review the calculation and confirm to post through Finance"
-          : "Payment status for this trip's compliance advance"}
-      </Text>
+  const showArt = !showInlineForm && !(rejectedPayAvailable && rejectedPayOpen);
 
-      <View style={styles.checklistAdvanceStatusCard}>
-        <Text style={styles.checklistAdvanceStatusLabel}>Status</Text>
-        <View
-          style={[
-            styles.checklistAdvanceStatusPill,
-            statusTone === "ready" && styles.checklistAdvanceStatusPillReady,
-            statusTone === "posted" && styles.checklistAdvanceStatusPillPosted,
-            statusTone === "blocked" && styles.checklistAdvanceStatusPillBlocked,
-            statusTone === "pending" && styles.checklistAdvanceStatusPillPending,
-          ]}
-        >
+  return (
+    <View style={styles.checklistAdvancePanel}>
+      <View style={styles.checklistAdvanceLead}>
+        <Text style={styles.checklistInfoTitle}>Advance payment</Text>
+        <Text style={styles.checklistInfoHint} numberOfLines={2}>
+          {showInlineForm
+            ? "Review the calculation and confirm to post through Finance"
+            : "Payment status for this trip's compliance advance"}
+        </Text>
+
+        <View style={styles.checklistAdvanceStatusCard}>
+          <Text style={styles.checklistAdvanceStatusLabel}>Status</Text>
           <View
             style={[
-              styles.checklistAdvanceStatusDot,
-              statusTone === "ready" && styles.checklistAdvanceStatusDotReady,
-              statusTone === "posted" && styles.checklistAdvanceStatusDotPosted,
-              statusTone === "blocked" && styles.checklistAdvanceStatusDotBlocked,
-              statusTone === "pending" && styles.checklistAdvanceStatusDotPending,
+              styles.checklistAdvanceStatusPill,
+              statusTone === "ready" && styles.checklistAdvanceStatusPillReady,
+              statusTone === "posted" && styles.checklistAdvanceStatusPillPosted,
+              statusTone === "blocked" && styles.checklistAdvanceStatusPillBlocked,
+              statusTone === "pending" && styles.checklistAdvanceStatusPillPending,
             ]}
-          />
-          <Text
-            style={[
-              styles.checklistAdvanceStatusText,
-              statusTone === "ready" && styles.checklistAdvanceStatusTextReady,
-              statusTone === "posted" && styles.checklistAdvanceStatusTextPosted,
-              statusTone === "blocked" && styles.checklistAdvanceStatusTextBlocked,
-              statusTone === "pending" && styles.checklistAdvanceStatusTextPending,
-            ]}
-            numberOfLines={1}
           >
-            {statusLabel}
-          </Text>
+            <View
+              style={[
+                styles.checklistAdvanceStatusDot,
+                statusTone === "ready" && styles.checklistAdvanceStatusDotReady,
+                statusTone === "posted" && styles.checklistAdvanceStatusDotPosted,
+                statusTone === "blocked" && styles.checklistAdvanceStatusDotBlocked,
+                statusTone === "pending" && styles.checklistAdvanceStatusDotPending,
+              ]}
+            />
+            <Text
+              style={[
+                styles.checklistAdvanceStatusText,
+                statusTone === "ready" && styles.checklistAdvanceStatusTextReady,
+                statusTone === "posted" && styles.checklistAdvanceStatusTextPosted,
+                statusTone === "blocked" && styles.checklistAdvanceStatusTextBlocked,
+                statusTone === "pending" && styles.checklistAdvanceStatusTextPending,
+              ]}
+              numberOfLines={1}
+            >
+              {statusLabel}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -4844,7 +4844,7 @@ function ChecklistAdvancePaymentPanel({
       {advanceBlockers.length > 0 ? (
         <View style={styles.checklistBlockerBox}>
           {advanceBlockers.slice(0, 3).map((line) => (
-            <Text key={line} style={styles.checklistBlockerText}>
+            <Text key={line} style={styles.checklistBlockerText} numberOfLines={2}>
               {line}
             </Text>
           ))}
@@ -4885,10 +4885,12 @@ function ChecklistAdvancePaymentPanel({
         </View>
       ) : null}
 
-      <View style={styles.checklistAdvanceArtSlot} pointerEvents="none">
-        <ComplianceAdvancePaymentArt />
-      </View>
-    </ScrollView>
+      {showArt ? (
+        <View style={styles.checklistAdvanceArtSlot} pointerEvents="none">
+          <ComplianceAdvancePaymentArt />
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -5997,15 +5999,28 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 10,
   },
+  checklistAdvancePanel: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  checklistAdvanceLead: {
+    flexShrink: 0,
+    gap: 4,
+  },
   checklistAdvanceArtSlot: {
     flexGrow: 1,
-    minHeight: 150,
+    flexShrink: 1,
+    minHeight: 0,
     width: "100%",
     alignItems: "flex-end",
     justifyContent: "flex-end",
-    paddingTop: 8,
-    paddingRight: 16,
-    paddingBottom: 8,
+    paddingTop: 4,
+    paddingRight: 12,
+    paddingBottom: 4,
     backgroundColor: "transparent",
   },
   /** Trip details fill the preview pane. No inner scroll. */
@@ -6432,24 +6447,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
   checklistAdvanceFormCard: {
+    flex: 1,
+    minHeight: 0,
     width: "100%",
     minWidth: 0,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 12,
+    paddingHorizontal: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
+    overflow: "hidden",
   },
   checklistAdvanceStatusLabel: {
     fontSize: 10,
