@@ -1,6 +1,8 @@
 import {
   buildDriverRoutePlanMap,
   buildTripRowRoutePlanMap,
+  clusterRoutePlanStops,
+  routeClusterCopy,
   routePlanLeafletMarkerId,
   routePlanPolyline,
   routePlanStopCaption,
@@ -90,5 +92,24 @@ describe('buildDriverRoutePlanMap', () => {
       'drop-2',
       'drop-3',
     ]);
+  });
+
+  it('keeps both drop icons and summarizes the next stop when they share a point', () => {
+    const plan = buildDriverRoutePlanMap(
+      'trip-1',
+      [
+        stop({ stopId: 'd1', sequence: 1, stopType: 'drop', latitude: 13.08, longitude: 80.27, displayName: 'A' }),
+        stop({ stopId: 'd2', sequence: 2, stopType: 'drop', latitude: 13.0802, longitude: 80.2702, displayName: 'B' }),
+      ],
+      'd1',
+      'drop',
+    );
+    const clusters = clusterRoutePlanStops(plan.stops);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]?.map((item) => item.kindIndex)).toEqual([1, 2]);
+    expect(routeClusterCopy(clusters[0] ?? [])).toEqual({
+      label: 'Drop 1',
+      nextLabel: '+1 next · Drop 2',
+    });
   });
 });

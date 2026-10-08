@@ -132,6 +132,72 @@ export function routePlanLeafletMarkerId(stop: DriverRoutePlanMapStop): string {
   return `plan-${stop.stopId}`;
 }
 
+const SAME_STOP_DEGREES = 0.003;
+
+/** Stops that share a map point, kept in route order. */
+export function clusterRoutePlanStops(
+  stops: readonly DriverRoutePlanMapStop[],
+): DriverRoutePlanMapStop[][] {
+  const clusters: DriverRoutePlanMapStop[][] = [];
+  for (const stop of stops) {
+    const hit = clusters.find((group) => {
+      const lead = group[0];
+      if (!lead) return false;
+      return (
+        Math.abs(lead.latitude - stop.latitude) < SAME_STOP_DEGREES &&
+        Math.abs(lead.longitude - stop.longitude) < SAME_STOP_DEGREES
+      );
+    });
+    if (hit) hit.push(stop);
+    else clusters.push([stop]);
+  }
+  return clusters;
+}
+
+/** Current stop, plus “+1 next · Drop 2” when more stops share the point. */
+export function routeClusterCopy(stops: readonly DriverRoutePlanMapStop[]): {
+  label: string;
+  nextLabel: string | null;
+} {
+  if (stops.length === 0) return { label: '', nextLabel: null };
+  const focus = Math.max(0, stops.findIndex((stop) => stop.isCurrent));
+  const label = routePlanStopCaption(stops[focus] ?? stops[0]!);
+  const upcoming = stops.slice(focus + 1);
+  const next = upcoming[0];
+  if (!next) return { label, nextLabel: null };
+  return {
+    label,
+    nextLabel: `+${upcoming.length} next · ${routePlanStopCaption(next)}`,
+  };
+}
+
+/**
+ * Horizontal pixel shift for stop chips that sit on nearly the same point,
+ * so Drop 2 is not painted on top of Drop 1.
+ */
+export function routePlanMarkerNudges(
+  stops: readonly { stopId: string; latitude: number; longitude: number }[],
+): Record<string, number> {
+  const nudges: Record<string, number> = {};
+  const placed: { latitude: number; longitude: number; slot: number }[] = [];
+  for (const stop of stops) {
+    const hit = placed.find(
+      (prior) =>
+        Math.abs(prior.latitude - stop.latitude) < 0.003 &&
+        Math.abs(prior.longitude - stop.longitude) < 0.003,
+    );
+    if (!hit) {
+      placed.push({ latitude: stop.latitude, longitude: stop.longitude, slot: 0 });
+      nudges[stop.stopId] = 0;
+      continue;
+    }
+    hit.slot += 1;
+    const direction = hit.slot % 2 === 1 ? 1 : -1;
+    nudges[stop.stopId] = direction * Math.ceil(hit.slot / 2) * 76;
+  }
+  return nudges;
+}
+
 export function routePlanPolyline(
   plan: DriverRoutePlanMap | null,
 ): Array<{ latitude: number; longitude: number }> {
