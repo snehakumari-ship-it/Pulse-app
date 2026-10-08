@@ -1,7 +1,8 @@
 import Theme from '@/constants/Theme';
+import Layout from '@/constants/Layout';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Package, X } from 'lucide-react-native';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ArrowLeft, Package } from 'lucide-react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 export type DeliveryPreviewLine = {
   key: string;
@@ -46,44 +47,53 @@ export function DeliveryDetailsPreview({ visible, stops, onClose }: Props) {
     0,
   );
 
+  const summary = [
+    `${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}`,
+    orderCount > 0 ? `${orderCount} ${orderCount === 1 ? 'order' : 'orders'}` : null,
+    productCount > 0 ? `${productCount} ${productCount === 1 ? 'product' : 'products'}` : null,
+  ].filter(Boolean).join(' · ');
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View
-          testID="delivery-details-preview"
-          style={[
-            styles.sheet,
-            {
-              paddingTop: Math.max(insets.top, 12),
-              paddingBottom: Math.max(insets.bottom, 16),
-            },
-          ]}
-        >
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <View
+        testID="delivery-details-preview"
+        style={[
+          styles.page,
+          {
+            backgroundColor: Theme.screenBackground,
+            paddingTop: insets.top,
+          },
+        ]}
+      >
           <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <Text style={styles.kicker}>Delivery</Text>
-              <Text style={styles.title}>Order details</Text>
-              <Text style={styles.meta}>
-                {stops.length} {stops.length === 1 ? 'stop' : 'stops'}
-                {orderCount > 0 ? ` · ${orderCount} ${orderCount === 1 ? 'order' : 'orders'}` : ''}
-                {productCount > 0 ? ` · ${productCount} ${productCount === 1 ? 'product' : 'products'}` : ''}
-              </Text>
-            </View>
             <Pressable
               onPress={onClose}
               accessibilityRole="button"
-              accessibilityLabel="Close order details"
-              hitSlop={8}
-              style={styles.close}
+              accessibilityLabel="Back"
+              hitSlop={Layout.touchTargetHitSlop}
+              style={styles.back}
             >
-              <X size={18} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+              <ArrowLeft size={18} color={Theme.textPrimaryDark} strokeWidth={2.4} />
             </Pressable>
+            <View style={styles.headerCopy}>
+              <Text style={styles.title}>Order details</Text>
+              <Text style={styles.meta} numberOfLines={1}>{summary}</Text>
+            </View>
+            <View style={styles.back} />
           </View>
 
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: Math.max(insets.bottom, 16) + 12 },
+            ]}
           >
             {stops.length === 0 ? (
               <Text style={styles.empty}>This trip has no stops to show yet.</Text>
@@ -156,71 +166,56 @@ export function DeliveryDetailsPreview({ visible, stops, onClose }: Props) {
               })
             )}
           </ScrollView>
-        </View>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  page: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.45)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    maxHeight: '92%',
-    minHeight: '62%',
-    backgroundColor: Theme.screenBackground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
+    width: '100%',
+    ...(Platform.OS === 'web' ? { minHeight: '100vh' as unknown as number } : null),
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingBottom: 12,
+    alignItems: 'center',
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    minHeight: 52,
+    gap: 8,
   },
   headerCopy: {
     flex: 1,
     minWidth: 0,
+    alignItems: 'center',
   },
-  kicker: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: Theme.driverEmerald,
+  back: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    marginTop: 1,
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: -0.3,
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
     color: Theme.textPrimaryDark,
   },
   meta: {
-    marginTop: 4,
-    fontSize: 13,
+    marginTop: 1,
+    fontSize: 11,
     fontWeight: '600',
     color: Theme.textMuted,
   },
-  close: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Theme.surfaceLight,
-  },
   scroll: { flex: 1 },
   scrollContent: {
-    gap: 12,
-    paddingBottom: 20,
+    gap: 10,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 4,
   },
   empty: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: Theme.textMuted,
   },
@@ -229,8 +224,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.border,
     backgroundColor: Theme.surfaceLight,
-    padding: 14,
-    gap: 8,
+    padding: 12,
+    gap: 6,
   },
   stopCardCurrent: {
     borderColor: Theme.driverEmeraldBorder,
@@ -245,18 +240,18 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   place: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: -0.15,
     color: Theme.textPrimaryDark,
   },
   address: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '500',
     color: Theme.textMuted,
   },
@@ -265,7 +260,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   orderTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: Theme.textSecondary,
   },
@@ -279,9 +274,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   productIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Theme.driverEmeraldMuted,
@@ -292,18 +287,18 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   productName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: Theme.textPrimaryDark,
   },
   productSku: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '500',
     color: Theme.textMuted,
   },
   productQty: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '700',
     color: Theme.driverEmerald,
   },
   noProducts: {

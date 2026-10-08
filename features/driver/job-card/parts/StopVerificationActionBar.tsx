@@ -61,18 +61,16 @@ export function StopVerificationActionBar({
 const styles = StyleSheet.create({
   bar: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 12,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    paddingTop: 10,
   },
   cta: {
-    minHeight: 54,
-    borderRadius: 14,
+    minHeight: 44,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

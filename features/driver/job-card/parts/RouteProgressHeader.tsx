@@ -108,13 +108,11 @@ export function RouteProgressHeader({
             return (
               <View
                 key={key}
-                style={[styles.stat, softElevation, { backgroundColor: cardBackground(colors) }]}
+                style={[styles.stat, { backgroundColor: tint.bg }]}
                 accessible
                 accessibilityLabel={`${label}: ${stats[key]}`}
               >
-                <View style={[styles.statIcon, { backgroundColor: tint.bg }]}>
-                  <Icon size={14} color={tint.fg} strokeWidth={2.4} />
-                </View>
+                <Icon size={14} color={tint.fg} strokeWidth={2.2} />
                 <Text style={[styles.statValue, { color: colors.text }]}>{stats[key]}</Text>
                 <Text style={[styles.statLabel, { color: colors.textMuted }]} numberOfLines={1}>
                   {short}
@@ -132,9 +130,9 @@ const styles = StyleSheet.create({
   wrap: { gap: 8 },
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
   },
   top: {
     flexDirection: 'row',
@@ -154,29 +152,29 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   count: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.6,
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   countTotal: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
   },
   countUnit: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   bar: {
-    height: 6,
+    height: 4,
     borderRadius: 999,
     overflow: 'hidden',
   },
   barFill: {
-    height: 6,
+    height: 4,
     borderRadius: 999,
   },
   meta: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.1,
   },
@@ -185,35 +183,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   planLinkText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   stats: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   stat: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '46%',
     minWidth: 0,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    gap: 4,
-  },
-  statIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   statValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: -0.3,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   statLabel: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 10,
     fontWeight: '600',
   },

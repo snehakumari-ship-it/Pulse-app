@@ -78,7 +78,7 @@ const driverText = createPulseSignUpTextStyles(DRIVER_SIGNUP);
 
 const footerStyles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: 4, paddingVertical: 8 },
-  row: { alignItems: 'center', paddingVertical: 2 },
+  row: { alignItems: 'center', justifyContent: 'center', minHeight: 44, paddingHorizontal: 12 },
   text: driverText.linkSmall,
   link: driverText.linkEmphasis,
 });
@@ -185,7 +185,7 @@ export default function DriverSignInScreen() {
       {step === 0 ? (
         <SignUpPulseKeypadStep
           theme={DRIVER_SIGNUP}
-          heroImage={DRIVER_SIGNUP_PHONE_HERO}
+          heroArt={DRIVER_SIGNUP_PHONE_HERO}
           title={STEP_CONTENT[0].title}
           subtitle={STEP_CONTENT[0].subtitle}
           value={phone}
@@ -219,7 +219,7 @@ export default function DriverSignInScreen() {
       ) : (
         <SignUpPulseKeypadStep
           theme={DRIVER_SIGNUP}
-          heroImage={DRIVER_SIGNUP_VERIFY_HERO}
+          heroArt={DRIVER_SIGNUP_VERIFY_HERO}
           centeredLayout
           title={STEP_CONTENT[1].title}
           subtitle={otpSubtitle}

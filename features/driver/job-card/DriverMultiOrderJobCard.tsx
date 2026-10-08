@@ -5,8 +5,6 @@
 import Theme from '@/constants/Theme';
 import Layout from '@/constants/Layout';
 import { TRIP_SHEET_BODY_PAD, TRIP_SHEET_TOP_RADIUS } from '@/components/driver/DriverTripSheetLayout';
-import { MissionCardLayout } from '@/features/driver/components/MissionCardLayout';
-import { planStopsFromLabeled } from '@/features/driver/components/missionPlanRows';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { useDriverCommerceMission } from '@/features/driver/commerce-mission/useDriverCommerceMission';
@@ -44,7 +42,7 @@ import { DriverStopVerificationScreen } from '@/features/driver/job-card/DriverS
 import { DriverTripCompletionScreen } from '@/features/driver/job-card/DriverTripCompletionScreen';
 import { CurrentStopCard } from '@/features/driver/job-card/parts/CurrentStopCard';
 import { RouteProgressHeader } from '@/features/driver/job-card/parts/RouteProgressHeader';
-import { RouteProgressTrack } from '@/features/driver/job-card/parts/RouteProgressTrack';
+import { TripPlanPage } from '@/features/driver/job-card/parts/TripPlanPage';
 import {
   RouteTimeline,
   type RouteTimelineProgress,
@@ -56,26 +54,18 @@ import type { RouteStopStats } from '@/features/driver/job-card/parts/RouteProgr
 import { StopActionButton } from '@/features/driver/job-card/parts/StopActionButton';
 import { completedStopCount } from '@/features/driver/job-card/attachOrdersToStop';
 import { allStopsFinished } from '@/features/driver/job-card/tripCompletionSummary';
-import * as tripsService from '@/features/trips/services/trips.service';
 import {
   applyDriverCommandResult,
   executeDriverCommand,
   type DriverCommandResult,
 } from '@/features/driver/services/driverExecution.service';
-import { getTripStopCoordinate } from '@/features/trips/domain';
-import {
-  DRIVER_PAY_NA_AMOUNT,
-  DRIVER_PAY_NA_LABEL,
-  isAggregateTrip,
-} from '@/features/drivers/utils/driverUtils.util';
-import { formatINR, formatTime } from '@/lib/format';
-import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
+import { formatTime } from '@/lib/format';
 import { openExternalNavigation } from '@/lib/mapsNavigation.util';
 import { DeliveryDetailsPreview, type DeliveryPreviewStop } from '@/features/driver/job-card/parts/DeliveryDetailsPreview';
 import { ChevronUp } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 type Props = DriverTripFlowCardProps & {
   stopExecution: DriverStopExecutionController;
@@ -89,10 +79,7 @@ export function DriverMultiOrderJobCard({
   edgeToEdge = false,
   variant = 'card',
   distanceToTargetKm,
-  commissionAmount,
-  assignedBy = null,
   onRoutePlanMapChange,
-  onShowRouteOnMap,
   onTripCompleted,
   onTripUpdated,
   deliveryDetailsNonce = 0,
@@ -125,6 +112,7 @@ export function DriverMultiOrderJobCard({
   const [proofBusy, setProofBusy] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const seenDetailsNonce = useRef(deliveryDetailsNonce);
   const [completingTrip, setCompletingTrip] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
@@ -278,39 +266,11 @@ export function DriverMultiOrderJobCard({
   const remainingKmLabel = formatStopKm(distanceToTargetKm ?? undefined);
   const sheetStyle = [
     styles.sheet,
-    { backgroundColor: colors.surface },
-    inSheet ? styles.sheetFill : null,
+    { backgroundColor: inSheet ? colors.background : colors.surface },
+    inSheet ? styles.page : null,
     frameless ? styles.edge : styles.inset,
     inSheet ? styles.sheetFlush : null,
   ];
-  const pickupLabel = trip.pickup_area?.trim() || '—';
-  const dropLabel =
-    (trip.drop_location || (trip as { drop_area?: string | null }).drop_area)?.trim() || '—';
-  const missionPlan = useMemo(() => {
-    if (commerce.stops.length > 0) {
-      return planStopsFromLabeled(
-        commerce.stops.map((stop) => ({
-          id: stop.id,
-          sequence: stop.sequence,
-          type: stop.type,
-          place: stop.address?.trim() || stop.location,
-          isCurrent: stop.isCurrent,
-        })),
-      );
-    }
-    if (stops.length > 1) {
-      return planStopsFromLabeled(
-        stops.map((stop) => ({
-          id: stop.stopId,
-          sequence: stop.sequence,
-          type: String(stop.stopType),
-          place: formatStopPlace(stop),
-          isCurrent: stop.stopId === currentId,
-        })),
-      );
-    }
-    return null;
-  }, [commerce.stops, stops, currentId]);
 
   const previewStops = useMemo((): DeliveryPreviewStop[] => {
     const modelById = new Map(commerce.stops.map((stop) => [stop.id, stop]));
@@ -356,25 +316,6 @@ export function DriverMultiOrderJobCard({
     seenDetailsNonce.current = deliveryDetailsNonce;
     if (deliveryDetailsNonce > 0) setDetailsOpen(true);
   }, [deliveryDetailsNonce]);
-  const pay = isAggregateTrip(trip) || !(Number(commissionAmount) > 0)
-    ? { earnings: DRIVER_PAY_NA_AMOUNT, earningsLabel: DRIVER_PAY_NA_LABEL }
-    : { earnings: formatINR(Number(commissionAmount)), earningsLabel: 'EST. EARNINGS' };
-  const etaLabel = (() => {
-    const raw = trip.estimated_duration;
-    if (raw != null && String(raw).trim() !== '' && !String(raw).includes('00:00:00')) {
-      return formatEstimatedDuration(raw);
-    }
-    return '—';
-  })();
-  const missionTitle = !currentStop
-    ? "Today's route"
-    : isDeliveryStop(String(currentStop.stopType))
-      ? currentStop.status === 'arrived' ? 'At drop' : 'Go to delivery'
-      : currentStop.status === 'arrived' ? 'At pickup' : 'Go to pickup';
-  const navigateTarget = currentStop
-    ? (isDeliveryStop(String(currentStop.stopType)) ? 'drop' : 'pickup')
-    : 'pickup';
-  const navigateCoord = getTripStopCoordinate(trip, navigateTarget);
 
   const openStopDetails = (stop: DriverStopExecutionStop, review: boolean) => {
     const stopIndex = Math.max(1, stops.findIndex((s) => s.stopId === stop.stopId) + 1);
@@ -386,6 +327,15 @@ export function DriverMultiOrderJobCard({
     });
     setVerified(review && (stop.status === 'completed' || stop.status === 'skipped'));
     setVerificationOpen(true);
+  };
+
+  const stepVerification = (delta: -1 | 1) => {
+    if (!verifySession) return;
+    const index = stops.findIndex((item) => item.stopId === verifySession.stop.stopId);
+    const target = stops[index + delta];
+    if (!target) return;
+    const confirmHere = sesReady && target.stopId === currentId && target.status === 'arrived';
+    openStopDetails(target, !confirmHere);
   };
 
   const openTimelineStop = (stopId: string) => {
@@ -492,49 +442,29 @@ export function DriverMultiOrderJobCard({
     })();
   };
 
-  if (collapsed && !inSheet && !verificationOpen) {
+  if (collapsed && !verificationOpen) {
+    const peekPlace = currentStop ? formatStopPlace(currentStop) : 'Route';
+    const peekStage = actionModel.cta ?? actionModel.stageLabel;
     return (
       <>
       <Pressable
         testID="driver-multi-order-job-card"
         onPress={() => onToggleCollapse?.()}
-        style={[sheetStyle, styles.peek]}
+        style={[styles.mapSummary, { backgroundColor: colors.background }]}
         accessibilityRole="button"
         accessibilityLabel="Open today's route"
       >
-        <RouteProgressHeader
-          colors={colors}
-          done={done}
-          total={stops.length}
-          orderCount={orderCount}
-          remainingKmLabel={remainingKmLabel}
-          kicker="Commerce Delivery"
-          summary={commerceSummary}
-        />
-        <RouteProgressTrack colors={colors} stops={stops} currentStopId={currentId} />
-        {currentStop ? (
-          <Text style={[styles.peekPlace, { color: colors.text }]} numberOfLines={1}>
-            {formatStopPlace(currentStop)}
+        <View style={styles.mapSummaryCopy}>
+          <Text style={[styles.mapSummaryKicker, { color: colors.emerald }]}>Commerce Delivery</Text>
+          <Text style={[styles.mapSummaryPlace, { color: colors.text }]} numberOfLines={1}>
+            {peekPlace}
+            {peekStage ? ` · ${peekStage}` : ''}
           </Text>
-        ) : null}
-        {actionModel.cta ? (
-          <View style={[styles.peekCta, { backgroundColor: colors.emerald }]}>
-            <Text style={[styles.peekCtaText, { color: colors.textOnPrimary }]}>
-              {actionModel.cta}
-            </Text>
-          </View>
-        ) : null}
-        <View style={styles.peekHint}>
-          <ChevronUp size={16} color={colors.emerald} strokeWidth={2.6} />
         </View>
-        <Pressable
-          onPress={() => setDetailsOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel="View delivery details"
-          style={[styles.detailsBtn, { backgroundColor: colors.emerald }]}
-        >
-          <Text style={[styles.detailsBtnText, { color: colors.textOnPrimary }]}>View details</Text>
-        </Pressable>
+        <Text style={[styles.mapSummaryCount, { color: colors.text }]}>
+          {done}/{stops.length}
+        </Text>
+        <ChevronUp size={16} color={colors.emerald} strokeWidth={2.6} />
       </Pressable>
       <DeliveryDetailsPreview
         visible={detailsOpen}
@@ -566,56 +496,31 @@ export function DriverMultiOrderJobCard({
         onBack={closeVerification}
         onConfirm={runComplete}
         onViewNextStop={closeVerification}
+        {...(stops.length > 1
+          ? {
+              onPreviousStop:
+                verifySession.stopIndex > 1 ? () => stepVerification(-1) : null,
+              onNextStop:
+                verifySession.stopIndex < stops.length ? () => stepVerification(1) : null,
+            }
+          : {})}
       />
     ) : null;
 
-  const showHeroAssigner = Boolean(
-    assignedBy && (assignedBy.linePrimary.trim() || assignedBy.lineSecondary.trim()),
+  const stopAction = (
+    <StopActionButton
+      colors={colors}
+      model={actionModel}
+      nextPlace={sesReady && nextStop ? formatStopPlace(nextStop) : null}
+      busy={mutating != null}
+      mutating={mutating}
+      onArrive={runArrive}
+      onComplete={openVerification}
+    />
   );
-  const distanceLabel =
-    distanceToTargetKm != null
-      ? `${formatStopKm(distanceToTargetKm) ?? ''} to ${navigateTarget === 'drop' ? 'drop' : 'pickup'}`
-      : '—';
 
-  return (
-    <View testID="driver-multi-order-job-card" style={sheetStyle}>
-      {inSheet ? (
-        <MissionCardLayout
-          title={missionTitle}
-          earnings={pay.earnings}
-          earningsLabel={pay.earningsLabel}
-          assignedBy={assignedBy}
-          showHeroAssigner={showHeroAssigner}
-          target={navigateTarget}
-          pickupLabel={pickupLabel}
-          dropLabel={dropLabel}
-          planStops={missionPlan && missionPlan.length > 1 ? missionPlan : null}
-          tripIdLabel={tripsService.resolveDriverFacingTripLabel(trip)}
-          remainingKm={distanceToTargetKm ?? null}
-          distanceLabel={distanceLabel.trim() || '—'}
-          etaLabel={etaLabel}
-          vehicleNumber={trip.vehicle_display_number}
-          onNavigate={
-            navigateCoord
-              ? () => { void openExternalNavigation(navigateCoord.latitude, navigateCoord.longitude); }
-              : null
-          }
-          onViewDetails={() => setDetailsOpen(true)}
-        />
-      ) : null}
-      <View style={inSheet ? styles.sheetBody : null}>
-      <RouteProgressHeader
-        colors={colors}
-        done={done}
-        total={stops.length}
-        orderCount={orderCount}
-        remainingKmLabel={remainingKmLabel}
-        onViewTripPlan={onShowRouteOnMap}
-        kicker="Commerce Delivery"
-        summary={commerceSummary}
-        stats={stopStats}
-      />
-
+  const routeBody = (
+    <>
       {currentStop && !routeFinished ? (
         <CurrentStopCard
           colors={colors}
@@ -631,15 +536,7 @@ export function DriverMultiOrderJobCard({
           }
           onProof={canComplete ? openVerification : null}
         >
-          <StopActionButton
-            colors={colors}
-            model={actionModel}
-            nextPlace={sesReady && nextStop ? formatStopPlace(nextStop) : null}
-            busy={mutating != null}
-            mutating={mutating}
-            onArrive={runArrive}
-            onComplete={openVerification}
-          />
+          {stopAction}
         </CurrentStopCard>
       ) : (
         <View style={styles.doneBlock}>
@@ -659,6 +556,18 @@ export function DriverMultiOrderJobCard({
         </View>
       )}
 
+      <RouteProgressHeader
+        colors={colors}
+        done={done}
+        total={stops.length}
+        orderCount={orderCount}
+        remainingKmLabel={remainingKmLabel}
+        onViewTripPlan={() => setPlanOpen(true)}
+        kicker="Commerce Delivery"
+        summary={commerceSummary}
+        stats={stopStats}
+      />
+
       <RouteTimeline
         colors={colors}
         stops={timelineStops}
@@ -671,8 +580,35 @@ export function DriverMultiOrderJobCard({
           {actionError}
         </Text>
       ) : null}
+    </>
+  );
+
+  return (
+    <View testID="driver-multi-order-job-card" style={sheetStyle}>
+      {inSheet ? (
+        <ScrollView
+          style={styles.pageScroll}
+          contentContainerStyle={styles.pageBody}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {routeBody}
+        </ScrollView>
+      ) : (
+        routeBody
+      )}
       {verifyOverlay}
-      </View>
+      <TripPlanPage
+        visible={planOpen}
+        colors={colors}
+        stops={timelineStops}
+        summary={commerceSummary}
+        onClose={() => setPlanOpen(false)}
+        onOpenStop={(stopId) => {
+          setPlanOpen(false);
+          openTimelineStop(stopId);
+        }}
+      />
       <DeliveryDetailsPreview
         visible={detailsOpen}
         stops={previewStops}
@@ -707,17 +643,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingTop: 0,
   },
-  sheetFill: {
-    flexGrow: 1,
+  page: {
+    flex: 1,
+    alignSelf: 'stretch',
+    width: '100%',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    paddingBottom: 0,
+    gap: 0,
   },
-  sheetBody: {
-    paddingHorizontal: TRIP_SHEET_BODY_PAD.horizontal,
-    paddingTop: 16,
-    paddingBottom: TRIP_SHEET_BODY_PAD.bottom,
-    gap: 12,
+  pageScroll: {
+    flex: 1,
+  },
+  pageBody: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 10,
+  },
+  actionDock: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   edge: { marginHorizontal: 0 },
   inset: { marginHorizontal: Layout.screenPaddingHorizontal },
+  mapSummary: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingVertical: 12,
+  },
+  mapSummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  mapSummaryKicker: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  mapSummaryPlace: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+  },
+  mapSummaryCount: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   peek: { paddingBottom: 12, gap: 8 },
   peekPlace: {
     fontSize: 15,

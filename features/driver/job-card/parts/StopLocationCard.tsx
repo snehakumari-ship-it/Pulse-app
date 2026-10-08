@@ -63,7 +63,7 @@ export function StopLocationCard({ colors, stop, customerName, orders = [] }: Pr
       style={[styles.card, softElevation, { backgroundColor: cardBackground(colors) }]}
     >
       <View style={[styles.tile, { backgroundColor: colors.emeraldMuted }]}>
-        <Icon size={26} color={colors.emerald} strokeWidth={2.1} />
+        <Icon size={18} color={colors.emerald} strokeWidth={2.1} />
       </View>
       <View style={styles.copy}>
         {orderNumbers ? (
@@ -117,13 +117,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     borderRadius: JOB_CARD_RADIUS,
-    padding: 16,
-    gap: 14,
+    padding: 12,
+    gap: 10,
   },
   tile: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -133,19 +133,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   orders: {
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: -0.2,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: -0.1,
   },
   place: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    letterSpacing: -0.25,
-    lineHeight: 21,
-    marginTop: 2,
+    letterSpacing: -0.15,
+    lineHeight: 18,
+    marginTop: 1,
   },
   customer: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   addrRow: {
@@ -165,9 +165,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   call: {
-    width: Layout.minTouchTargetSize,
-    height: Layout.minTouchTargetSize,
-    borderRadius: Layout.minTouchTargetSize / 2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },

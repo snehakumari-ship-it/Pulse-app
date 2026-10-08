@@ -18,7 +18,6 @@ import {
   Camera,
   ChevronRight,
   FileText,
-  MapPin,
   Navigation,
   Package,
   Phone,
@@ -121,7 +120,7 @@ export function CurrentStopCard({
         style={styles.summary}
       >
         <View style={[styles.tile, { backgroundColor: colors.emeraldMuted }]}>
-          <StopIcon size={22} color={colors.emerald} strokeWidth={2.2} />
+          <StopIcon size={18} color={colors.emerald} strokeWidth={2.2} />
         </View>
         <View style={styles.copy}>
           <View style={styles.metaRow}>
@@ -131,8 +130,9 @@ export function CurrentStopCard({
               tone={arrived ? 'active' : 'next'}
               label={arrived ? 'Arrived' : delivery ? 'Out for delivery' : 'Heading to pickup'}
             />
+            {onOpenDetails ? <ChevronRight size={16} color={colors.textMuted} strokeWidth={2.2} /> : null}
           </View>
-          <Text style={[styles.place, { color: colors.text }]} numberOfLines={2}>
+          <Text style={[styles.place, { color: colors.text }]} numberOfLines={1}>
             {place}
           </Text>
           {customers[0] ? (
@@ -141,56 +141,51 @@ export function CurrentStopCard({
             </Text>
           ) : null}
           {address || stop.city ? (
-            <View style={styles.addrRow}>
-              <MapPin size={12} color={colors.textMuted} strokeWidth={2} />
-              <Text style={[styles.addr, { color: colors.textMuted }]} numberOfLines={2}>
-                {address || stop.city}
-              </Text>
-            </View>
+            <Text style={[styles.addr, { color: colors.textMuted }]} numberOfLines={2}>
+              {address || stop.city}
+            </Text>
+          ) : null}
+          {ordersLine || km || ordersLoading ? (
+            <Text
+              testID="multi-order-stop-orders"
+              style={[styles.ordersLine, { color: colors.textMuted }]}
+              numberOfLines={1}
+            >
+              {ordersLine ?? (ordersLoading ? 'Loading orders…' : '')}
+              {orderNumbers ? `  ${orderNumbers}` : ''}
+              {km ? `  ·  ${km}` : ''}
+            </Text>
           ) : null}
         </View>
-        {onOpenDetails ? <ChevronRight size={18} color={colors.textMuted} strokeWidth={2.2} /> : null}
       </Pressable>
-
-      {ordersLine || km || ordersLoading ? (
-        <View style={[styles.facts, { backgroundColor: colors.surfaceElevated }]} testID="multi-order-stop-orders">
-          <Text style={[styles.factText, { color: colors.text }]} numberOfLines={1}>
-            {ordersLine ?? (ordersLoading ? 'Loading orders…' : '')}
-            {orderNumbers ? (
-              <Text style={[styles.factMuted, { color: colors.textMuted }]}>{`  ${orderNumbers}`}</Text>
-            ) : null}
-          </Text>
-          {km ? <Text style={[styles.factKm, { color: colors.emerald }]}>{km}</Text> : null}
-        </View>
-      ) : null}
 
       <View style={styles.actions}>
         <ActionButton
           colors={colors}
           label="Call"
           accessibilityLabel={phone ? callLabel : `${callLabel} unavailable`}
-          icon={<Phone size={18} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<Phone size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : null}
         />
         <ActionButton
           colors={colors}
           label="Navigate"
           accessibilityLabel={`Navigate to ${place}`}
-          icon={<Navigation size={18} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<Navigation size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={onNavigate}
         />
         <ActionButton
           colors={colors}
           label="Proof"
           accessibilityLabel={delivery ? 'Proof of delivery' : 'Proof of pickup'}
-          icon={<Camera size={18} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<Camera size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={onProof}
         />
         <ActionButton
           colors={colors}
           label="Details"
           accessibilityLabel={`${role} order details`}
-          icon={<FileText size={18} color={colors.emerald} strokeWidth={2.2} />}
+          icon={<FileText size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={onOpenDetails}
         />
       </View>
@@ -203,18 +198,19 @@ export function CurrentStopCard({
 const styles = StyleSheet.create({
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 10,
   },
   summary: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 10,
   },
   tile: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -226,60 +222,34 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
     gap: 8,
   },
   role: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.9,
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
   place: {
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    lineHeight: 23,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.15,
+    lineHeight: 18,
   },
   customer: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-  },
-  addrRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 5,
   },
   addr: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    lineHeight: 16,
+    lineHeight: 15,
   },
-  facts: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  factText: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  factMuted: {
-    fontSize: 12,
+  ordersLine: {
+    fontSize: 10,
     fontWeight: '600',
-  },
-  factKm: {
-    flexShrink: 0,
-    fontSize: 12,
-    fontWeight: '700',
   },
   actions: {
     flexDirection: 'row',
@@ -292,14 +262,14 @@ const styles = StyleSheet.create({
     minHeight: Layout.minTouchTargetSize,
   },
   actionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
   },
 });

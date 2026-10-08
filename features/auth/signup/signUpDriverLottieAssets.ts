@@ -1,5 +1,8 @@
 import type { AnimationObject } from 'lottie-react-native';
 
+import DriverOtpHero from '@/assets/illustrations/OTP_Delivery_Truck_Mascot.svg';
+import DriverSignInHero from '@/assets/illustrations/pulse_driver_mascot_illustration.svg';
+
 /** Driver activation — step hero Lotties (green workforce flow). Kept for non-keypad steps. */
 export const DRIVER_SIGNUP_LOTTIE = {
   phone: require('@/assets/Animated folder/phone call check.json') as AnimationObject,
@@ -10,7 +13,7 @@ export const DRIVER_SIGNUP_LOTTIE = {
 } as const;
 
 /** Color illustration above the driver phone step. */
-export const DRIVER_SIGNUP_PHONE_HERO = require('@/assets/illustrations/Friendly Blue Mascot Delivery Scene.png');
+export const DRIVER_SIGNUP_PHONE_HERO = DriverSignInHero;
 
 /** Color illustration above the driver OTP step. */
-export const DRIVER_SIGNUP_VERIFY_HERO = require('@/assets/illustrations/OTP Delivery Truck Mascot.png');
+export const DRIVER_SIGNUP_VERIFY_HERO = DriverOtpHero;

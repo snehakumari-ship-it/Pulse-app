@@ -158,9 +158,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   section: {
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: -0.2,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: -0.1,
   },
   totals: {
     flexShrink: 0,
@@ -190,8 +190,8 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   orderNo: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '700',
   },
   status: {
     fontSize: 11,
@@ -219,9 +219,9 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   thumb: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 8,
   },
   thumbEmpty: {
     alignItems: 'center',
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   itemName: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
   },
   itemSku: {

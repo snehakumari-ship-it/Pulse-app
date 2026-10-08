@@ -106,7 +106,9 @@ const driverText = createPulseSignUpTextStyles(DRIVER_SIGNUP);
 const keypadFooterStyles = StyleSheet.create({
   signIn: {
     alignItems: 'center',
-    paddingVertical: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 12,
   },
   signInText: driverText.linkSmall,
   signInLink: driverText.linkEmphasis,
@@ -953,7 +955,7 @@ export default function DriverSignUpScreen() {
         {pageBody(0, useMobileLayout ? (
           <SignUpPulseKeypadStep
             theme={DRIVER_SIGNUP}
-            heroImage={DRIVER_SIGNUP_PHONE_HERO}
+            heroArt={DRIVER_SIGNUP_PHONE_HERO}
             title={STEP_CONTENT[0].title}
             subtitle={STEP_CONTENT[0].subtitle}
             value={phone}
@@ -1057,7 +1059,7 @@ export default function DriverSignUpScreen() {
         {pageBody(1, useMobileLayout ? (
           <SignUpPulseKeypadStep
             theme={DRIVER_SIGNUP}
-            heroImage={DRIVER_SIGNUP_VERIFY_HERO}
+            heroArt={DRIVER_SIGNUP_VERIFY_HERO}
             centeredLayout
             title={STEP_CONTENT[1].title}
             subtitle={

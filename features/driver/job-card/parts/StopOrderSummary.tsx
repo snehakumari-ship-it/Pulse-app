@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   summaryText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   lines: {
@@ -104,15 +104,15 @@ const styles = StyleSheet.create({
   },
   line: { gap: 1 },
   name: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   sku: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '500',
   },
   qty: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   missing: {

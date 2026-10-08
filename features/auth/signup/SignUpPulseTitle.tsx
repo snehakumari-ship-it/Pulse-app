@@ -23,15 +23,24 @@ export const SignUpPulseTitle = memo(function SignUpPulseTitle({
   const text = createPulseSignUpTextStyles(PULSE_SIGNUP);
   const isMobile = !isDesktop;
   const compactType = compact && isDesktop;
+  const compactMobile = compact && isMobile;
 
   return (
-    <View style={[styles.wrap, centered && styles.centered, isMobile && styles.wrapMobile]}>
+    <View
+      style={[
+        styles.wrap,
+        centered && styles.centered,
+        isMobile && styles.wrapMobile,
+        compactMobile && styles.wrapDense,
+      ]}
+    >
       <Text
         style={[
           text.title,
           isDesktop && text.titleDesktop,
           isMobile && text.titleMobile,
           compactType && text.titleCompact,
+          compactMobile && styles.titleDense,
           centered ? styles.titleCenter : styles.titleLeft,
         ]}
       >
@@ -45,6 +54,7 @@ export const SignUpPulseTitle = memo(function SignUpPulseTitle({
               isDesktop && text.subtitleDesktop,
               isMobile && text.subtitleMobile,
               compactType && text.subtitleCompact,
+              compactMobile && styles.subtitleDense,
               centered ? styles.subtitleCenter : styles.subtitleLeft,
             ]}
           >
@@ -69,6 +79,19 @@ const styles = StyleSheet.create({
   },
   wrapMobile: {
     marginBottom: Platform.OS === 'web' ? 12 : 14,
+  },
+  wrapDense: {
+    marginBottom: 6,
+  },
+  titleDense: {
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.2,
+  },
+  subtitleDense: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   centered: {
     alignItems: 'center',

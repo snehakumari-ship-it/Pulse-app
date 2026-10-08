@@ -1,7 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import {
   Animated,
-  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -10,8 +9,9 @@ import {
   TextInput,
   useWindowDimensions,
   View,
-  type ImageSourcePropType,
+  type LayoutChangeEvent,
 } from 'react-native';
+import type { SvgProps } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AnimationObject } from 'lottie-react-native';
 import { GoogleBrandIcon } from '@/features/auth/components/GoogleBrandIcon';
@@ -28,15 +28,11 @@ import { useSignupKeypadInput } from '@/lib/onboarding/useSignupKeypadInput';
 
 import { SignUpPulsePrimaryButton } from './SignUpPulsePrimaryButton';
 import { SignUpPulseTitle } from './SignUpPulseTitle';
-import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 
 import { DESKTOP_BREAKPOINT } from './signUpConstants';
 import { PULSE_SIGNUP, PULSE_SIGNUP_RADIUS, type SignUpTheme } from './signUpPulseTheme';
 import { createPulseSignUpTextStyles, SIGNUP_ERROR_COLOR } from './signUpTypography';
-
-/** Single horizontal inset for the docked keypad tray (edge-to-edge chrome). */
-const KEYPAD_DOCK_INSET = Layout.screenPaddingHorizontal;
 
 export interface SignUpPulseKeypadStepProps {
   title: string;
@@ -72,7 +68,7 @@ export interface SignUpPulseKeypadStepProps {
    */
   heroMascotId?: PulseMascotIllustrationId;
   /** Color illustration above the title. Wins over `heroMascotId`. */
-  heroImage?: ImageSourcePropType;
+  heroArt?: ComponentType<SvgProps>;
 }
 
 export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
@@ -102,15 +98,17 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
   centeredLayout = false,
   heroLottie,
   heroMascotId,
-  heroImage,
+  heroArt: HeroArt,
 }: SignUpPulseKeypadStepProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isDesktop = width >= DESKTOP_BREAKPOINT;
+  const heroMaxHeight = isDesktop ? 188 : 160;
   const styles = useMemo(() => createStyles(theme, isDesktop), [theme, isDesktop]);
   const useKeypad = useSignupKeypadInput();
   const layout = useMobileWebStepLayout();
   const inputRef = useRef<TextInput>(null);
+  const [heroSlotWidth, setHeroSlotWidth] = useState(0);
   const blink = useRef(new Animated.Value(1)).current;
   const digits = value.replace(/\D/g, '').slice(0, maxDigits);
   const isEmpty = digits.length === 0;
@@ -276,6 +274,7 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
         loading={primaryLoading}
         variant={ready ? 'ready' : 'solid'}
         style={styles.primaryBtn}
+        dense={!isDesktop}
         theme={theme}
       />
       {showGoogle ? (
@@ -304,19 +303,24 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
 
   const formBody = (
     <View style={[styles.formBody, centeredLayout && styles.centeredStack]}>
-      {heroImage ? (
+      {HeroArt ? (
         <View
           style={[styles.heroWrap, styles.heroImageWrap, styles.heroWrapCentered]}
           pointerEvents="none"
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
+          onLayout={(e: LayoutChangeEvent) => {
+            const next = e.nativeEvent.layout.width;
+            if (next > 0 && next !== heroSlotWidth) setHeroSlotWidth(next);
+          }}
         >
-          <Image
-            source={heroImage}
-            style={styles.heroImage}
-            resizeMode="contain"
-            accessibilityIgnoresInvertColors
-          />
+          {heroSlotWidth > 0 ? (
+            <HeroArt
+              width={Math.min(heroSlotWidth, heroMaxHeight * (1536 / 1024))}
+              height={Math.min(heroMaxHeight, heroSlotWidth / (1536 / 1024))}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          ) : null}
         </View>
       ) : heroMascotId ? (
         <View
@@ -389,6 +393,9 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
           >
             {formBody}
             {actionBlock}
+            {footerAccessory ? (
+              <View style={styles.accessoryInFlow}>{footerAccessory}</View>
+            ) : null}
           </ScrollView>
         ) : (
           <ScrollView
@@ -420,10 +427,6 @@ export const SignUpPulseKeypadStep = memo(function SignUpPulseKeypadStep({
         >
           {actionBlock}
         </View>
-      ) : null}
-
-      {useKeypad && footerAccessory ? (
-        <View style={styles.accessoryDock}>{footerAccessory}</View>
       ) : null}
 
       {useKeypad ? (
@@ -479,6 +482,8 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     },
     contentScroll: {
       flex: 1,
+      minHeight: 0,
+      overflow: 'hidden',
     },
     contentScrollInner: {
       paddingHorizontal: 20,
@@ -490,7 +495,7 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     contentScrollInnerKeypad: {
       paddingHorizontal: mobile ? 24 : 20,
       paddingTop: mobile ? 8 : 4,
-      paddingBottom: 4,
+      paddingBottom: mobile ? 8 : 8,
       flexGrow: 1,
       width: '100%',
       maxWidth: '100%',
@@ -520,7 +525,7 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     },
     heroWrap: {
       alignItems: 'flex-start',
-      marginBottom: mobile ? 12 : 14,
+      marginBottom: mobile ? 8 : 14,
     },
     heroWatermarkWrap: {
       width: '100%',
@@ -533,10 +538,6 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
       width: '100%',
       maxWidth: mobile ? 360 : 400,
     },
-    heroImage: {
-      width: '100%',
-      height: mobile ? 168 : 188,
-    },
     heroWrapCentered: {
       alignItems: 'center',
       alignSelf: 'center',
@@ -546,12 +547,12 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     },
     fieldLabel: {
       ...(mobile ? text.fieldLabelMobile : text.fieldLabel),
-      marginBottom: mobile ? 10 : 8,
+      ...(mobile ? { fontSize: 10, lineHeight: 13, marginBottom: 4 } : { marginBottom: 8 }),
     },
     fieldBlock: {
       width: '100%',
       alignSelf: 'stretch',
-      marginBottom: 12,
+      marginBottom: mobile ? 8 : 12,
     },
     footerAccessoryCentered: {
       width: '100%',
@@ -571,7 +572,7 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
       maxWidth: '100%',
       alignSelf: 'stretch',
       paddingHorizontal: mobile ? 16 : 14,
-      minHeight: mobile ? 52 : 44,
+      minHeight: mobile ? 44 : 44,
       backgroundColor: theme.bg,
       borderRadius: PULSE_SIGNUP_RADIUS.input,
       borderWidth: 1,
@@ -606,6 +607,7 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     },
     prefix: {
       ...(mobile ? text.displayPrefixMobile : text.displayPrefix),
+      ...(mobile ? { fontSize: 14, lineHeight: 20 } : null),
       color: theme.muted,
       letterSpacing: 0,
       ...Platform.select({
@@ -631,6 +633,7 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     },
     displayValue: {
       ...(mobile ? text.displayMobile : text.display),
+      ...(mobile ? { fontSize: 15, lineHeight: 20 } : null),
       ...Platform.select({
         android: { includeFontPadding: false, textAlignVertical: 'center' },
         ios: { fontVariant: ['tabular-nums'] as const },
@@ -766,7 +769,7 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
       borderColor: theme.border,
       backgroundColor: theme.bg,
       marginBottom: 4,
-      minHeight: mobile ? 48 : 40,
+      minHeight: mobile ? 40 : 40,
       ...Platform.select({
         web: { boxSizing: 'border-box' } as object,
       }),
@@ -777,17 +780,19 @@ function createStyles(theme: SignUpTheme, isDesktop: boolean) {
     googleBtnPressed: {
       backgroundColor: theme.surface,
     },
-    googleText: mobile ? text.googleMobile : text.google,
-    accessoryDock: {
-      flexShrink: 0,
-      alignSelf: 'stretch',
+    googleText: {
+      ...(mobile ? text.googleMobile : text.google),
+      ...(mobile ? { fontSize: 13, lineHeight: 18 } : null),
+    },
+    accessoryInFlow: {
+      alignSelf: 'center',
       width: '100%',
-      paddingHorizontal: KEYPAD_DOCK_INSET,
-      paddingTop: 4,
-      paddingBottom: 6,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: theme.border,
-      backgroundColor: theme.bg,
+      maxWidth: mobile ? 420 : 360,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 44,
+      marginTop: 2,
+      paddingBottom: 2,
     },
     webFooterDock: {
       paddingHorizontal: 24,

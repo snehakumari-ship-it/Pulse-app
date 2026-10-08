@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Theme from '@/constants/Theme';
 import Layout from '@/constants/Layout';
 import { useDriverThemeColors } from '@/contexts/DriverThemeContext';
@@ -40,6 +40,8 @@ type Props = {
   onBack: () => void;
   onConfirm: (proof: DeliveryProofDraft) => void;
   onViewNextStop: () => void;
+  onPreviousStop?: (() => void) | null;
+  onNextStop?: (() => void) | null;
   onRetryOrders?: (() => void) | null;
   retryingOrders?: boolean;
 };
@@ -58,6 +60,8 @@ export function DriverStopVerificationScreen({
   onBack,
   onConfirm,
   onViewNextStop,
+  onPreviousStop,
+  onNextStop,
   onRetryOrders = null,
   retryingOrders = false,
 }: Props) {
@@ -72,6 +76,9 @@ export function DriverStopVerificationScreen({
   const footerPad =
     Math.max(insets.bottom, 10) + (Platform.OS === 'web' ? Layout.tabBarDockHeight + 8 : 8);
   const [proof, setProof] = useState(emptyDeliveryProof);
+  useEffect(() => {
+    setProof(emptyDeliveryProof());
+  }, [stop.stopId]);
   const needsProof = !review && !confirmed && stop.podRequired;
   const proofReady = !needsProof || canSubmitDeliveryProof(proof);
   const ordersReady = !loadError && !(ordersLoading && orders.length === 0);
@@ -94,6 +101,8 @@ export function DriverStopVerificationScreen({
           stopTotal={stopTotal}
           review={review}
           onBack={onBack}
+          onPrevious={onPreviousStop}
+          onNext={onNextStop}
         />
         <ScrollView
           contentContainerStyle={styles.scroll}
@@ -202,6 +211,8 @@ export function DriverStopVerificationScreen({
 const styles = StyleSheet.create({
   page: {
     flex: 1,
+    width: '100%',
+    ...(Platform.OS === 'web' ? { minHeight: '100vh' as unknown as number } : null),
   },
   scroll: {
     paddingHorizontal: Layout.screenPaddingHorizontal,

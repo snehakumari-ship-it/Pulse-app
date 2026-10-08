@@ -13,7 +13,7 @@ export interface SignUpOtpBoxesProps {
 }
 
 const BOX_SIZE_DESKTOP = 36;
-const BOX_SIZE_MOBILE = 42;
+const BOX_SIZE_MOBILE = 36;
 const BOX_GAP_DESKTOP = 5;
 const BOX_GAP_MOBILE = 6;
 
@@ -48,6 +48,7 @@ export const SignUpOtpBoxes = memo(function SignUpOtpBoxes({
             <Text
               style={[
                 isMobile ? text.otpDigitMobile : text.otpDigit,
+                isMobile && { fontSize: 14, lineHeight: 18 },
                 { color: 'transparent' },
                 filled && text.otpDigitFilled,
               ]}

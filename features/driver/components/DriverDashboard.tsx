@@ -25,6 +25,7 @@ import { useDriverMapLivePositionWatch } from '@/features/driver/hooks/useDriver
 import { claimTripByOtp, getPendingOtpTrips } from '@/features/trips/services/tripOtp.service';
 import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { isAggregateTrip, isRosterTrip } from '@/features/drivers/utils/driverUtils.util';
+import { isCommerceDriverTrip } from '@/features/trips/domain/driverTripExperience';
 import { formatINR } from '@/lib/format';
 import { formatEstimatedDuration } from '@/lib/formatEstimatedDuration';
 import { darkMapStyle } from '@/lib/mapStyles';
@@ -1123,9 +1124,21 @@ export default function DriverDashboard() {
     return () => loop.stop();
   }, [showNewAssignmentCard, newAssignmentBlinkAnim]);
 
+  // Commerce multi-order jobs are a full page. FTL stays on the map sheet.
+  const commerceJobTrip =
+    activeMission && isCommerceDriverTrip(activeMission)
+      ? activeMission
+      : effectiveFirstIncoming &&
+          effectiveFirstIncoming.id === acceptedTripId &&
+          isCommerceDriverTrip(effectiveFirstIncoming)
+        ? effectiveFirstIncoming
+        : null;
+
   // Option A: Ola shell only during assignment → completion.
   // When driver is online but has no incoming assignment yet, keep the existing (offline) layout unchanged.
-  const shouldShowMap = Boolean(activeMission || (isOnline && effectiveFirstIncoming));
+  const shouldShowMap = Boolean(
+    !commerceJobTrip && (activeMission || (isOnline && effectiveFirstIncoming)),
+  );
 
   useEffect(() => {
     if (activeMission) return;
@@ -2768,9 +2781,10 @@ export default function DriverDashboard() {
       <View
         style={[
           styles.content,
+          commerceJobTrip ? styles.contentJobPage : null,
           {
-            paddingHorizontal: 20,
-            paddingTop: 20,
+            paddingHorizontal: commerceJobTrip ? 0 : 20,
+            paddingTop: commerceJobTrip ? 0 : 20,
             backgroundColor: shouldShowMap ? 'transparent' : colors.background,
           },
         ]}
@@ -2783,6 +2797,7 @@ export default function DriverDashboard() {
             contentContainerStyle={[
               styles.tripsScrollContent,
               { paddingBottom: driverTabBarClearance },
+              commerceJobTrip ? styles.tripsScrollContentPage : null,
               // When map is showing and we're rendering the single in-progress trip card,
               // keep it anchored near the footer (same feel as accept-card overlay).
               shouldShowMap && activeMission && styles.tripsScrollContentBottom,
@@ -2931,6 +2946,9 @@ export default function DriverDashboard() {
             {showDriverTripDashboard ? (
               activeMission ? (
           <DriverJobCard
+            variant={isCommerceDriverTrip(activeMission) ? 'page' : 'card'}
+            edgeToEdge={isCommerceDriverTrip(activeMission)}
+            collapsed={false}
             trip={activeMission}
             commissionAmount={activeMissionCommission}
             driverLatitude={(truckPosition ?? driverMapPosition)?.latitude ?? null}
@@ -2988,6 +3006,9 @@ export default function DriverDashboard() {
           </View>
         ) : effectiveFirstIncoming && effectiveFirstIncoming.id === acceptedTripId ? (
           <DriverJobCard
+            variant={isCommerceDriverTrip(effectiveFirstIncoming) ? 'page' : 'card'}
+            edgeToEdge={isCommerceDriverTrip(effectiveFirstIncoming)}
+            collapsed={false}
             trip={effectiveFirstIncoming}
             commissionAmount={newAssignmentCommission}
             driverLatitude={(truckPosition ?? driverMapPosition)?.latitude ?? null}
@@ -3271,6 +3292,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingTop: 16,
   },
+  tripsScrollContentPage: {
+    paddingTop: 0,
+    width: '100%',
+    alignItems: 'stretch',
+  },
   tripsScrollContentBottom: {
     justifyContent: 'flex-end',
     paddingTop: 0,
@@ -3306,6 +3332,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 0,
+  },
+  contentJobPage: {
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
+    alignSelf: 'stretch',
+    width: '100%',
   },
   locationBadge: {
     alignSelf: 'flex-start',

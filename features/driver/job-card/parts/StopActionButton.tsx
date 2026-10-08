@@ -90,25 +90,25 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   hint: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
-    lineHeight: 16,
+    lineHeight: 15,
   },
   next: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   cta: {
-    minHeight: 52,
-    borderRadius: 14,
+    minHeight: 44,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
     marginTop: 2,
   },
   ctaText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
     letterSpacing: 0.1,
   },
 });

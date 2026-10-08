@@ -22,16 +22,23 @@ import { DriverDailySummaryCard } from "@/features/driver/components/DriverDaily
 import { DriverDashboardMapPreview } from "@/features/driver/components/DriverDashboardMapPreview";
 import { DriverExpenseCaptureFab } from "@/features/driver/components/DriverExpenseCaptureFab";
 import { DriverJobCard } from "@/features/driver/job-card/DriverJobCard";
+import { isCommerceDriverTrip } from "@/features/trips/domain/driverTripExperience";
 import type { DriverRoutePlanMap } from "@/features/driver/job-card/driverRoutePlanMap";
 import {
   buildDriverRoutePlanMap,
   buildTripRowRoutePlanMap,
+  clusterRoutePlanStops,
+  routeClusterCopy,
   routePlanLeafletMarkerId,
   routePlanPolyline,
   routePlanStopCaption,
 } from "@/features/driver/job-card/driverRoutePlanMap";
 import { RoutePlanMapPin } from "@/features/driver/job-card/parts/RoutePlanMapPin";
 import { fetchDriverStopExecution } from "@/features/driver/execution/fetchDriverStopExecution";
+import {
+  startDriverAssignerFollowupReads,
+  startDriverAssignerIdentityReads,
+} from "@/features/driver/services/driverDashboardAssignerReads";
 import { PilotRelationshipSummary } from "@/features/driver/components/PilotRelationshipSummary";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
@@ -54,10 +61,7 @@ import { useDriverHomeDriversQuery } from "@/lib/queries/useDriverHomeDriversQue
 import { useInvalidateDriverHomeDashboard } from "@/lib/queries/useInvalidateDriverHomeDashboard";
 import { useDriverUiTripsQuery } from "@/lib/queries/useDriverUiTripsQuery";
 import { usePendingOtpTripsQuery } from "@/lib/queries/usePendingOtpTripsQuery";
-import {
-  getLatestAssignmentAuditByTripIds,
-  insertTripAssignmentAudit,
-} from "@/features/trips/services/trip-assignment-audit.service";
+import { insertTripAssignmentAudit } from "@/features/trips/services/trip-assignment-audit.service";
 import { useDriverAvatarUri } from "@/lib/avatarUpload";
 import {
     buildAssignerDisplayForTrip,
@@ -101,7 +105,6 @@ import MapView, {
     Polyline,
 } from "@/lib/reactNativeMapsCompat";
 import { supabase } from "@/lib/supabase";
-import { fetchOrgBrandingByIds } from "@/lib/orgBrandingFetch";
 import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 import * as driverLocationService from "@/features/driver/services/driverLocation.service";
 import * as driversService from "@/features/drivers/services/drivers.service";
@@ -534,6 +537,7 @@ export default function DriverRadarScreen() {
   const [measuredSheetHeight, setMeasuredSheetHeight] = useState(0);
   /** 0 = stage peek ("Deliver to Delhi"), 1 = full mission card. */
   const [missionSheetIndex, setMissionSheetIndex] = useState(1);
+  const [deliveryDetailsNonce, setDeliveryDetailsNonce] = useState(0);
   const expandedSheetHeightRef = useRef(0);
   /** Suppressed once the driver manually pans/pinches, until a meaningful context change or "Center" re-enables it. */
   const inlineMapUserInteractedRef = useRef(false);
@@ -1879,6 +1883,7 @@ export default function DriverRadarScreen() {
           setOrganizationLogoById({});
           setOrganizationAvatarSeedById({});
           setOrganizationAvatarUrlById({});
+          setAssignmentActorByTripId({});
         }
         return;
       }
@@ -1886,10 +1891,18 @@ export default function DriverRadarScreen() {
       const tripIdsForRpc = trips
         .map((t) => t.id)
         .filter((id): id is string => Boolean(id && String(id).length > 0));
-      const { data: assignerRpcRows, error: assignerRpcError } = await supabase().rpc(
-        "get_trip_assigner_displays_for_driver",
-        { p_trip_ids: tripIdsForRpc },
-      );
+      // Assigner RPC and assignment audit are independent. Waiting for one
+      // before the other, then starting this effect again when the audit
+      // landed, downloaded the same rows twice on every dashboard open.
+      const [assignerRpc, audit] = await startDriverAssignerIdentityReads(tripIdsForRpc);
+      const { data: assignerRpcRows, error: assignerRpcError } = assignerRpc;
+      const { byTripId: auditByTrip } = audit;
+      const assignmentActorFromAudit: Record<string, string> = {};
+      auditByTrip.forEach((value, key) => {
+        const actorId = (value.changed_by ?? "").trim();
+        if (actorId) assignmentActorFromAudit[key] = actorId;
+      });
+      if (!cancelled) setAssignmentActorByTripId(assignmentActorFromAudit);
       const rpcAssignerUserIdByTrip: Record<string, string> = {};
       const rpcOrgIdByTrip: Record<string, string> = {};
       if (!cancelled && !assignerRpcError && Array.isArray(assignerRpcRows)) {
@@ -1957,7 +1970,7 @@ export default function DriverRadarScreen() {
             .map((trip) =>
               resolveAssignerUserId(trip, {
                 ...rpcAssignerUserIdByTrip,
-                ...assignmentActorByTripId,
+                ...assignmentActorFromAudit,
               }),
             )
             .filter((id) => id.length > 0),
@@ -1985,16 +1998,20 @@ export default function DriverRadarScreen() {
         ),
       );
 
-      if (userIds.length > 0) {
-        const { data, error } = await supabase()
-          .from("profiles")
-          .select("id, full_name, email, company_name")
-          .in("id", userIds);
-        if (!cancelled && !error) {
+      const [profileBundle, organizationBundle] = await startDriverAssignerFollowupReads(
+        userIds,
+        organizationIds,
+      );
+
+      if (cancelled) return;
+
+      if (profileBundle) {
+        const [profileRes, ownedOrgsRes, memberRes] = profileBundle;
+        if (!profileRes.error) {
           const byId: Record<string, string> = {};
           const orgById: Record<string, string> = {};
           for (const row of
-            (data ?? []) as Array<{
+            (profileRes.data ?? []) as Array<{
               id: string;
               full_name?: string | null;
               email?: string | null;
@@ -2006,12 +2023,8 @@ export default function DriverRadarScreen() {
             const company = (row.company_name ?? "").trim();
             if (company) orgById[row.id] = company;
           }
-          const { data: ownedOrgs, error: ownedOrgsError } = await supabase()
-            .from("organizations")
-            .select("owner_id, name")
-            .in("owner_id", userIds);
-          if (!ownedOrgsError && Array.isArray(ownedOrgs)) {
-            for (const row of ownedOrgs as Array<{
+          if (!ownedOrgsRes.error && Array.isArray(ownedOrgsRes.data)) {
+            for (const row of ownedOrgsRes.data as Array<{
               owner_id?: string | null;
               name?: string | null;
             }>) {
@@ -2021,12 +2034,13 @@ export default function DriverRadarScreen() {
               if (oname) orgById[uid] = oname;
             }
           }
-          const { data: memberRows, error: memberError } = await supabase()
-            .from("organization_members")
-            .select("user_id, organization_id")
-            .in("user_id", userIds)
-            .eq("status", "active");
-          if (!memberError && Array.isArray(memberRows) && memberRows.length > 0) {
+          const memberRows = !memberRes.error && Array.isArray(memberRes.data)
+            ? (memberRes.data as Array<{
+                user_id?: string | null;
+                organization_id?: string | null;
+              }>)
+            : [];
+          if (memberRows.length > 0) {
             const memberOrgIds = Array.from(
               new Set(
                 memberRows
@@ -2039,16 +2053,13 @@ export default function DriverRadarScreen() {
                 .from("organizations")
                 .select("id, name")
                 .in("id", memberOrgIds);
-              if (!memberOrgsError && Array.isArray(memberOrgs)) {
+              if (!cancelled && !memberOrgsError && Array.isArray(memberOrgs)) {
                 const memberOrgNameById: Record<string, string> = {};
                 for (const row of memberOrgs as Array<{ id: string; name?: string | null }>) {
                   const name = String(row.name ?? "").trim();
                   if (name) memberOrgNameById[row.id] = name;
                 }
-                for (const row of memberRows as Array<{
-                  user_id?: string | null;
-                  organization_id?: string | null;
-                }>) {
+                for (const row of memberRows) {
                   const uid = String(row.user_id ?? "").trim();
                   if (!uid || orgById[uid]) continue;
                   const oid = String(row.organization_id ?? "").trim();
@@ -2058,30 +2069,28 @@ export default function DriverRadarScreen() {
               }
             }
           }
-          setAssignerNamesByUserId(byId);
-          setAssignerOrgNameByUserId(orgById);
+          if (!cancelled) {
+            setAssignerNamesByUserId(byId);
+            setAssignerOrgNameByUserId(orgById);
+          }
         }
       } else if (!cancelled) {
         setAssignerNamesByUserId({});
         setAssignerOrgNameByUserId({});
       }
 
-      if (organizationIds.length > 0) {
-        const { data, error } = await supabase()
-          .from("organizations")
-          .select("id, name")
-          .in("id", organizationIds);
-        if (!cancelled && !error) {
+      if (organizationBundle && !cancelled) {
+        const [orgNameRes, branding] = organizationBundle;
+        if (!orgNameRes.error) {
           const byId: Record<string, string> = {};
           for (const row of
-            (data ?? []) as Array<{ id: string; name?: string | null }>) {
+            (orgNameRes.data ?? []) as Array<{ id: string; name?: string | null }>) {
             const name = (row.name ?? "").trim();
             if (name) byId[row.id] = name;
           }
           setOrganizationNamesById((prev) => ({ ...prev, ...byId }));
         }
-        const branding = await fetchOrgBrandingByIds(organizationIds);
-        if (!cancelled && Object.keys(branding).length > 0) {
+        if (Object.keys(branding).length > 0) {
           const logosById: Record<string, string> = {};
           const seedsById: Record<string, string> = {};
           const urlsById: Record<string, string> = {};
@@ -2097,28 +2106,6 @@ export default function DriverRadarScreen() {
       }
     };
     void loadAssignmentSources();
-    return () => {
-      cancelled = true;
-    };
-  }, [tripsNeedingAssignerDisplay, assignmentActorByTripId]);
-  useEffect(() => {
-    let cancelled = false;
-    const loadAssignmentActors = async () => {
-      const tripIds = tripsNeedingAssignerDisplay.map((trip) => trip.id).filter(Boolean);
-      if (tripIds.length === 0) {
-        if (!cancelled) setAssignmentActorByTripId({});
-        return;
-      }
-      const { byTripId } = await getLatestAssignmentAuditByTripIds(tripIds);
-      if (cancelled) return;
-      const next: Record<string, string> = {};
-      byTripId.forEach((value, key) => {
-        const actorId = (value.changed_by ?? "").trim();
-        if (actorId) next[key] = actorId;
-      });
-      setAssignmentActorByTripId(next);
-    };
-    void loadAssignmentActors();
     return () => {
       cancelled = true;
     };
@@ -2273,18 +2260,25 @@ export default function DriverRadarScreen() {
   const canPeekAssignmentSheet = Boolean(showNewAssignmentCard && !otpClaimTripId);
   const canPeekSheetForMap = canMinimizeMissionSheet || canPeekAssignmentSheet;
   const missionSheetCollapsed = canPeekSheetForMap && missionSheetIndex <= 0;
+  const commerceOnMap = Boolean(
+    (activeMission && isCommerceDriverTrip(activeMission)) ||
+      (isAcceptedIncomingFlow &&
+        effectiveFirstIncoming &&
+        isCommerceDriverTrip(effectiveFirstIncoming)),
+  );
   useEffect(() => {
     if (!canMinimizeMissionSheet) return;
-    setMissionSheetIndex(1);
+    const start = 1;
+    setMissionSheetIndex(start);
     const t = setTimeout(() => {
       try {
-        bottomSheetRef.current?.snapToIndex(1);
+        bottomSheetRef.current?.snapToIndex(start);
       } catch {
         /* ignore */
       }
     }, 60);
     return () => clearTimeout(t);
-  }, [canMinimizeMissionSheet, activeMission?.id, acceptedTripId]);
+  }, [canMinimizeMissionSheet, commerceOnMap, activeMission?.id, acceptedTripId]);
 
   useEffect(() => {
     if (!showNewAssignmentCard) return;
@@ -2342,7 +2336,7 @@ export default function DriverRadarScreen() {
   }, [activeMission, showNewAssignmentCard, effectiveFirstIncoming?.id]);
 
   // Show map shell for active mission, incoming assignment (including load-based pending OTP),
-  // or assignment feedback.
+  // or assignment feedback. Commerce uses the same map, with a summary sheet.
   const shouldShowMap = Boolean(
     activeMission ||
       isAcceptedIncomingFlow ||
@@ -2417,6 +2411,15 @@ export default function DriverRadarScreen() {
     return Math.min(raw, Math.round(screenHeight * 0.62));
   })();
   const sheetSnapPoints = useMemo(() => {
+    if (canPeekSheetForMap && commerceOnMap) {
+      const peek = 112;
+      const mid = Math.round(screenHeight * 0.52);
+      const expanded = Math.max(
+        mid + 120,
+        screenHeight - insets.top - 88 - driverSheetBottomInset,
+      );
+      return [peek, mid, expanded];
+    }
     if (canPeekSheetForMap) {
       const maxExpanded = Math.min(
         Math.round(screenHeight * 0.52),
@@ -2460,6 +2463,7 @@ export default function DriverRadarScreen() {
     canPeekSheetForMap,
     measuredSheetHeight,
     driverSheetBottomInset,
+    commerceOnMap,
   ]);
 
   /**
@@ -2500,6 +2504,11 @@ export default function DriverRadarScreen() {
       /* ignore */
     }
   }, []);
+
+  const openDeliveryDetails = useCallback(() => {
+    expandMissionSheetFromPeek();
+    setDeliveryDetailsNonce((value) => value + 1);
+  }, [expandMissionSheetFromPeek]);
 
   const handleTripFlowOperationActiveChange = useCallback(
     (active: boolean) => {
@@ -3818,15 +3827,23 @@ export default function DriverRadarScreen() {
     }
     // Approach: Pickup is the hero. Transit+: Drop is the hero (pickup muted).
     const planStops = routePlanMap?.stops?.length ? routePlanMap.stops : [];
-    if (planStops.length > 0) {
-      for (const stop of planStops) {
+    const planClusters = clusterRoutePlanStops(planStops);
+    if (planClusters.length > 0) {
+      for (const group of planClusters) {
+        const lead = group.find((stop) => stop.isCurrent) ?? group[0]!;
+        const copy = routeClusterCopy(group);
         leafletMarkers.push({
-          id: routePlanLeafletMarkerId(stop),
-          coordinate: { latitude: stop.latitude, longitude: stop.longitude },
-          label: routePlanStopCaption(stop),
-          color: stop.kind === "drop" ? Theme.driverGold : Theme.driverEmerald,
-          highlighted: stop.isCurrent,
-          kindIndex: stop.kindIndex,
+          id: routePlanLeafletMarkerId(lead),
+          coordinate: { latitude: lead.latitude, longitude: lead.longitude },
+          label: copy.label,
+          nextLabel: copy.nextLabel,
+          color: lead.kind === "drop" ? Theme.driverGold : Theme.driverEmerald,
+          highlighted: group.some((stop) => stop.isCurrent),
+          kindIndex: lead.kindIndex,
+          clusterBadges: group.map((stop) => ({
+            kind: stop.kind === "pickup" ? "pickup" : "drop",
+            index: stop.kindIndex,
+          })),
         });
       }
     } else if (pickup && showApproachRoute) {
@@ -4412,20 +4429,29 @@ export default function DriverRadarScreen() {
 
             {shouldShowMap && routePlanMap && routePlanMap.stops.length > 0 ? (
               <>
-                {routePlanMap.stops.map((stop) => (
-                  <MapMarker
-                    key={stop.stopId}
-                    coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
-                    anchor={{ x: 0.5, y: 1 }}
-                  >
-                    <RoutePlanMapPin
-                      kind={stop.kind}
-                      index={stop.kindIndex}
-                      caption={routePlanStopCaption(stop)}
-                      emphasized={stop.isCurrent}
-                    />
-                  </MapMarker>
-                ))}
+                {clusterRoutePlanStops(routePlanMap.stops).map((group) => {
+                  const lead = group.find((stop) => stop.isCurrent) ?? group[0]!;
+                  const copy = routeClusterCopy(group);
+                  return (
+                    <MapMarker
+                      key={lead.stopId}
+                      coordinate={{ latitude: lead.latitude, longitude: lead.longitude }}
+                      anchor={{ x: 0.5, y: 1 }}
+                    >
+                      <RoutePlanMapPin
+                        kind={lead.kind}
+                        index={lead.kindIndex}
+                        caption={copy.label}
+                        nextLabel={copy.nextLabel}
+                        emphasized={group.some((stop) => stop.isCurrent)}
+                        badges={group.map((stop) => ({
+                          kind: stop.kind,
+                          index: stop.kindIndex,
+                        }))}
+                      />
+                    </MapMarker>
+                  );
+                })}
               </>
             ) : shouldShowMap && routeContextTrip ? (
               <>
@@ -4670,10 +4696,54 @@ export default function DriverRadarScreen() {
                   Trip plan · {routePlanMap.stops.length}{" "}
                   {routePlanMap.stops.length === 1 ? "stop" : "stops"}
                 </Text>
-                <Text style={[styles.mapGuidanceSubtitle, { color: colors.textMuted }]} numberOfLines={1}>
-                  Full route · pickup and delivery in order
-                </Text>
+                <View style={styles.mapPlanList}>
+                  {routePlanMap.stops.slice(0, 6).map((stop) => {
+                    const drop = stop.kind === "drop";
+                    const place = stop.label.trim();
+                    const caption = routePlanStopCaption(stop);
+                    return (
+                      <View key={stop.stopId} style={styles.mapPlanRow}>
+                        <View
+                          style={[
+                            styles.mapPlanDot,
+                            { backgroundColor: drop ? Theme.driverGold : Theme.driverEmerald },
+                          ]}
+                        />
+                        <Text
+                          style={[styles.mapPlanCaption, { color: drop ? Theme.driverGold : Theme.driverEmerald }]}
+                          numberOfLines={1}
+                        >
+                          {caption}
+                        </Text>
+                        <Text
+                          style={[styles.mapPlanPlace, { color: colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {place && place !== caption ? place : ""}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
               </View>
+            ) : null}
+
+            {activeMission || isAcceptedIncomingFlow ? (
+              <TouchableOpacity
+                onPress={openDeliveryDetails}
+                accessibilityRole="button"
+                accessibilityLabel="View delivery details"
+                activeOpacity={0.88}
+                style={[
+                  styles.mapDetailsBtn,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <FontAwesome name="cube" size={14} color={colors.emerald} />
+                <Text style={[styles.mapDetailsBtnText, { color: colors.text }]}>
+                  View details
+                </Text>
+              </TouchableOpacity>
             ) : null}
 
             {/* Route summary panel — readable pickup/drop addresses */}
@@ -4945,6 +5015,7 @@ export default function DriverRadarScreen() {
               onTripUpdated={patchTripInDashboard}
               onRoutePlanMapChange={setRoutePlanMap}
               onShowRouteOnMap={handleViewTripPlan}
+              deliveryDetailsNonce={deliveryDetailsNonce}
               onTripCompleted={() => {
                 justCompletedTripRef.current = true;
                 setSelectedIncomingTripId(null);
@@ -4992,6 +5063,7 @@ export default function DriverRadarScreen() {
               onTripUpdated={patchTripInDashboard}
               onRoutePlanMapChange={setRoutePlanMap}
               onShowRouteOnMap={handleViewTripPlan}
+              deliveryDetailsNonce={deliveryDetailsNonce}
               onTripCompleted={() => {
                 justCompletedTripRef.current = true;
                 setSelectedIncomingTripId(null);
@@ -5683,12 +5755,7 @@ export default function DriverRadarScreen() {
                   : undefined
               }
               backgroundStyle={{
-                backgroundColor:
-                  canPeekSheetForMap && missionSheetCollapsed
-                    ? colors.surface
-                    : shouldUseStaticMapSheetCard || canPeekSheetForMap
-                      ? "transparent"
-                      : colors.surface,
+                backgroundColor: colors.surface,
                 borderTopLeftRadius:
                   shouldUseStaticMapSheetCard || canPeekSheetForMap
                     ? 28
@@ -5721,9 +5788,9 @@ export default function DriverRadarScreen() {
                     {
                       paddingBottom: 8,
                       paddingHorizontal: 0,
-                      // Peek is shorter than the snap — grow so surface fills
-                      // to the dock (transparent leftover showed the map).
-                      flexGrow: missionSheetCollapsed ? 1 : 0,
+                      // Fill the snap so the map does not show through under a short card.
+                      flexGrow: 1,
+                      backgroundColor: colors.surface,
                     },
                   ]}
                 >
@@ -5731,7 +5798,8 @@ export default function DriverRadarScreen() {
                     style={[
                       styles.assignedSheetContent,
                       {
-                        flexGrow: missionSheetCollapsed ? 1 : 0,
+                        flexGrow: 1,
+                        backgroundColor: colors.surface,
                       },
                     ]}
                     onLayout={(e) => {
@@ -7575,6 +7643,58 @@ const styles = withWebSafeShadows(
     fontSize: 12,
     fontWeight: "600",
     lineHeight: 16,
+  },
+  mapPlanList: {
+    marginTop: 8,
+    gap: 6,
+  },
+  mapPlanRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minWidth: 0,
+  },
+  mapPlanDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    flexShrink: 0,
+  },
+  mapPlanCaption: {
+    fontSize: 10,
+    fontWeight: "700",
+    flexShrink: 0,
+  },
+  mapPlanPlace: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  mapDetailsBtn: {
+    position: "absolute",
+    left: 16,
+    bottom: 16,
+    zIndex: 46,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.12,
+          shadowRadius: 10,
+        }
+      : { elevation: 6 }),
+  },
+  mapDetailsBtnText: {
+    fontSize: 14,
+    fontWeight: "800",
   },
   mapGuidanceDistance: {
     marginTop: 5,

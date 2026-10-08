@@ -258,4 +258,32 @@ describe('DriverStopVerificationScreen', () => {
     expect(queryByLabelText('Confirm pickup')).toBeNull();
     expect(getByLabelText('View next stop')).toBeTruthy();
   });
+
+  it('steps to the previous and next stop from the detail view', () => {
+    const onPreviousStop = jest.fn();
+    const onNextStop = jest.fn();
+    const view = render(
+      <DriverStopVerificationScreen
+        stop={stop({ stopType: 'drop', displayName: 'Drop C' })}
+        orders={[order({ salesOrderId: 'a' })]}
+        stopIndex={2}
+        stopTotal={4}
+        ordersLoading={false}
+        loadError={null}
+        busy={false}
+        confirmed={false}
+        review
+        nextStop={null}
+        onBack={jest.fn()}
+        onConfirm={jest.fn()}
+        onViewNextStop={jest.fn()}
+        onPreviousStop={onPreviousStop}
+        onNextStop={onNextStop}
+      />,
+    );
+    fireEvent.press(view.getByLabelText('Previous stop'));
+    fireEvent.press(view.getByLabelText('Next stop'));
+    expect(onPreviousStop).toHaveBeenCalledTimes(1);
+    expect(onNextStop).toHaveBeenCalledTimes(1);
+  });
 });

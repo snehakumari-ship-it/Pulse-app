@@ -304,7 +304,8 @@ describe('Commerce Job Card — read contract', () => {
     expect(view.queryByTestId('commerce-timeline-orders-pu')).toBeNull();
 
     fireEvent.press(view.getByLabelText('View trip plan on map'));
-    expect(onShowRouteOnMap).toHaveBeenCalledTimes(1);
+    expect(view.getByTestId('trip-plan-page')).toBeTruthy();
+    expect(onShowRouteOnMap).not.toHaveBeenCalled();
     expect(mockCalls.length).toBe(baseline);
   });
 

@@ -62,7 +62,7 @@ function Marker({ colors, progress }: { colors: Colors; progress: RouteTimelineP
         testID="commerce-timeline-marker-done"
         style={[styles.marker, { backgroundColor: colors.emerald, borderColor: colors.emerald }]}
       >
-        <Check size={12} color={colors.textOnPrimary} strokeWidth={3} />
+        <Check size={10} color={colors.textOnPrimary} strokeWidth={3} />
       </View>
     );
   }
@@ -141,9 +141,7 @@ export function RouteTimeline({ colors, stops, onOpenStop, onViewAll }: Props) {
             <View
               style={[
                 styles.body,
-                current
-                  ? [styles.bodyCurrent, { backgroundColor: colors.surfaceElevated, borderLeftColor: colors.emerald }]
-                  : null,
+                current ? styles.bodyCurrent : null,
                 last ? null : styles.bodySpaced,
               ]}
             >
@@ -223,7 +221,7 @@ export function RouteTimeline({ colors, stops, onOpenStop, onViewAll }: Props) {
   );
 }
 
-const MARKER = 20;
+const MARKER = 16;
 
 const styles = StyleSheet.create({
   card: {
@@ -240,16 +238,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   title: {
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: -0.2,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: -0.1,
   },
   viewAll: {
     minHeight: 28,
     justifyContent: 'center',
   },
   viewAllText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   row: {
@@ -270,9 +268,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   markerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   connector: {
     flex: 1,
@@ -288,8 +286,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   bodyCurrent: {
-    paddingVertical: 10,
-    borderLeftWidth: 3,
+    paddingVertical: 4,
   },
   bodySpaced: {
     marginBottom: 4,
@@ -315,29 +312,29 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   location: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: -0.1,
   },
   locationCurrent: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
   },
   role: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
   },
   counts: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '500',
   },
   brief: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     marginTop: 1,
   },
   time: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
   },
   detailsLink: {
@@ -345,7 +342,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   detailsText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   orders: {

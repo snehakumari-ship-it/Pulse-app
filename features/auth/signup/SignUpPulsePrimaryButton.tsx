@@ -30,6 +30,8 @@ export interface SignUpPulsePrimaryButtonProps {
   loading?: boolean;
   variant?: 'solid' | 'ready';
   style?: StyleProp<ViewStyle>;
+  /** Smaller label for keypad steps that keep a large illustration. */
+  dense?: boolean;
   theme?: SignUpTheme;
   testID?: string;
 }
@@ -41,6 +43,7 @@ export const SignUpPulsePrimaryButton = memo(function SignUpPulsePrimaryButton({
   loading = false,
   variant = 'solid',
   style,
+  dense = false,
   theme = PULSE_SIGNUP,
   testID,
 }: SignUpPulsePrimaryButtonProps) {
@@ -56,6 +59,7 @@ export const SignUpPulsePrimaryButton = memo(function SignUpPulsePrimaryButton({
       style={({ pressed }) => [
         styles.btn,
         isMobile && styles.btnMobile,
+        isMobile && dense && styles.btnDense,
         pulsePillButtonContainerDefault,
         pulsePillButtonContainerFullWidth,
         inactive
@@ -84,6 +88,7 @@ export const SignUpPulsePrimaryButton = memo(function SignUpPulsePrimaryButton({
           style={[
             pulsePillButtonLabelLarge,
             isMobile && styles.labelMobile,
+            isMobile && dense && styles.labelDense,
             !inactive && theme.primaryButtonText
               ? { color: theme.primaryButtonText }
               : null,
@@ -116,5 +121,13 @@ const styles = StyleSheet.create({
   labelMobile: {
     fontSize: 15,
     letterSpacing: 0.2,
+  },
+  btnDense: {
+    minHeight: 40,
+    paddingVertical: 8,
+  },
+  labelDense: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

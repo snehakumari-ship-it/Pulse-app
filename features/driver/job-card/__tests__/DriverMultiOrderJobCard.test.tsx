@@ -283,7 +283,6 @@ describe('DriverMultiOrderJobCard', () => {
         trip={trip()}
         variant="page"
         edgeToEdge
-        collapsed
         stopExecution={execution({
           stops: [longPickup, dropA, dropB],
           currentStop: longPickup,
