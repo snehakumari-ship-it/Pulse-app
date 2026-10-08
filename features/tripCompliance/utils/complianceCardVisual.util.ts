@@ -173,7 +173,7 @@ export function verificationStatusVisual(
   }
   if (summary.stage === "pending_for_docs" || summary.documentCounts.total === 0) {
     return {
-      label: "Pending Docs",
+      label: "Docs Follow Up",
       tone: COMPLIANCE_STAGE_TONE.pending_for_docs,
       kind: "pending_docs",
     };

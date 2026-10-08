@@ -258,9 +258,7 @@ export type ComplianceQueueFilter =
   | ComplianceStage
   | "all"
   | "pod_received"
-  | "payment_pending"
-  /** Cross-cutting: Verified Rejects (Declined by finance), shown between CP and Verified. */
-  | "declined";
+  | "payment_pending";
 
 /** Hard copy is in, and the charge form has not been saved yet. */
 function tripStillInPodReceived(summary: ComplianceTripSummary): boolean {
@@ -282,10 +280,11 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
     if (stage === "pod_received") return summaries.filter(tripStillInPodReceived);
     if (stage === "balance_pending") return summaries.filter(tripAppearsInBalancePending);
     if (stage === "payment_pending") return summaries.filter(isCompliancePaymentPending);
-    if (stage === "compliance_verified") return summaries.filter(isComplianceVerifiedQueue);
+    if (stage === "compliance_verified") {
+      return summaries.filter((s) => isComplianceVerifiedQueue(s) || isFinanceDeclinedTrip(s));
+    }
     if (stage === "hard_copy_pod_received") return summaries.filter(tripAppearsInAwaitingPod);
-    if (stage === "declined") return summaries.filter(isFinanceDeclinedTrip);
-    // Verified Reject keeps stage=compliance_verified but lives under Declined by finance.
+    // Verified Reject keeps stage=compliance_verified but also lists under Verified All.
     if (stage === "pending_for_docs") {
       return summaries.filter(
         (s) => s.stage === "pending_for_docs" || isFinanceDeclinedForPendingDocs(s),
@@ -315,6 +314,7 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       if (summary.stage === "compliance_verified" && !isComplianceVerifiedQueue(summary)) {
         if (isFinanceDeclinedForPendingDocs(summary)) next.pending_for_docs += 1;
         else if (isFinanceDeclinedForCompliancePending(summary)) next.compliance_pending += 1;
+        if (isFinanceDeclinedTrip(summary)) next.compliance_verified += 1;
       } else if (summary.stage in next) {
         next[summary.stage] += 1;
       }

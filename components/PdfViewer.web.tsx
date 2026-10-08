@@ -44,7 +44,9 @@ function withPdfViewerHash(
   // Numeric zoom with a page origin. Fit-to-width is what was opening notes at ~119%.
   const view = sizing === "original" ? `zoom=${percent},0,0` : "view=FitH";
   const pagePart = page && page > 0 ? `&page=${Math.round(page)}` : "";
-  return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=1&${view}${pagePart}`;
+  // Parent preview already has pan rails — never add a second scrollbar inside the file.
+  const scrollbar = showToolbar ? "1" : "0";
+  return `${base}#toolbar=${toolbar}&navpanes=0&scrollbar=${scrollbar}&${view}${pagePart}`;
 }
 
 export function PdfViewer({
@@ -103,6 +105,7 @@ export function PdfViewer({
           height: "100%",
           border: "none",
           background: Theme.surface,
+          overflow: "hidden",
           pointerEvents: interactive ? "auto" : "none",
         }}
         title="PDF Preview"

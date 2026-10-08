@@ -24,6 +24,7 @@ export function ComplianceSegmentedFilter<T extends string>({
   embedded = false,
   compact = false,
   cardDense = false,
+  narrow = false,
 }: {
   value: T;
   counts: Record<T, number>;
@@ -33,6 +34,8 @@ export function ComplianceSegmentedFilter<T extends string>({
   embedded?: boolean;
   /** Slightly denser padding for stacked Pending Docs filters. */
   compact?: boolean;
+  /** Pending Docs only: chips hug their label instead of sharing the full row. */
+  narrow?: boolean;
   /**
    * Card-list header only: denser chips; full label + count stay readable
    * (label may wrap to 2 lines). Leave false for table view.
@@ -40,12 +43,22 @@ export function ComplianceSegmentedFilter<T extends string>({
   cardDense?: boolean;
 }) {
   return (
-    <View style={[styles.bar, embedded && styles.barEmbedded, cardDense && styles.barCardDense]}>
+    <View
+      style={[
+        styles.bar,
+        embedded && styles.barEmbedded,
+        cardDense && styles.barCardDense,
+        embedded && !narrow && styles.barEmbeddedFull,
+        narrow && styles.barNarrow,
+      ]}
+    >
       <View
         style={[
           styles.track,
           compact && styles.trackCompact,
           cardDense && styles.trackCardDense,
+          !narrow && styles.trackFull,
+          narrow && styles.trackNarrow,
         ]}
         accessibilityRole="tablist"
       >
@@ -62,6 +75,8 @@ export function ComplianceSegmentedFilter<T extends string>({
               hitSlop={{ top: 6, bottom: 6 }}
               style={({ pressed }) => [
                 styles.segment,
+                !narrow && styles.segmentFlex,
+                narrow && styles.segmentNarrow,
                 compact && styles.segmentCompact,
                 cardDense && styles.segmentCardDense,
                 active && styles.segmentActive,
@@ -84,7 +99,7 @@ export function ComplianceSegmentedFilter<T extends string>({
                   </Text>
                 </View>
               ) : (
-                <View style={styles.segmentInner}>
+                <View style={[styles.segmentInner, !narrow && styles.segmentInnerFull]}>
                   {option.dot ? <View style={[styles.dot, { backgroundColor: option.dot }]} /> : null}
                   <Text style={[styles.label, active && styles.labelActive]} numberOfLines={2}>
                     {option.label}
@@ -117,9 +132,15 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     borderBottomWidth: 0,
     backgroundColor: "transparent",
+  },
+  barEmbeddedFull: {
     alignSelf: "stretch",
     width: "100%",
     minWidth: "100%",
+  },
+  barNarrow: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
   },
   barCardDense: {
     paddingHorizontal: 0,
@@ -129,15 +150,20 @@ const styles = StyleSheet.create({
   track: {
     flexDirection: "row",
     alignItems: "stretch",
-    alignSelf: "stretch",
-    width: "100%",
-    minWidth: "100%",
     padding: 3,
     gap: 3,
     borderRadius: 10,
     backgroundColor: Theme.compliancePageBg,
     borderWidth: 1,
     borderColor: Theme.complianceCardBorder,
+  },
+  trackFull: {
+    alignSelf: "stretch",
+    width: "100%",
+    minWidth: "100%",
+  },
+  trackNarrow: {
+    alignSelf: "flex-start",
   },
   trackCompact: {
     borderRadius: 8,
@@ -150,7 +176,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   segment: {
-    flex: 1,
     minWidth: 0,
     minHeight: 32,
     alignItems: "center",
@@ -160,6 +185,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "transparent",
+  },
+  segmentFlex: {
+    flex: 1,
+  },
+  segmentNarrow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    paddingHorizontal: 10,
   },
   segmentCompact: {
     minHeight: 34,
@@ -187,10 +220,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: 5,
-    width: "100%",
     minWidth: 0,
+  },
+  segmentInnerFull: {
+    flexWrap: "wrap",
+    width: "100%",
   },
   /** Dot + wrapping “Label count” so full words fit inside equal-width chips. */
   segmentInnerCardDense: {

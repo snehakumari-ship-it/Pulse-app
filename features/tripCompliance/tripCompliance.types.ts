@@ -24,7 +24,7 @@ export const COMPLIANCE_STAGES: readonly ComplianceStage[] = [
 ];
 
 export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Pending for Docs",
+  pending_for_docs: "Docs Follow Up",
   compliance_pending: "Compliance Pending",
   compliance_verified: "Compliance Verified",
   advance_payment_processed: "Advance Payment Processed",
@@ -36,7 +36,7 @@ export const COMPLIANCE_STAGE_LABEL: Record<ComplianceStage, string> = {
 
 /** Shorter filter-chip labels from the Compliance Verification workbench. */
 export const COMPLIANCE_STAGE_FILTER_LABEL: Record<ComplianceStage, string> = {
-  pending_for_docs: "Pending Docs",
+  pending_for_docs: "Docs Follow Up",
   compliance_pending: "Compliance Pending",
   compliance_verified: "Verified",
   advance_payment_processed: "Advance Processed",
