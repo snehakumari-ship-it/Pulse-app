@@ -1,13 +1,11 @@
 import type { ComponentType } from "react";
 import type { SvgProps } from "react-native-svg";
 
-import Illustration12 from "@/assets/illustrations/12.svg";
-import Illustration20 from "@/assets/illustrations/20.svg";
 import MarketplaceMascotShippingScene from "@/assets/illustrations/marketplace_mascot_shipping_scene.svg";
 import PulseMarketplaceBoost from "@/assets/illustrations/pulse_marketplace_boost.svg";
 import Theme from "@/constants/Theme";
 
-export type NetworkLoadsQuickActionId = "give" | "get" | "reach" | "assist";
+export type NetworkLoadsQuickActionId = "give" | "reach";
 
 export type NetworkLoadsQuickAction = {
   id: NetworkLoadsQuickActionId;
@@ -24,7 +22,7 @@ export type NetworkLoadsQuickAction = {
 
 /**
  * Marketplace quick-action cards — Metronic-style SVG illustrations
- * (character art), not Lottie. Supply / demand / growth / locked assist.
+ * (character art), not Lottie. Supply / growth.
  */
 export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
   {
@@ -38,16 +36,6 @@ export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
     wash: "rgba(205, 233, 247, 0.45)",
   },
   {
-    id: "get",
-    label: "Get loads",
-    sub: "Bid on freight",
-    chip: "Demand",
-    illustration: Illustration20,
-    aspect: 600 / 480,
-    accent: "#059669",
-    wash: "rgba(16, 185, 129, 0.08)",
-  },
-  {
     id: "reach",
     label: "Pulse Reach",
     sub: "Boost loads, earn credits",
@@ -56,17 +44,6 @@ export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
     aspect: 480 / 421,
     accent: Theme.accentBrown,
     wash: "rgba(107, 79, 58, 0.08)",
-  },
-  {
-    id: "assist",
-    label: "Pulse Assist",
-    sub: "100% guaranteed",
-    chip: "Assist",
-    illustration: Illustration12,
-    aspect: 600 / 520,
-    accent: Theme.textMuted,
-    wash: "rgba(148, 163, 184, 0.14)",
-    locked: true,
   },
 ];
 
