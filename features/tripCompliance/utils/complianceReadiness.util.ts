@@ -244,9 +244,9 @@ export function paymentReadinessLabel(readiness: ComplianceQueueReadiness): { la
 }
 
 /**
- * Cross-cutting Payment Pending queue: advance still owed after compliance is
- * verified — independent of the exclusive `summary.stage` chip. Once advance is
- * posted, derivation moves the trip to Advance Processed.
+ * Advance still owed after compliance is verified. These trips stay on the
+ * Verified tab (not a separate chip) until the advance is posted, then the
+ * exclusive stage becomes Advance Processed.
  */
 function isPostVerifyFinanceReject(summary: ComplianceTripSummary): boolean {
   if (!summary.complianceVerifiedAt || !summary.complianceDeclinedAt) return false;

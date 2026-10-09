@@ -17,11 +17,14 @@ import { ComplianceTripsTable } from "@/features/tripCompliance/components/Compl
 import { useComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import {
+    tripAppearsInBalancePending,
+    tripStillInPodReceived,
     useComplianceChangeSync,
     useComplianceStageFilter,
     useComplianceTripsQuery,
     type ComplianceQueueFilter,
 } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
+import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
     downloadAdvanceProcessedReport,
     downloadComplianceTableExport,
@@ -65,6 +68,7 @@ import {
 } from "@/features/tripCompliance/utils/compliancePipelineTrips.util";
 import {
     deriveComplianceQueueReadiness,
+    isCompliancePaymentPending,
     isComplianceVerifiedQueue,
 } from "@/features/tripCompliance/utils/complianceReadiness.util";
 import {
@@ -104,8 +108,36 @@ import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, us
 function complianceQueueLabel(stage: ComplianceQueueFilter): string {
   if (stage === "all") return "All";
   if (stage === "pod_received") return "POD Received";
-  if (stage === "payment_pending") return "Payment Pending";
   return COMPLIANCE_STAGE_FILTER_LABEL[stage];
+}
+
+function StageDeptGroup({
+  department,
+  children,
+}: {
+  department: string;
+  children: React.ReactNode;
+}) {
+  const [chipsWidth, setChipsWidth] = useState<number | undefined>(undefined);
+  return (
+    <View style={styles.stageDeptGroup}>
+      <Text
+        style={[styles.stageDeptLabel, chipsWidth != null ? { width: chipsWidth } : null]}
+        numberOfLines={1}
+      >
+        {department}
+      </Text>
+      <View
+        style={styles.stageDeptChips}
+        onLayout={(e) => {
+          const next = Math.round(e.nativeEvent.layout.width);
+          setChipsWidth((prev) => (prev === next ? prev : next));
+        }}
+      >
+        {children}
+      </View>
+    </View>
+  );
 }
 
 function StageChip({
@@ -185,7 +217,7 @@ export default function ComplianceScreen() {
     isFetching,
     refetch,
   } = useComplianceTripsQuery();
-  const { stage, setStage, filtered, counts, podReceivedCount, paymentPendingCount, declinedCount } =
+  const { stage, setStage, filtered, counts, declinedCount } =
     useComplianceStageFilter(summaries);
   const [pendingSlice, setPendingSlice] = useState<"all" | "hold" | "finance_declined" | "rejected">("all");
   /** Pending Docs only: In-transit vs Delivered (ops trip.status). Above All / Hold / Declined. */
@@ -194,13 +226,23 @@ export default function ComplianceScreen() {
   const [verifiedSlice, setVerifiedSlice] = useState<
     "all" | "verified" | "compliance" | "pending_docs"
   >("all");
+  /** Subtabs under POD: All / POD Pending / POD Received. IBond stays under Received. */
+  const [podSlice, setPodSlice] = useState<"all" | "pending" | "received">("all");
+  /** Subtabs under Settlement: All / Balance Pending / Settled. */
+  const [settlementSlice, setSettlementSlice] = useState<"all" | "pending" | "settled">("all");
   /** When stage changes via Reject, keep the Declined by finance subtab (effect would otherwise reset to All). */
   const pendingSliceAfterStageRef = useRef<"all" | "hold" | "finance_declined" | "rejected" | null>(null);
+  const verifiedSliceAfterStageRef = useRef<"all" | "verified" | "compliance" | "pending_docs" | null>(null);
   useEffect(() => {
     const intent = pendingSliceAfterStageRef.current;
     pendingSliceAfterStageRef.current = null;
     setPendingSlice(intent ?? "all");
+    const verifiedIntent = verifiedSliceAfterStageRef.current;
+    verifiedSliceAfterStageRef.current = null;
     if (stage !== "compliance_verified") setVerifiedSlice("all");
+    else if (verifiedIntent) setVerifiedSlice(verifiedIntent);
+    if (stage !== "hard_copy_pod_received") setPodSlice("all");
+    if (stage !== "balance_pending") setSettlementSlice("all");
     if (stage !== "pending_for_docs") setPendingTransitSlice("in_transit");
   }, [stage]);
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
@@ -212,50 +254,62 @@ export default function ComplianceScreen() {
   } | null>(null);
   const [awaitingPodSubview, setAwaitingPodSubview] = useState<AwaitingPodSubview>("all");
   const [podReceivedSubview, setPodReceivedSubview] = useState<"all" | "ibond">("all");
+  const podPendingPool = useMemo(
+    () =>
+      stage === "hard_copy_pod_received" ? filtered.filter(tripAppearsInAwaitingPod) : [],
+    [filtered, stage],
+  );
+  const podReceivedPool = useMemo(
+    () =>
+      stage === "hard_copy_pod_received" ? filtered.filter(tripStillInPodReceived) : [],
+    [filtered, stage],
+  );
+  const settlementPendingPool = useMemo(
+    () => (stage === "balance_pending" ? filtered.filter(tripAppearsInBalancePending) : []),
+    [filtered, stage],
+  );
+  const settlementSettledPool = useMemo(
+    () => (stage === "balance_pending" ? filtered.filter((s) => s.stage === "payment_settled") : []),
+    [filtered, stage],
+  );
   const awaitingPodCounts = useMemo(
     () =>
-      stage === "hard_copy_pod_received"
-        ? countAwaitingPodSubviews(filtered)
+      stage === "hard_copy_pod_received" && podSlice === "pending"
+        ? countAwaitingPodSubviews(podPendingPool)
         : null,
-    [stage, filtered],
+    [stage, podSlice, podPendingPool],
   );
-  const stageQueue = useMemo(() => {
-    if (stage !== "hard_copy_pod_received" || awaitingPodSubview === "all") return filtered;
-    return filtered.filter((summary) => matchesAwaitingPodSubview(summary, awaitingPodSubview));
-  }, [filtered, stage, awaitingPodSubview]);
   const podReceivedCounts = useMemo(() => {
-    if (stage !== "pod_received") return null;
-    const ibond = filtered.filter((summary) => summary.hardCopyPod?.ibond === true).length;
-    return { all: filtered.length - ibond, ibond };
-  }, [stage, filtered]);
-  const podReceivedQueue = useMemo(() => {
-    if (stage !== "pod_received") return filtered;
-    if (podReceivedSubview === "ibond") {
-      return filtered.filter((summary) => summary.hardCopyPod?.ibond === true);
-    }
-    return filtered.filter((summary) => summary.hardCopyPod?.ibond !== true);
-  }, [filtered, stage, podReceivedSubview]);
+    if (stage !== "hard_copy_pod_received" || podSlice !== "received") return null;
+    const ibond = podReceivedPool.filter((summary) => summary.hardCopyPod?.ibond === true).length;
+    return { all: podReceivedPool.length - ibond, ibond };
+  }, [stage, podSlice, podReceivedPool]);
   const selectStage = useCallback((next: Parameters<typeof setStage>[0]) => {
     setStage(next);
-    if (next !== "hard_copy_pod_received") setAwaitingPodSubview("all");
-    if (next !== "pod_received") setPodReceivedSubview("all");
+    if (next !== "hard_copy_pod_received") {
+      setPodSlice("all");
+      setAwaitingPodSubview("all");
+      setPodReceivedSubview("all");
+    }
+    if (next !== "balance_pending") setSettlementSlice("all");
   }, [setStage]);
   const courierLrOptions = useMemo(() => {
-    if (stage !== "hard_copy_pod_received") return [];
+    if (stage !== "hard_copy_pod_received" || podSlice === "received") return [];
+    const awaiting = podPendingPool;
     const tripDisplayById = new Map(
-      filtered.map((summary) => [
+      awaiting.map((summary) => [
         summary.trip.id,
         getTripDisplayNumber(summary.trip, currentOrganization?.id ?? null),
       ]),
     );
     const receivedByTrip = new Map(
-      filtered.map((summary) => [
+      awaiting.map((summary) => [
         summary.trip.id,
         new Set((summary.hardCopyPod.receivedLrNumbers ?? []).map((lr) => normalizeOrgLrNumber(lr))),
       ]),
     );
     return hardCopyPodLrOptionsFromDocuments(
-      filtered.flatMap((summary) =>
+      awaiting.flatMap((summary) =>
         summary.documents
           .filter((doc) => (doc.document_type ?? "").toLowerCase() === "lr")
           .map((doc) => ({
@@ -269,7 +323,7 @@ export default function ComplianceScreen() {
       ...option,
       alreadyReceived: receivedByTrip.get(option.tripId)?.has(normalizeOrgLrNumber(option.lrNumber)) ?? false,
     }));
-  }, [stage, filtered, currentOrganization?.id]);
+  }, [stage, podSlice, podPendingPool, currentOrganization?.id]);
   const suppliersQuery = useSuppliersQuery(currentOrganization?.id ?? null);
   const supplierSearchById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -356,7 +410,7 @@ export default function ComplianceScreen() {
       keys.delete(tripId);
       await syncChange({ type: "complianceDeclined", tripId, actorId: user.uid, reason: trimmed });
       // Defer so the modal can close first (web alert blocks).
-      setTimeout(() => alertMessage("Compliance declined", "The trip stays in Compliance Pending with your reason recorded."), 0);
+      setTimeout(() => alertMessage("Compliance declined", "The trip stays in Ready to Verify with your reason recorded."), 0);
     },
     [canMarkVerified, syncChange, user?.uid],
   );
@@ -471,13 +525,15 @@ export default function ComplianceScreen() {
     [matchPendingDocsTransit, summaries],
   );
   const verifiedOnlyCount = useMemo(
-    () => (summaries ?? []).filter(isComplianceVerifiedQueue).length,
+    () =>
+      (summaries ?? []).filter((summary) => isComplianceVerifiedQueue(summary) || isCompliancePaymentPending(summary))
+        .length,
     [summaries],
   );
   const stagePool = useMemo(() => {
     if (stage === "compliance_verified") {
       if (verifiedSlice === "verified") {
-        return filtered.filter(isComplianceVerifiedQueue);
+        return filtered.filter((summary) => isComplianceVerifiedQueue(summary) || isCompliancePaymentPending(summary));
       }
       if (verifiedSlice === "compliance") {
         return (summaries ?? []).filter(isFinanceDeclinedForCompliancePending);
@@ -505,12 +561,40 @@ export default function ComplianceScreen() {
       }
       return pendingDocsTransitPool;
     }
+    if (stage === "hard_copy_pod_received") {
+      if (podSlice === "pending") {
+        if (awaitingPodSubview === "all") return podPendingPool;
+        return podPendingPool.filter((summary) =>
+          matchesAwaitingPodSubview(summary, awaitingPodSubview),
+        );
+      }
+      if (podSlice === "received") {
+        if (podReceivedSubview === "ibond") {
+          return podReceivedPool.filter((summary) => summary.hardCopyPod?.ibond === true);
+        }
+        return podReceivedPool.filter((summary) => summary.hardCopyPod?.ibond !== true);
+      }
+      return filtered;
+    }
+    if (stage === "balance_pending") {
+      if (settlementSlice === "pending") return settlementPendingPool;
+      if (settlementSlice === "settled") return settlementSettledPool;
+      return filtered;
+    }
     return filtered;
   }, [
+    awaitingPodSubview,
     filtered,
     matchPendingDocsTransit,
     pendingDocsTransitPool,
     pendingSlice,
+    podPendingPool,
+    podReceivedPool,
+    podReceivedSubview,
+    podSlice,
+    settlementPendingPool,
+    settlementSettledPool,
+    settlementSlice,
     stage,
     summaries,
     verifiedSlice,
@@ -520,15 +604,13 @@ export default function ComplianceScreen() {
   useEffect(() => {
     if (!isVerifiedStage && !exporting) setExportOpen(false);
   }, [isVerifiedStage, exporting]);
-  /** Hardcopy POD PREVIEW control — late POD/settlement chips only (not Verified→Payment Pending). */
+  /** Hardcopy POD PREVIEW control — late POD/settlement chips only. */
   const showHardcopyPodButton =
     stage === "hard_copy_pod_received" ||
-    stage === "pod_received" ||
-    stage === "balance_pending" ||
-    stage === "payment_settled";
+    stage === "balance_pending";
 
   /**
-   * Docs Follow Up / Compliance Pending / Verified — segmented control.
+   * Docs Follow Up / Ready to Verify / Verified — segmented control.
    * `embedded` = table toolbar (unchanged sizing). Card list uses `cardDense`.
    */
   const renderQueueSubFilter = (embedded: boolean) => {
@@ -647,10 +729,16 @@ export default function ComplianceScreen() {
         pending_docs: pendingDocsRejectedCount,
       };
       return (
-        <View style={styles.verifiedFilterRow}>
-          <View style={styles.verifiedFilterPrimary}>
+        <View
+          style={[
+            styles.verifiedFilterRow,
+            embedded ? styles.verifiedFilterRowTable : styles.verifiedFilterRowCard,
+          ]}
+        >
+          <View style={styles.verifiedFilterGroup}>
+            <Text style={styles.verifiedFilterGroupLabel}>Queue</Text>
             <ComplianceSegmentedFilter
-              embedded={embedded}
+              embedded
               compact
               cardDense={cardDense}
               value={verifiedSlice}
@@ -667,10 +755,10 @@ export default function ComplianceScreen() {
               onChange={setVerifiedSlice}
             />
           </View>
-          <View style={styles.verifiedFilterDeclined}>
-            <Text style={styles.verifiedDeclinedLabel}>Declined</Text>
+          <View style={styles.verifiedFilterGroup}>
+            <Text style={styles.verifiedFilterGroupLabel}>Declined</Text>
             <ComplianceSegmentedFilter
-              embedded={embedded}
+              embedded
               compact
               cardDense={cardDense}
               value={verifiedSlice}
@@ -695,12 +783,80 @@ export default function ComplianceScreen() {
         </View>
       );
     }
+    if (stage === "hard_copy_pod_received") {
+      return (
+        <ComplianceSegmentedFilter
+          embedded={embedded}
+          compact
+          cardDense={cardDense}
+          value={podSlice}
+          counts={{
+            all: filtered.length,
+            pending: podPendingPool.length,
+            received: podReceivedPool.length,
+          }}
+          options={[
+            { id: "all", label: "All", dot: null },
+            {
+              id: "pending",
+              label: "POD Pending",
+              a11yLabel: "POD Pending",
+              dot: COMPLIANCE_STAGE_TONE.hard_copy_pod_received.fg,
+            },
+            {
+              id: "received",
+              label: "POD Received",
+              a11yLabel: "POD Received",
+              dot: Theme.complianceStageSuccessFg,
+            },
+          ]}
+          onChange={(next) => {
+            setPodSlice(next);
+            if (next !== "pending") setAwaitingPodSubview("all");
+            if (next !== "received") setPodReceivedSubview("all");
+          }}
+        />
+      );
+    }
+    if (stage === "balance_pending") {
+      return (
+        <ComplianceSegmentedFilter
+          embedded={embedded}
+          compact
+          cardDense={cardDense}
+          value={settlementSlice}
+          counts={{
+            all: filtered.length,
+            pending: settlementPendingPool.length,
+            settled: settlementSettledPool.length,
+          }}
+          options={[
+            { id: "all", label: "All", dot: null },
+            {
+              id: "pending",
+              label: "Balance Pending",
+              a11yLabel: "Balance Pending",
+              dot: COMPLIANCE_STAGE_TONE.balance_pending.fg,
+            },
+            {
+              id: "settled",
+              label: "Settled",
+              a11yLabel: "Settled",
+              dot: COMPLIANCE_STAGE_TONE.payment_settled.fg,
+            },
+          ]}
+          onChange={setSettlementSlice}
+        />
+      );
+    }
     return null;
   };
   const hasQueueSubFilter =
     stage === "pending_for_docs" ||
     stage === "compliance_pending" ||
-    stage === "compliance_verified";
+    stage === "compliance_verified" ||
+    stage === "hard_copy_pod_received" ||
+    stage === "balance_pending";
 
   /** Cards: queue subfilter above the trip list. Table: under stage chips. Verified has no subfilter. */
   const cardsListHeader = useMemo(() => {
@@ -724,6 +880,13 @@ export default function ComplianceScreen() {
     stage,
     verifiedOnlyCount,
     verifiedSlice,
+    podSlice,
+    podPendingPool.length,
+    podReceivedPool.length,
+    settlementSlice,
+    settlementPendingPool.length,
+    settlementSettledPool.length,
+    filtered.length,
   ]);
   const showToolbarSubFilter = viewMode === "table" && hasQueueSubFilter;
 
@@ -732,13 +895,7 @@ export default function ComplianceScreen() {
   const searched = useMemo(() => {
     // With an active query, search the full Compliance queue (not only the
     // selected stage chip) so supplier / trip matches aren't hidden by filter.
-    const pool = search.trim()
-      ? summaries
-      : stage === "hard_copy_pod_received"
-        ? stageQueue
-        : stage === "pod_received"
-          ? podReceivedQueue
-          : stagePool;
+    const pool = search.trim() ? summaries : stagePool;
     return pool.filter((summary) => {
       const supplierId = (summary.trip.supplier_id ?? "").trim();
       const resolved = supplierNameByTripId[summary.trip.id];
@@ -747,7 +904,7 @@ export default function ComplianceScreen() {
         resolved && resolved !== "—" ? resolved : null,
       ]);
     });
-  }, [stagePool, stageQueue, podReceivedQueue, stage, summaries, search, supplierSearchById, supplierNameByTripId]);
+  }, [stagePool, summaries, search, supplierSearchById, supplierNameByTripId]);
   const ordered = useMemo(() => {
     // Advance Processed: newest posted advance first (Cards + Table). Other stages
     // keep trip-event date sort on Table only.
@@ -761,7 +918,7 @@ export default function ComplianceScreen() {
 
   const contentTopInset = layout.isDesktopWeb ? Layout.desktopTopNavOffset : layout.top;
   const pagePad = Layout.screenPaddingHorizontal;
-  /** Responsive breakpoints for header and toolbar (Payment Pending chip). */
+  /** Responsive breakpoints for header and toolbar. */
   const isNarrow = width < 560;
   const stackToolbar = width < 980;
   const compactActions = width < 700;
@@ -785,12 +942,12 @@ export default function ComplianceScreen() {
     setPay({ summary, category: readiness.readyCategory });
   }, []);
 
-  /** After an advance posts from Verified / Payment Pending, follow the trip to Advance Processed. */
+  /** After an advance posts from Verified, follow the trip to Advance Processed. */
   const moveToAdvanceProcessed = useCallback(
     async (tripId: string, category: ComplianceLedgerCategory) => {
       await syncChange({ type: "payment", tripId }).catch(() => undefined);
       if (category !== "compliance_advance") return;
-      if (stage !== "compliance_verified" && stage !== "payment_pending") return;
+      if (stage !== "compliance_verified") return;
       setStage("advance_payment_processed");
       setCardTripId(tripId);
     },
@@ -887,9 +1044,16 @@ export default function ComplianceScreen() {
     if (stage === "compliance_verified" && verifiedSlice === "verified") extra.push("Verified");
     if (stage === "compliance_verified" && verifiedSlice === "compliance") extra.push("Compliance");
     if (stage === "compliance_verified" && verifiedSlice === "pending_docs") extra.push("Docs Follow Up");
-    if (stage === "hard_copy_pod_received" && awaitingPodSubview !== "all") {
+    if (stage === "hard_copy_pod_received" && podSlice === "pending") extra.push("POD Pending");
+    if (stage === "hard_copy_pod_received" && podSlice === "received") extra.push("POD Received");
+    if (stage === "hard_copy_pod_received" && podSlice === "pending" && awaitingPodSubview !== "all") {
       extra.push(AWAITING_POD_SUBVIEW_LABEL[awaitingPodSubview]);
     }
+    if (stage === "hard_copy_pod_received" && podSlice === "received" && podReceivedSubview === "ibond") {
+      extra.push("IBond");
+    }
+    if (stage === "balance_pending" && settlementSlice === "pending") extra.push("Balance Pending");
+    if (stage === "balance_pending" && settlementSlice === "settled") extra.push("Settled");
     const message = complianceTableExportMessage({
       count: rows.length,
       filterLabel: complianceQueueLabel(stage),
@@ -906,7 +1070,18 @@ export default function ComplianceScreen() {
     } catch (error) {
       alertMessage("Couldn't export", error instanceof Error ? error.message : "Please try again.");
     }
-  }, [awaitingPodSubview, pendingSlice, search, searched, stage, tableDateSort, verifiedSlice]);
+  }, [
+    awaitingPodSubview,
+    pendingSlice,
+    podReceivedSubview,
+    podSlice,
+    settlementSlice,
+    search,
+    searched,
+    stage,
+    tableDateSort,
+    verifiedSlice,
+  ]);
 
   const openComplianceCard = useCallback((tripId: string, tab: "trip" | "vehicle" | "driver" = "trip") => {
     setCardTripId(tripId);
@@ -994,53 +1169,48 @@ export default function ComplianceScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.chipScroll}
-            contentContainerStyle={styles.chipWrap}
+            contentContainerStyle={styles.stageDeptWrap}
             keyboardShouldPersistTaps="handled"
           >
-            <StageChip
-              label="All"
-              count={counts.all}
-              countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
-              active={stage === "all"}
-              onPress={() => selectStage("all")}
-            />
-            {COMPLIANCE_STAGES.flatMap((s) => {
-              const chip = (
-                <StageChip
-                  key={s}
-                  label={COMPLIANCE_STAGE_FILTER_LABEL[s]}
-                  count={counts[s]}
-                  countColor={COMPLIANCE_FILTER_COUNT_TONE[s]}
-                  active={stage === s}
-                  onPress={() => selectStage(s)}
-                />
-              );
-              if (s === "advance_payment_processed") {
-                return [
-                  chip,
+            <View style={styles.stageDeptGroup}>
+              <View style={styles.stageDeptLabelSpacer} />
+              <StageChip
+                label="All"
+                count={counts.all}
+                countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
+                active={stage === "all"}
+                onPress={() => selectStage("all")}
+              />
+            </View>
+            {(
+              [
+                { department: "Ground Ops", stages: ["pending_for_docs"] },
+                { department: "Compliance", stages: ["compliance_pending"] },
+                {
+                  department: "Finance",
+                  stages: ["compliance_verified", "advance_payment_processed"],
+                },
+                { department: "Debit", stages: ["hard_copy_pod_received"] },
+                { department: "Finance", stages: ["balance_pending"] },
+              ] as const
+            ).map((group) => (
+              <StageDeptGroup key={`${group.department}-${group.stages[0]}`} department={group.department}>
+                {group.stages.map((s) => (
                   <StageChip
-                    key="payment_pending"
-                    label="Payment Pending"
-                    count={paymentPendingCount}
-                    countColor={Theme.complianceStageBalanceFg}
-                    active={stage === "payment_pending"}
-                    onPress={() => selectStage("payment_pending")}
-                  />,
-                ];
-              }
-              if (s !== "hard_copy_pod_received") return [chip];
-              return [
-                chip,
-                <StageChip
-                  key="pod_received"
-                  label="POD Received"
-                  count={podReceivedCount}
-                  countColor={Theme.complianceStageSuccessFg}
-                  active={stage === "pod_received"}
-                  onPress={() => selectStage("pod_received")}
-                />,
-              ];
-            })}
+                    key={s}
+                    label={COMPLIANCE_STAGE_FILTER_LABEL[s]}
+                    count={
+                      s === "balance_pending"
+                        ? counts.balance_pending + counts.payment_settled
+                        : counts[s]
+                    }
+                    countColor={COMPLIANCE_FILTER_COUNT_TONE[s]}
+                    active={stage === s}
+                    onPress={() => selectStage(s)}
+                  />
+                ))}
+              </StageDeptGroup>
+            ))}
           </ScrollView>
         </View>
       </View>
@@ -1067,7 +1237,7 @@ export default function ComplianceScreen() {
               />
             ))}
           </ScrollView>
-          {stageQueue.length > 0 ? (
+          {stagePool.length > 0 ? (
             <TouchableOpacity
               style={styles.logHardCopyPodBtn}
               onPress={() => {
@@ -1141,9 +1311,7 @@ export default function ComplianceScreen() {
             {search.trim()
               ? "No trips match your search."
               : summaries.length
-                ? stage === "payment_pending"
-                  ? "No trips are waiting for advance payment."
-                  : stage === "compliance_verified"
+                ? stage === "compliance_verified"
                     ? verifiedSlice === "verified"
                       ? "No verified trips in this queue."
                       : verifiedSlice === "compliance"
@@ -1157,11 +1325,19 @@ export default function ComplianceScreen() {
                       ? "No trips declined by finance."
                       : pendingSlice === "hold"
                         ? "No trips on compliance hold."
-                        : stage === "hard_copy_pod_received" && awaitingPodSubview !== "all"
-                          ? "No trips in this Awaiting POD group."
-                          : stage === "pod_received" && podReceivedSubview === "ibond"
+                        : stage === "hard_copy_pod_received" && podSlice === "pending" && awaitingPodSubview !== "all"
+                          ? "No trips in this POD Pending group."
+                          : stage === "hard_copy_pod_received" && podSlice === "received" && podReceivedSubview === "ibond"
                             ? "No IBond trips in POD Received."
-                            : "No trips in this stage."
+                            : stage === "hard_copy_pod_received" && podSlice === "pending"
+                              ? "No trips in POD Pending."
+                              : stage === "hard_copy_pod_received" && podSlice === "received"
+                                ? "No trips in POD Received."
+                                : stage === "balance_pending" && settlementSlice === "pending"
+                                  ? "No trips in Balance Pending."
+                                  : stage === "balance_pending" && settlementSlice === "settled"
+                                    ? "No settled trips."
+                                    : "No trips in this stage."
                 : "No Loading→Completed trips in the Compliance queue yet."}
           </Text>
         </View>
@@ -1172,6 +1348,13 @@ export default function ComplianceScreen() {
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
+            canWithdraw={canManageFinance}
+            onReturnedToVerified={async (tripId) => {
+              await syncChange({ type: "payment", tripId }).catch(() => undefined);
+              verifiedSliceAfterStageRef.current = "verified";
+              setStage("compliance_verified");
+              setCardTripId(tripId);
+            }}
           />
         </ScrollView>
       ) : viewMode === "table" ? (
@@ -1238,10 +1421,16 @@ export default function ComplianceScreen() {
           onDeclineCompliance={canMarkVerified ? declineTrip : undefined}
           onMarkComplianceVerified={canMarkVerified ? markTripVerified : undefined}
           canManagePod={canManagePod}
-          showHardCopyPodLog={stage === "hard_copy_pod_received"}
+          showHardCopyPodLog={stage === "hard_copy_pod_received" && podSlice !== "received"}
           compliancePendingQueue={stage === "compliance_pending"}
-          showPodClientValidation={stage === "pod_received" || stage === "balance_pending"}
-          chargesReview={stage === "pod_received" || stage === "balance_pending"}
+          showPodClientValidation={
+            (stage === "balance_pending" && settlementSlice !== "settled") ||
+            (stage === "hard_copy_pod_received" && podSlice !== "pending")
+          }
+          chargesReview={
+            (stage === "balance_pending" && settlementSlice !== "settled") ||
+            (stage === "hard_copy_pod_received" && podSlice !== "pending")
+          }
           onChargesSaved={(tripId) => {
             setChargeFocus({ tripId, token: Date.now() });
             selectStage("balance_pending");
@@ -1541,8 +1730,8 @@ const styles = StyleSheet.create({
   toolbarRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
+    alignItems: "flex-end",
+    gap: 8,
   },
   toolbarStack: {
     flexDirection: "column",
@@ -1573,29 +1762,39 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 2,
   },
-  /** Verified: All / Verified beside a Declined group (Compliance, Docs Follow Up). */
+  /** Verified: Queue (All / Verified) beside Declined (Compliance / Docs Follow Up). */
   verifiedFilterRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
     gap: 8,
   },
-  verifiedFilterPrimary: {
-    flex: 1,
-    minWidth: 0,
+  /** Table: same side inset as the trip rows. */
+  verifiedFilterRowTable: {
+    paddingHorizontal: 4,
   },
-  verifiedFilterDeclined: {
+  /** Card pane: same inset as the trip cards so the subtabs share their edges. */
+  verifiedFilterRowCard: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+  },
+  verifiedFilterGroup: {
     flex: 1,
     minWidth: 0,
     alignItems: "stretch",
     gap: 4,
   },
-  verifiedDeclinedLabel: {
+  verifiedFilterGroupLabel: {
     width: "100%",
     textAlign: "center",
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "600",
+    letterSpacing: 0.2,
     color: Theme.textSecondary,
   },
   pendingDocsFilterStack: {
@@ -1643,10 +1842,41 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingRight: 2,
   },
+  stageDeptWrap: {
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "flex-end",
+    gap: 4,
+    paddingRight: 2,
+  },
+  stageDeptGroup: {
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 3,
+  },
+  stageDeptChips: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  stageDeptLabel: {
+    height: 14,
+    lineHeight: 14,
+    textAlign: "center",
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: Theme.textSecondary,
+    alignSelf: "center",
+  },
+  stageDeptLabelSpacer: {
+    height: 14,
+  },
   chip: {
     flexShrink: 0,
-    height: 24,
-    paddingHorizontal: 8,
+    height: 20,
+    paddingHorizontal: 6,
     borderRadius: 999,
     backgroundColor: Theme.cardWhite,
     borderWidth: 1,
@@ -1654,23 +1884,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 3,
   },
   chipActive: {
     backgroundColor: Theme.buttonDark,
     borderColor: Theme.buttonDark,
   },
-  chipText: { fontSize: 11, fontWeight: "500", color: Theme.textPrimary, lineHeight: 13 },
-  chipTextActive: { color: Theme.buttonDarkText, fontWeight: "600" },
+  chipText: { fontSize: 10, fontWeight: "600", color: Theme.textPrimary, lineHeight: 12 },
+  chipTextActive: { color: Theme.buttonDarkText, fontWeight: "700" },
   chipCountBadge: {
-    minWidth: 15,
-    height: 15,
+    minWidth: 14,
+    height: 12,
     paddingHorizontal: 3,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
-  chipCount: { fontSize: 9, fontWeight: "600", lineHeight: 11, textAlign: "center" },
+  chipCount: { fontSize: 8, fontWeight: "700", lineHeight: 10, textAlign: "center" },
   viewToggle: {
     flexShrink: 0,
     height: 26,

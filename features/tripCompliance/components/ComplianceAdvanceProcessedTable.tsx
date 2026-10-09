@@ -10,6 +10,7 @@ import {
   updateCompliancePaymentReference,
   updateCompliancePaymentRequestId,
   updateCompliancePaymentTransactionDate,
+  withdrawComplianceAdvancePayment,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import type { ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
@@ -27,12 +28,13 @@ import {
   validateComplianceRequestId,
   validateComplianceUtr,
 } from "@/features/tripCompliance/utils/compliancePaymentReference.util";
+import { alertMessage, confirmAction } from "@/features/tripCompliance/utils/crossPlatformAlert.util";
 import { latestDocNumber } from "@/features/tripCompliance/utils/complianceVerifiedExport.util";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { formatIndianVehicleNumber } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Calendar, Check, Pencil } from "lucide-react-native";
+import { Calendar, Check, Pencil, X } from "lucide-react-native";
 import React, { createElement, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -161,6 +163,36 @@ function Cell({
         </Text>
       ) : null}
     </View>
+  );
+}
+
+function RevertMark({
+  onPress,
+  busy,
+  label,
+}: {
+  onPress: () => void;
+  busy: boolean;
+  label: string;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      disabled={busy}
+      style={styles.revertCell}
+      hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+      accessibilityRole="button"
+      accessibilityState={{ busy }}
+      accessibilityLabel={label}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={Theme.complianceStageDocsFg} />
+      ) : (
+        <View style={styles.revertMark}>
+          <X size={10} color={Theme.cardWhite} strokeWidth={3} />
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -490,16 +522,27 @@ export function ComplianceAdvanceProcessedTable({
   organizationId,
   onOpenTrip,
   onUtrSaved,
+  canWithdraw,
+  onReturnedToVerified,
 }: {
   summaries: ComplianceTripSummary[];
   organizationId: string;
   onOpenTrip: (tripId: string) => void;
   /** After a UTR / Request ID is saved — refresh that trip's payment inputs. */
   onUtrSaved?: (tripId: string) => void;
+  /** Finance managers can send a posted advance back to Verified. */
+  canWithdraw?: boolean;
+  onReturnedToVerified?: (tripId: string) => void | Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const rows = useMemo(() => summaries.filter((s) => s.advance), [summaries]);
   const { data: enrichment, isPending, isFetching } = useAdvanceProcessedTable(organizationId, rows);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
+  const visibleRows = useMemo(
+    () => rows.filter((summary) => !hiddenIds.has(summary.trip.id)),
+    [hiddenIds, rows],
+  );
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [edits, setEdits] = useState<Record<string, EditState>>({});
   /** Saved values shown until refetched data catches up. */
@@ -575,7 +618,7 @@ export function ComplianceAdvanceProcessedTable({
     [edits, enrichment, onUtrSaved, organizationId, queryClient],
   );
 
-  const pendingSelected = rows.flatMap((summary) => {
+  const pendingSelected = visibleRows.flatMap((summary) => {
     if (!selected.has(summary.trip.id)) return [];
     return (["txnDate", "requestId", "utr"] as const)
       .filter((field) => {
@@ -596,8 +639,54 @@ export function ComplianceAdvanceProcessedTable({
     setBulkSaving(false);
   };
 
-  const allSelected = rows.length > 0 && rows.every((s) => selected.has(s.trip.id));
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(rows.map((s) => s.trip.id)));
+  const returnToVerified = useCallback(
+    async (summary: ComplianceTripSummary) => {
+      const tripId = summary.trip.id;
+      if (withdrawingId) return;
+      const info = enrichment?.[tripId];
+      if (info?.utrCategory === "finance_receipt") {
+        alertMessage(
+          "Can't send back",
+          "This advance was posted in Finance. It can't be sent back from Compliance.",
+        );
+        return;
+      }
+      const ok = await confirmAction(
+        "Send back to Verified?",
+        "This removes the advance payment and puts the trip on Verified so you can post it again.",
+        "Send back",
+      );
+      if (!ok) return;
+      setWithdrawingId(tripId);
+      const { error } = await withdrawComplianceAdvancePayment({
+        tripId,
+        transactionId: info?.transactionId ?? summary.advance?.transactionId,
+      });
+      if (error) {
+        setWithdrawingId(null);
+        alertMessage("Couldn't send back", error.message);
+        return;
+      }
+      setHiddenIds((cur) => {
+        const next = new Set(cur);
+        next.add(tripId);
+        return next;
+      });
+      setSelected((cur) => {
+        if (!cur.has(tripId)) return cur;
+        const next = new Set(cur);
+        next.delete(tripId);
+        return next;
+      });
+      setWithdrawingId(null);
+      void queryClient.invalidateQueries({ queryKey: ["q", "tripCompliance", "advanceProcessed"] });
+      await onReturnedToVerified?.(tripId);
+    },
+    [enrichment, onReturnedToVerified, queryClient, withdrawingId],
+  );
+
+  const allSelected = visibleRows.length > 0 && visibleRows.every((s) => selected.has(s.trip.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(visibleRows.map((s) => s.trip.id)));
   const toggle = (tripId: string) =>
     setSelected((cur) => {
       const next = new Set(cur);
@@ -605,7 +694,7 @@ export function ComplianceAdvanceProcessedTable({
       else next.add(tripId);
       return next;
     });
-  const missingUtr = rows.filter((s) => !savedValue(s, enrichment?.[s.trip.id], "utr")).length;
+  const missingUtr = visibleRows.filter((s) => !savedValue(s, enrichment?.[s.trip.id], "utr")).length;
 
   return (
     <View style={styles.wrap}>
@@ -615,9 +704,9 @@ export function ComplianceAdvanceProcessedTable({
             Advance processed payments
           </Text>
           <View style={styles.titleCount}>
-            <Text style={styles.titleCountText}>{rows.length}</Text>
+            <Text style={styles.titleCountText}>{visibleRows.length}</Text>
           </View>
-          {rows.length > 0 ? (
+          {visibleRows.length > 0 ? (
             <Text style={styles.titleMuted} numberOfLines={1}>
               {missingUtr > 0 ? `${missingUtr} awaiting UTR` : "All UTRs recorded"}
             </Text>
@@ -657,7 +746,10 @@ export function ComplianceAdvanceProcessedTable({
       </View>
 
       <View style={[styles.row, styles.headerRow]}>
-        <Checkbox checked={allSelected} onPress={toggleAll} label="Select all trips" />
+        <View style={styles.rowLead}>
+          {canWithdraw ? <View style={styles.revertCell} /> : null}
+          <Checkbox checked={allSelected} onPress={toggleAll} label="Select all trips" />
+        </View>
         <HeaderCell label="Trip ID" style={COL.trip} />
         <HeaderCell label="LR No." style={COL.lr} />
         <HeaderCell label="Truck No." style={COL.truck} />
@@ -678,7 +770,7 @@ export function ComplianceAdvanceProcessedTable({
         </View>
       </View>
 
-      {rows.map((summary, index) => {
+      {visibleRows.map((summary, index) => {
         const trip = summary.trip;
         const tripNumber = getTripDisplayNumber(trip, trip.organization_id ?? null);
         const info = enrichment?.[trip.id];
@@ -712,7 +804,16 @@ export function ComplianceAdvanceProcessedTable({
             key={trip.id}
             style={[styles.row, index % 2 === 1 && styles.rowAlt, isSelected && styles.rowSelected]}
           >
-            <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
+            <View style={styles.rowLead}>
+              {canWithdraw ? (
+                <RevertMark
+                  busy={withdrawingId === trip.id}
+                  onPress={() => void returnToVerified(summary)}
+                  label={`Send trip ${tripNumber} back to Verified`}
+                />
+              ) : null}
+              <Checkbox checked={isSelected} onPress={() => toggle(trip.id)} label={`Select trip ${tripNumber}`} />
+            </View>
             <View style={[styles.cell, COL.trip]}>
               <TouchableOpacity onPress={() => onOpenTrip(trip.id)} hitSlop={{ top: 8, bottom: 8 }} accessibilityRole="link">
                 <Text style={[styles.cellText, styles.tripLink]} numberOfLines={2}>
@@ -864,6 +965,16 @@ const styles = StyleSheet.create({
   cellSub: { fontSize: 9, lineHeight: 12, fontWeight: "500", color: Theme.textMuted },
   alignRight: { textAlign: "right" },
   tripLink: { fontWeight: "700", color: Theme.complianceBulk },
+  rowLead: { flexDirection: "row", alignItems: "stretch", flexShrink: 0 },
+  revertCell: { width: 22, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
+  revertMark: {
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: Theme.complianceStageDocsFg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   selectCell: { width: 30, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
   checkbox: {
     width: 15,

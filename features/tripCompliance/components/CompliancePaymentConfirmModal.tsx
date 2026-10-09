@@ -437,8 +437,8 @@ export function CompliancePaymentConfirmModal({
 
   const introText = (
     <Text style={[styles.body, isInline && styles.bodyInline]} numberOfLines={isInline ? 2 : undefined}>
-      You are about to post {article} {categoryLabel} payment through the Finance ledger. This
-      cannot be undone from Compliance.
+      You are about to post {article} {categoryLabel} payment through the Finance ledger. From
+      Advance Processed you can send the trip back to Verified if you need to post it again.
     </Text>
   );
 

@@ -179,7 +179,7 @@ export function verificationStatusVisual(
     };
   }
   return {
-    label: "Compliance Pending",
+    label: "Ready to Verify",
     tone: COMPLIANCE_STAGE_TONE.compliance_pending,
     kind: "compliance_pending",
   };
