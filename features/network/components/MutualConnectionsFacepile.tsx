@@ -23,10 +23,7 @@ export type MutualConnectionsFacepileProps = {
   /** Opens full mutual list (e.g. +N chip or row tap). */
   onPressViewAll?: () => void;
   overflowColor?: string;
-  /**
-   * List cards already have `mutualCount`. Resolving faces is a per-org RPC;
-   * keep it off on hub/grow lists so eight cards do not fire eight fetches.
-   */
+  /** Set false to show count-only placeholders without the per-org mutuals RPC. */
   resolveFaces?: boolean;
 };
 
@@ -41,7 +38,7 @@ export function MutualConnectionsFacepile({
   onPressMutual,
   onPressViewAll,
   overflowColor = Theme.primary,
-  resolveFaces = false,
+  resolveFaces = true,
 }: MutualConnectionsFacepileProps) {
   const canQuery = Boolean(viewerOrgId && targetOrgId);
   const { data: mutuals = [], isLoading, isError } = useMutualConnectionsQuery(
