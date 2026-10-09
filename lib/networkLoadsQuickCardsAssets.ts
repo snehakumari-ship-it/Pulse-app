@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import type { SvgProps } from "react-native-svg";
 
-import MarketplaceMascotShippingScene from "@/assets/illustrations/marketplace_mascot_shipping_scene.svg";
+import PulseExchangeBidding from "@/assets/illustrations/pulse_exchange_bidding.svg";
 import PulseMarketplaceBoost from "@/assets/illustrations/pulse_marketplace_boost.svg";
 import Theme from "@/constants/Theme";
 
@@ -22,16 +22,16 @@ export type NetworkLoadsQuickAction = {
 
 /**
  * Marketplace quick-action cards — Metronic-style SVG illustrations
- * (character art), not Lottie. Supply / growth.
+ * (character art), not Lottie. Exchange / growth.
  */
 export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
   {
     id: "give",
-    label: "Give loads",
-    sub: "Post open freight",
-    chip: "Supply",
-    illustration: MarketplaceMascotShippingScene,
-    aspect: 560 / 262,
+    label: "Pulse Exchange",
+    sub: "Post loads, win live bids",
+    chip: "Exchange",
+    illustration: PulseExchangeBidding,
+    aspect: 480 / 320,
     accent: Theme.brandBlueInk,
     wash: "rgba(205, 233, 247, 0.45)",
   },
