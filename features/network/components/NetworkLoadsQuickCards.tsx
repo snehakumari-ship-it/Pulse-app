@@ -92,8 +92,8 @@ function MarketplaceCard({
   const mobileTile = isMobile && variant === "tile";
   const locked = Boolean(action.locked);
 
-  const illusMaxW = inline ? 120 : sidebar ? 88 : compact || width < 380 ? 92 : 112;
-  const illusMaxH = inline ? 80 : sidebar ? 72 : compact || width < 380 ? 78 : 92;
+  const illusMaxW = sidebar && !inline ? 88 : compact || width < 380 ? 92 : 112;
+  const illusMaxH = sidebar && !inline ? 72 : compact || width < 380 ? 78 : 92;
 
   // The illustration and arrow are fixed-size, so a narrow card used to squeeze
   // the text column to a few pixels. Give the text its floor first, then spend
@@ -107,7 +107,7 @@ function MarketplaceCard({
   const illusBoxW = Math.min(illusMaxW, Math.floor(artBudget));
   const showIllustration = illusBoxW >= ART_MIN_W;
   const illusBoxH = Math.max(
-    inline ? 40 : 48,
+    48,
     Math.round(illusMaxH * (illusBoxW / illusMaxW)),
   );
 
@@ -191,8 +191,7 @@ function MarketplaceCard({
       style={[
         styles.card,
         sidebar && styles.cardSidebar,
-        inline && styles.cardInline,
-        compact && !sidebar && styles.cardCompact,
+        compact && !sidebar && !inline && styles.cardCompact,
         { backgroundColor: action.wash },
         locked && styles.cardLocked,
         pressed && !locked && styles.cardPressed,
@@ -207,11 +206,10 @@ function MarketplaceCard({
       <View
         style={[
           styles.cardBody,
-          sidebar && styles.cardBodySidebar,
-          inline && styles.cardBodyInline,
+          sidebar && !inline && styles.cardBodySidebar,
         ]}
       >
-        <View style={[styles.textCol, sidebar && styles.textColSidebar]}>
+        <View style={[styles.textCol, sidebar && !inline && styles.textColSidebar]}>
           <Text
             style={[styles.chip, { color: action.accent }]}
             numberOfLines={1}
@@ -219,13 +217,13 @@ function MarketplaceCard({
             {action.chip}
           </Text>
           <Text
-            style={[styles.title, sidebar && styles.titleSidebar]}
+            style={[styles.title, sidebar && !inline && styles.titleSidebar]}
             numberOfLines={2}
           >
             {action.label}
           </Text>
           <Text
-            style={[styles.sub, sidebar && styles.subSidebar]}
+            style={[styles.sub, sidebar && !inline && styles.subSidebar]}
             numberOfLines={2}
           >
             {action.sub}
@@ -291,8 +289,8 @@ export function NetworkLoadsQuickCards({
   const guardVerified = useVerifiedActionGuard();
   const { width } = useWindowDimensions();
   const inline = layout === "inline";
-  const sidebar = layout === "sidebar" || inline;
-  const isMobile = !sidebar && (NATIVE_APP || width < SPLIT_STACK_BREAKPOINT);
+  const sidebar = layout === "sidebar";
+  const isMobile = !sidebar && !inline && (NATIVE_APP || width < SPLIT_STACK_BREAKPOINT);
   /** Tablet web sits between: one row of 4 is too tight, so pair them 2×2. */
   const twoUp = !sidebar && !isMobile && width < TILE_FOUR_UP_MIN_WIDTH;
 
@@ -367,12 +365,12 @@ export function NetworkLoadsQuickCards({
     );
   };
 
-  if (sidebar) {
+  if (sidebar || inline) {
     return (
       <View style={styles.wrapSidebar}>
         <View style={inline ? styles.railInline : styles.railSidebar}>
           {NETWORK_LOADS_QUICK_ACTIONS.map((action) =>
-            renderCard(action, "sidebar"),
+            renderCard(action, inline ? "tile" : "sidebar"),
           )}
         </View>
       </View>
@@ -631,8 +629,8 @@ const styles = StyleSheet.create({
     minHeight: 100,
   },
   cardInline: {
-    minHeight: 100,
-    borderRadius: 16,
+    minHeight: 118,
+    borderRadius: 18,
   },
   cardPressed: {
     opacity: 0.94,
@@ -654,8 +652,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   cardBodyInline: {
-    paddingVertical: 10,
-    minHeight: 100,
+    paddingVertical: 16,
+    minHeight: 118,
   },
   textCol: {
     flex: 1,
