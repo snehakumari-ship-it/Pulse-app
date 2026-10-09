@@ -91,6 +91,8 @@ export function useShipperPoolIndentView<I extends PoolIndent>(input: {
     view,
     setView,
     lanes,
+    poolIndents,
+    allocatedIndents,
     poolSearch,
     setPoolSearch,
     model,

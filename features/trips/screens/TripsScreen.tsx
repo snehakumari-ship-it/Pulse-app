@@ -57,6 +57,7 @@ import { GiveLoadIndentCardActions } from "@/features/network/components/LoadCen
 import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIndentActions";
 import type { IndentRow } from "@/features/indents";
 import {
+  useIndentBidSnapshotsQuery,
   useIndentOfferCountsQuery,
   useIndentsQuery,
 } from "@/lib/queries/useIndentsQuery";
@@ -543,6 +544,10 @@ export default function TripsScreen() {
   });
   const showIndentPoolView =
     canViewIndentPools && indentPoolView.view === "indents";
+  const { data: indentBidSnapshots } = useIndentBidSnapshotsQuery(
+    showIndentPoolView && activeMetricTab === "indent" ? orgId : null,
+    unallocatedIndentIds,
+  );
   const failedReasonCounts = useMemo(() => {
     const counts: Record<IndentCancelReasonId, number> = {
       client_cancelled: 0,
@@ -2560,6 +2565,7 @@ export default function TripsScreen() {
                   canView={canViewIndentPools}
                   canSelect={canSelectPoolIndents}
                   bidCountById={indentOfferCounts}
+                  bidSnapshotById={indentBidSnapshots}
                   listCapped={allIndents.length >= FINITE_LIST_CAP}
                   compact={isMobileViewport}
                   onOpenIndent={handleOpenUnallocatedIndent}

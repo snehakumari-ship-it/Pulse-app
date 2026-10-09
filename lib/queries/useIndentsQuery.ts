@@ -21,6 +21,7 @@ import {
 } from '@/features/indents/services/indents.service';
 import type { DirectQuoteRow } from '@/features/indents/services/direct-quotes.service';
 import type { IndentRow } from '@/features/indents/services/indents.service';
+import type { IndentBidSnapshot } from '@/features/network/services/bids.service';
 import { getInitialIndentForDetail } from '@/features/indents/initialIndentForDetail';
 import { findIndentInMarketList } from '@/features/indents/utils/findIndentInList.util';
 import { fetchEntityListWithFallback } from '@/lib/queries/fetchEntityListWithFallback';
@@ -303,6 +304,22 @@ export function useIndentOfferCountsQuery(ownerOrgId: string | null, indentIds: 
       const res = await getIndentOfferCountsForOwnerIndents(ownerOrgId!, indentIds);
       if (res.error) throw res.error;
       return res.counts;
+    },
+    enabled: !!ownerOrgId && indentIds.length > 0,
+    staleTime: STALE.frequent,
+  });
+}
+
+/** Bid count, lowest offer and latest offer time per owner indent (Indent Pool). */
+export function useIndentBidSnapshotsQuery(ownerOrgId: string | null, indentIds: string[]) {
+  const stableKey = indentIds.length ? [...indentIds].sort().join(',') : '';
+  return useQuery<Record<string, IndentBidSnapshot>>({
+    queryKey: ['indents', 'bid-snapshots', ownerOrgId ?? '', stableKey],
+    queryFn: async () => {
+      const { getIndentBidSnapshotsForOwnerIndents } = await loadBidsService();
+      const res = await getIndentBidSnapshotsForOwnerIndents(ownerOrgId!, indentIds);
+      if (res.error) throw res.error;
+      return res.snapshots;
     },
     enabled: !!ownerOrgId && indentIds.length > 0,
     staleTime: STALE.frequent,

@@ -542,18 +542,25 @@ export async function getStoryBidCountsForOwnerIndents(
   return res;
 }
 
+export type OwnerIndentBid = {
+  indentId: string;
+  bidderKey: string;
+  amount: number;
+  at: string | null;
+};
+
 /**
- * Unique pending offers per indent for Give Load badges.
- * Pulse story bids upsert direct_quotes for the same bidder — count distinct bidder orgs only.
- * Also counts pending Pilot / FO driver_direct_bids (keyed by driver user id).
+ * Pending offers on the owner's indents from direct quotes, Pulse story bids
+ * and Pilot / FO driver_direct_bids. A Pulse story bid also upserts a direct
+ * quote for the same bidder, so callers key by bidder.
  */
-export async function getIndentOfferCountsForOwnerIndents(
+async function collectPendingOwnerIndentBids(
   ownerOrgId: string,
   indentIds: string[],
-): Promise<{ error: Error | null; counts: Record<string, number> }> {
-  if (indentIds.length === 0) return { error: null, counts: {} };
+): Promise<{ error: Error | null; bids: OwnerIndentBid[] }> {
+  if (indentIds.length === 0) return { error: null, bids: [] };
 
-  if (isSupabaseCircuitOpen()) return { error: null, counts: {} };
+  if (isSupabaseCircuitOpen()) return { error: null, bids: [] };
 
   const POSTGREST_IN_CHUNK = 40;
   const uniqueIds = [...new Set(indentIds.filter(Boolean))];
@@ -562,35 +569,33 @@ export async function getIndentOfferCountsForOwnerIndents(
     indentChunks.push(uniqueIds.slice(i, i + POSTGREST_IN_CHUNK));
   }
 
-  const biddersByIndent = new Map<string, Set<string>>();
-  const trackBidder = (indentId: string, bidderKey: string) => {
+  const out: OwnerIndentBid[] = [];
+  const track = (
+    indentId: string | null | undefined,
+    bidderKey: string | null | undefined,
+    amount: unknown,
+    at: string | null | undefined,
+  ) => {
     if (!indentId || !bidderKey) return;
-    let set = biddersByIndent.get(indentId);
-    if (!set) {
-      set = new Set();
-      biddersByIndent.set(indentId, set);
-    }
-    set.add(bidderKey);
+    out.push({ indentId, bidderKey, amount: Number(amount) || 0, at: at ?? null });
   };
 
-  const quotes: Array<{
-    indent_id: string;
-    bidder_organization_id: string;
-    status?: string;
-  }> = [];
   for (const chunk of indentChunks) {
     const { data, error: qErr } = await supabase()
       .from('direct_quotes')
-      .select('indent_id, bidder_organization_id, status')
+      .select('indent_id, bidder_organization_id, amount, created_at')
       .in('indent_id', chunk)
       .eq('status', 'pending');
 
-    if (qErr) return { error: new Error(qErr.message), counts: {} };
-    quotes.push(...((data ?? []) as typeof quotes));
-  }
-
-  for (const row of quotes) {
-    trackBidder(row.indent_id, row.bidder_organization_id);
+    if (qErr) return { error: new Error(qErr.message), bids: [] };
+    for (const row of (data ?? []) as Array<{
+      indent_id: string;
+      bidder_organization_id: string;
+      amount: number | null;
+      created_at: string | null;
+    }>) {
+      track(row.indent_id, row.bidder_organization_id, row.amount, row.created_at);
+    }
   }
 
   // Include inactive posts — a DCO bid must still badge after the 24h story window.
@@ -603,52 +608,106 @@ export async function getIndentOfferCountsForOwnerIndents(
       .eq('type', 'LOAD')
       .in('source_indent_id', chunk);
 
-    if (pErr) return { error: new Error(pErr.message), counts: {} };
+    if (pErr) return { error: new Error(pErr.message), bids: [] };
     posts.push(...((data ?? []) as typeof posts));
   }
 
-  const postRows = posts;
-  const postIds = postRows.map((r) => r.id);
-  const indentByPost = new Map(postRows.map((r) => [r.id, r.source_indent_id ?? '']));
+  const postIds = posts.map((r) => r.id);
+  const indentByPost = new Map(posts.map((r) => [r.id, r.source_indent_id ?? '']));
 
-  if (postIds.length > 0) {
-    for (let i = 0; i < postIds.length; i += POSTGREST_IN_CHUNK) {
-      const postChunk = postIds.slice(i, i + POSTGREST_IN_CHUNK);
-      const { data: bids, error: bErr } = await supabase()
-        .from('bids')
-        .select('post_id, bidder_organization_id')
-        .in('post_id', postChunk)
-        .eq('status', 'pending');
+  for (let i = 0; i < postIds.length; i += POSTGREST_IN_CHUNK) {
+    const postChunk = postIds.slice(i, i + POSTGREST_IN_CHUNK);
+    const { data: bids, error: bErr } = await supabase()
+      .from('bids')
+      .select('post_id, bidder_organization_id, amount, created_at')
+      .in('post_id', postChunk)
+      .eq('status', 'pending');
 
-      if (bErr) return { error: new Error(bErr.message), counts: {} };
+    if (bErr) return { error: new Error(bErr.message), bids: [] };
+    for (const row of (bids ?? []) as Array<{
+      post_id: string;
+      bidder_organization_id: string;
+      amount: number | null;
+      created_at: string | null;
+    }>) {
+      track(indentByPost.get(row.post_id), row.bidder_organization_id, row.amount, row.created_at);
+    }
 
-      for (const row of bids ?? []) {
-        const pid = (row as { post_id: string }).post_id;
-        const iid = indentByPost.get(pid);
-        if (!iid) continue;
-        trackBidder(iid, (row as { bidder_organization_id: string }).bidder_organization_id);
-      }
+    const { data: directBids, error: dErr } = await supabase()
+      .from('driver_direct_bids')
+      .select('post_id, driver_user_id, amount, created_at')
+      .in('post_id', postChunk)
+      .eq('status', 'pending');
 
-      const { data: directBids, error: dErr } = await supabase()
-        .from('driver_direct_bids')
-        .select('post_id, driver_user_id')
-        .in('post_id', postChunk)
-        .eq('status', 'pending');
-
-      if (dErr) return { error: new Error(dErr.message), counts: {} };
-
-      for (const row of directBids ?? []) {
-        const pid = (row as { post_id: string }).post_id;
-        const iid = indentByPost.get(pid);
-        if (!iid) continue;
-        trackBidder(iid, `ddb:${(row as { driver_user_id: string }).driver_user_id}`);
-      }
+    if (dErr) return { error: new Error(dErr.message), bids: [] };
+    for (const row of (directBids ?? []) as Array<{
+      post_id: string;
+      driver_user_id: string;
+      amount: number | null;
+      created_at: string | null;
+    }>) {
+      track(
+        indentByPost.get(row.post_id),
+        row.driver_user_id ? `ddb:${row.driver_user_id}` : null,
+        row.amount,
+        row.created_at,
+      );
     }
   }
 
+  return { error: null, bids: out };
+}
+
+/**
+ * Unique pending offers per indent for Give Load badges.
+ * Pulse story bids upsert direct_quotes for the same bidder — count distinct bidder orgs only.
+ * Also counts pending Pilot / FO driver_direct_bids (keyed by driver user id).
+ */
+export async function getIndentOfferCountsForOwnerIndents(
+  ownerOrgId: string,
+  indentIds: string[],
+): Promise<{ error: Error | null; counts: Record<string, number> }> {
+  const { error, bids } = await collectPendingOwnerIndentBids(ownerOrgId, indentIds);
+  if (error) return { error, counts: {} };
+  const snapshots = indentBidSnapshotsFromBids(bids);
   const counts: Record<string, number> = {};
-  for (const [indentId, bidders] of biddersByIndent) {
-    counts[indentId] = bidders.size;
-  }
+  for (const [indentId, snap] of Object.entries(snapshots)) counts[indentId] = snap.count;
   return { error: null, counts };
+}
+
+/** Bid status of one indent: distinct bidders, lowest offer, latest offer time. */
+export type IndentBidSnapshot = {
+  count: number;
+  lowestAmount: number | null;
+  latestAt: string | null;
+};
+
+export function indentBidSnapshotsFromBids(
+  bids: readonly OwnerIndentBid[],
+): Record<string, IndentBidSnapshot> {
+  const latestByBidder = new Map<string, OwnerIndentBid>();
+  for (const bid of bids) {
+    const key = `${bid.indentId}\u0000${bid.bidderKey}`;
+    const prev = latestByBidder.get(key);
+    if (!prev || (bid.at ?? '') > (prev.at ?? '')) latestByBidder.set(key, bid);
+  }
+  const out: Record<string, IndentBidSnapshot> = {};
+  for (const bid of latestByBidder.values()) {
+    const snap = (out[bid.indentId] ??= { count: 0, lowestAmount: null, latestAt: null });
+    snap.count += 1;
+    if (bid.amount > 0 && (snap.lowestAmount == null || bid.amount < snap.lowestAmount)) {
+      snap.lowestAmount = bid.amount;
+    }
+    if (bid.at && (!snap.latestAt || bid.at > snap.latestAt)) snap.latestAt = bid.at;
+  }
+  return out;
+}
+
+export async function getIndentBidSnapshotsForOwnerIndents(
+  ownerOrgId: string,
+  indentIds: string[],
+): Promise<{ error: Error | null; snapshots: Record<string, IndentBidSnapshot> }> {
+  const { error, bids } = await collectPendingOwnerIndentBids(ownerOrgId, indentIds);
+  if (error) return { error, snapshots: {} };
+  return { error: null, snapshots: indentBidSnapshotsFromBids(bids) };
 }

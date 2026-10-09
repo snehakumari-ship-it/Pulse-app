@@ -136,6 +136,67 @@ export function buildShipperPoolModel<I extends PoolIndent>(input: {
   };
 }
 
+export type ShipperPoolStage = "waiting" | "bids" | "awarded";
+
+export type ShipperPoolSummaryRow<I extends PoolIndent> = {
+  lane: PoolLane;
+  members: I[];
+  waiting: number;
+  bids: number;
+  awarded: number;
+  /** Indents of this pool already allocated to a trip. */
+  onTrip: number;
+};
+
+/** One summary row per pool: how many of its indents sit at each stage. */
+export function shipperPoolSummaryRows<I extends PoolIndent>(input: {
+  lanes: readonly PoolLane[];
+  poolIndents: readonly I[];
+  allocatedIndents?: readonly PoolIndent[];
+  stageOf: (indent: I) => ShipperPoolStage;
+}): ShipperPoolSummaryRow<I>[] {
+  const byPool = new Map<string, I[]>();
+  for (const indent of input.poolIndents) {
+    if (!isPoolable(indent)) continue;
+    const id = poolKeyId(
+      poolKey({
+        pickup: indent.pickup_area ?? "",
+        drop: indent.drop_location ?? "",
+        vehicleType: indent.vehicle_type ?? "",
+      }),
+    );
+    const list = byPool.get(id);
+    if (list) list.push(indent);
+    else byPool.set(id, [indent]);
+  }
+  const memberIds = new Set(input.poolIndents.map((i) => i.id));
+  const onTripByPool = new Map<string, number>();
+  for (const indent of input.allocatedIndents ?? []) {
+    if (!isPoolable(indent) || memberIds.has(indent.id)) continue;
+    const id = poolKeyId(
+      poolKey({
+        pickup: indent.pickup_area ?? "",
+        drop: indent.drop_location ?? "",
+        vehicleType: indent.vehicle_type ?? "",
+      }),
+    );
+    onTripByPool.set(id, (onTripByPool.get(id) ?? 0) + 1);
+  }
+  return input.lanes.map((lane) => {
+    const members = byPool.get(lane.poolId) ?? [];
+    let waiting = 0;
+    let bids = 0;
+    let awarded = 0;
+    for (const indent of members) {
+      const stage = input.stageOf(indent);
+      if (stage === "awarded") awarded += 1;
+      else if (stage === "bids") bids += 1;
+      else waiting += 1;
+    }
+    return { lane, members, waiting, bids, awarded, onTrip: onTripByPool.get(lane.poolId) ?? 0 };
+  });
+}
+
 /** Toggle one indent. Non-members and a missing pool are a no-op. */
 export function toggleShipperPoolIndent(
   selection: ShipperPoolSelection,

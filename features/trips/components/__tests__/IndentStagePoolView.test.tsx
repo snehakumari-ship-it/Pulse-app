@@ -19,6 +19,7 @@ import { Text } from "react-native";
 jest.mock("react-native", () => jest.requireActual("react-native"));
 jest.mock("@/features/network/utils/storyDisplay", () => ({
   formatStoryDate: (iso: string) => iso.slice(0, 10),
+  formatStoryDateTime: (iso: string) => `${iso.slice(0, 10)} ${iso.slice(11, 16)}`,
 }));
 jest.mock("@/features/indents/services/indents.service", () => ({
   getIndentDisplayNumber: (row: { indent_number: string }) => row.indent_number,
@@ -66,11 +67,13 @@ function Harness({
   allocated = [],
   canView = true,
   canSelect = true,
+  snapshots,
 }: {
   indents?: IndentRow[];
   allocated?: IndentRow[];
   canView?: boolean;
   canSelect?: boolean;
+  snapshots?: Record<string, { count: number; lowestAmount: number | null; latestAt: string | null }>;
 }) {
   const state = useShipperPoolIndentView<IndentRow>({
     poolIndents: indents,
@@ -83,6 +86,7 @@ function Harness({
       canView={canView}
       canSelect={canSelect}
       bidCountById={{ a: 2 }}
+      bidSnapshotById={snapshots}
       listCapped={false}
       compact={false}
       onOpenIndent={onOpenIndent}
@@ -284,6 +288,43 @@ describe("IndentStageViews — Network Indent Pool", () => {
     fireEvent.press(screen.getByLabelText("Review indent IND-b"));
     expect(onOpenIndent).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
     expect(screen.getByText("Award, vehicle and driver stay per indent in Review.")).toBeTruthy();
+  });
+
+  it("summarises every pool by stage before one is opened", () => {
+    render(
+      <Harness
+        indents={[...FIXTURE, indent("w", "Pune", "Mumbai", "32 FT", { status: "awarded" })]}
+        allocated={[indent("t1", "PUNE", "mumbai", "32 FT")]}
+        snapshots={{ a: { count: 2, lowestAmount: 41000, latestAt: "2026-10-08T12:30:00Z" } }}
+      />,
+    );
+    openIndentPool();
+    expect(screen.getByTestId("indent-pool-summary-table")).toBeTruthy();
+    expect(screen.getByLabelText("All pools Pools: 3")).toBeTruthy();
+    expect(screen.getByLabelText("All pools Indents: 6")).toBeTruthy();
+    expect(screen.getByLabelText("All pools Awarded: 1")).toBeTruthy();
+    expect(screen.getByLabelText("All pools On trip: 1")).toBeTruthy();
+    const pune = screen.getByLabelText("Open indent pool Pune → Mumbai, 32 FT, 4 indents");
+    expect(pune.props.accessibilityHint).toBe(
+      "2 waiting, 1 with bids, 1 awarded, 1 on trip",
+    );
+    expect(screen.getByText("₹ 41,000")).toBeTruthy();
+  });
+
+  it("shows each indent's bid status: count, lowest offer and last bid time", () => {
+    render(
+      <Harness
+        snapshots={{ a: { count: 2, lowestAmount: 41000, latestAt: "2026-10-08T12:30:00Z" } }}
+      />,
+    );
+    openIndentPool();
+    openPuneMumbai();
+    expect(screen.getByText("2 bids")).toBeTruthy();
+    expect(screen.getByText("Lowest ₹ 41,000")).toBeTruthy();
+    expect(screen.getByText("Last bid · 2026-10-08 12:30")).toBeTruthy();
+    expect(textOf("indent-pool-lowest")).toBe("Lowest bid in pool · ₹ 41,000");
+    expect(screen.getAllByLabelText("Stage Bids").length).toBe(1);
+    expect(screen.getAllByLabelText("Stage Posted").length).toBe(2);
   });
 
   it("hides the toggle without indent view access", () => {
