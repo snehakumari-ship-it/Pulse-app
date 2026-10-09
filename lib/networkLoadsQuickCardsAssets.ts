@@ -1,9 +1,9 @@
 import type { ComponentType } from "react";
 import type { SvgProps } from "react-native-svg";
 
-import Illustration4 from "@/assets/illustrations/4.svg";
 import Illustration12 from "@/assets/illustrations/12.svg";
 import Illustration20 from "@/assets/illustrations/20.svg";
+import MarketplaceMascotShippingScene from "@/assets/illustrations/marketplace_mascot_shipping_scene.svg";
 import PulseMarketplaceBoost from "@/assets/illustrations/pulse_marketplace_boost.svg";
 import Theme from "@/constants/Theme";
 
@@ -32,8 +32,8 @@ export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
     label: "Give loads",
     sub: "Post open freight",
     chip: "Supply",
-    illustration: Illustration4,
-    aspect: 600 / 463,
+    illustration: MarketplaceMascotShippingScene,
+    aspect: 560 / 262,
     accent: Theme.brandBlueInk,
     wash: "rgba(205, 233, 247, 0.45)",
   },
