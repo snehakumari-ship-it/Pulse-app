@@ -426,11 +426,11 @@ export const indentReviewHubSplitLayout = StyleSheet.create({
   },
   summaryPaneContent: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 8,
-    paddingBottom: 12,
-    maxWidth: 1040,
+    paddingTop: 12,
+    paddingBottom: 16,
+    maxWidth: 1360,
     width: "100%",
-    alignSelf: "stretch",
+    alignSelf: "center",
   },
   summaryPaneContentCompact: {
     paddingTop: 4,

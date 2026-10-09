@@ -156,6 +156,8 @@ export const Theme = {
   gpayListTitle: "#000000",
   /** GPay list timestamp line (light) */
   gpayListSubtitle: "#5F6368",
+  /** Pickup pin on load route rows and the route plan timeline. */
+  routePickupPin: "#1a73e8",
   positive: "#15803D",
   /** Legacy alias for semantic success usage. */
   success: "#15803D",

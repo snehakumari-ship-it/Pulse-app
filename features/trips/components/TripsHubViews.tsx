@@ -51,7 +51,7 @@ import { TripsHubTripCardToolbar } from "./TripsHubTripCardToolbar";
 
 export { MOBILE_TRIP_CANVAS_BG, TripsHubMobileTripListCanvas };
 import { ChevronDown, Plus, Search, X } from "lucide-react-native";
-import { useCallback, useEffect, useLayoutEffect, useMemo, memo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, memo, useRef, useState, type ReactNode } from "react";
 import {
     LayoutAnimation,
     Modal,
@@ -1381,62 +1381,102 @@ export function TripsHubTableView({
     toolbarCountLabel ??
     `Showing ${rowsForTableBody.length} of ${displayedTrips.length} trips`;
 
-  const renderIndentStatusTags = (
-    tags: NonNullable<typeof toolbarTags>,
-  ) => (
+  const statusToolbarTags = (toolbarTags ?? []).filter((tag) => tag.kind !== "reason");
+  const reasonToolbarTags = (toolbarTags ?? []).filter((tag) => tag.kind === "reason");
+  const hasReasonTags = reasonToolbarTags.length > 0;
+  const [failedReasonsOpen, setFailedReasonsOpen] = useState(true);
+  const hadReasonTagsRef = useRef(hasReasonTags);
+  useEffect(() => {
+    if (hasReasonTags && !hadReasonTagsRef.current) setFailedReasonsOpen(true);
+    hadReasonTagsRef.current = hasReasonTags;
+  }, [hasReasonTags]);
+
+  const renderIndentStatusTag = (
+    tag: NonNullable<typeof toolbarTags>[number],
+    trailing?: ReactNode,
+  ) => {
+    const tone = indentStatusTagTone(tag.id);
+    return (
+      <TouchableOpacity
+        key={tag.id}
+        style={[
+          styles.indentStatusTag,
+          tag.kind === "reason" && styles.indentReasonTag,
+          {
+            backgroundColor: tag.selected ? tone.selectedBg : tone.bg,
+            borderColor: tag.selected ? tone.selectedBorder : tone.border,
+          },
+        ]}
+        onPress={tag.onPress}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityState={{ selected: tag.selected }}
+        accessibilityLabel={tag.accessibilityLabel ?? tag.label}
+      >
+        <View
+          style={[
+            styles.indentStatusTagDot,
+            { backgroundColor: tag.selected ? tone.selectedDot : tone.dot },
+          ]}
+        />
+        <Text
+          style={[
+            styles.indentStatusTagText,
+            { color: tag.selected ? tone.selectedText : tone.text },
+          ]}
+          numberOfLines={1}
+        >
+          {tag.label}
+        </Text>
+        {trailing}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderIndentStatusTags = (tags: NonNullable<typeof toolbarTags>) => (
     <View style={styles.indentStatusTagRow}>
       {tags.map((tag) => {
+        if (tag.id !== "failed" || !hasReasonTags) return renderIndentStatusTag(tag);
         const tone = indentStatusTagTone(tag.id);
-        return (
-          <TouchableOpacity
-            key={tag.id}
-            style={[
-              styles.indentStatusTag,
-              {
-                backgroundColor: tag.selected ? tone.selectedBg : tone.bg,
-                borderColor: tag.selected ? tone.selectedBorder : tone.border,
-              },
-            ]}
-            onPress={tag.onPress}
-            activeOpacity={0.85}
+        const selectedReason = reasonToolbarTags.find((r) => r.selected);
+        const chevronColor = tag.selected ? tone.selectedText : tone.text;
+        const failedTag = renderIndentStatusTag(
+          !failedReasonsOpen && selectedReason
+            ? { ...tag, label: `${tag.label} · ${selectedReason.label}` }
+            : tag,
+          <Pressable
+            onPress={() => setFailedReasonsOpen((open) => !open)}
+            hitSlop={10}
+            style={styles.indentStatusTagChevron}
             accessibilityRole="button"
-            accessibilityState={{ selected: tag.selected }}
-            accessibilityLabel={tag.accessibilityLabel ?? tag.label}
+            accessibilityState={{ expanded: failedReasonsOpen }}
+            accessibilityLabel={
+              failedReasonsOpen ? "Collapse failed reasons" : "Expand failed reasons"
+            }
           >
-            <View
-              style={[
-                styles.indentStatusTagDot,
-                {
-                  backgroundColor: tag.selected ? tone.selectedDot : tone.dot,
-                },
-              ]}
+            <ChevronDown
+              size={11}
+              color={chevronColor}
+              strokeWidth={2.4}
+              style={{ transform: [{ rotate: failedReasonsOpen ? "180deg" : "0deg" }] }}
             />
-            <Text
-              style={[
-                styles.indentStatusTagText,
-                {
-                  color: tag.selected ? tone.selectedText : tone.text,
-                },
-              ]}
-              numberOfLines={1}
-            >
-              {tag.label}
-            </Text>
-          </TouchableOpacity>
+          </Pressable>,
+        );
+        return (
+          <Fragment key={tag.id}>
+            {failedTag}
+            {failedReasonsOpen ? (
+              <View style={styles.indentReasonTray}>
+                {reasonToolbarTags.map((reason) => renderIndentStatusTag(reason))}
+              </View>
+            ) : null}
+          </Fragment>
         );
       })}
     </View>
   );
-  const statusToolbarTags = (toolbarTags ?? []).filter((tag) => tag.kind !== "reason");
-  const reasonToolbarTags = (toolbarTags ?? []).filter((tag) => tag.kind === "reason");
   const toolbarStatusTags =
     statusToolbarTags.length > 0 ? renderIndentStatusTags(statusToolbarTags) : null;
-  const toolbarReasonTags =
-    reasonToolbarTags.length > 0 ? (
-      <View style={styles.indentFailedReasonRow}>
-        {renderIndentStatusTags(reasonToolbarTags)}
-      </View>
-    ) : null;
 
   const datePresetOptions = (
     [
@@ -1863,8 +1903,6 @@ export function TripsHubTableView({
           </>
         )}
       </View>
-
-      {toolbarReasonTags}
 
       {renderAboveBody}
 
@@ -4015,15 +4053,27 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     minWidth: 0,
   },
-  indentFailedReasonRow: {
+  indentReasonTray: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 4,
-    width: "100%",
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-    backgroundColor: Theme.screenBackground,
+    paddingLeft: 6,
+    marginLeft: 2,
+    borderLeftWidth: 1,
+    borderLeftColor: Theme.borderInput,
+  },
+  indentReasonTag: {
+    minHeight: 24,
+    paddingHorizontal: 6,
+  },
+  indentStatusTagChevron: {
+    marginLeft: 2,
+    paddingLeft: 3,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: Theme.borderInput,
+    alignItems: "center",
+    justifyContent: "center",
   },
   indentStatusTag: {
     minHeight: 26,

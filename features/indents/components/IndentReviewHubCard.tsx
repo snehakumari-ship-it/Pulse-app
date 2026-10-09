@@ -30,10 +30,15 @@ import type { IndentBidAlertInfo } from "@/features/indents/utils/bidding/indent
 import type { IndentBidFooterInsight } from "@/features/indents/utils/bidding/indentLiveBids.util";
 import { formatINR } from "@/lib/format";
 import { RouteExtraStopsNote } from "@/features/trips/components/RouteExtraStopsNote";
-import { RouteExtraStopsPlan } from "@/features/trips/components/RouteExtraStopsPlan";
+import {
+  RouteExtraStopsPlan,
+  RouteStopsTimeline,
+} from "@/features/trips/components/RouteExtraStopsPlan";
 import type { RouteExtraStopRow } from "@/features/trips/services/routeExtraStops.service";
 import {
   EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
+  extraStopChipLabel,
+  extraStopPaidLabel,
   type RouteExtraStopSummary,
 } from "@/features/trips/utils/routeExtraStops.util";
 
@@ -384,16 +389,34 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
             compact
             style={styles.route}
           />
-          <RouteExtraStopsNote
-            summary={extraStops}
-            side={isOwner ? "client" : "supplier"}
-            style={styles.extraStopsNote}
-          />
-          <RouteExtraStopsPlan
-            stops={extraStopRows}
-            side={isOwner ? "client" : "supplier"}
-            style={styles.extraStopsPlan}
-          />
+          {!compact && extraStopRows.length > 0 ? (
+            <RouteStopsTimeline
+              stops={extraStopRows}
+              side={isOwner ? "client" : "supplier"}
+              origin={origin}
+              destination={destination}
+              summary={[
+                extraStopChipLabel(extraStops.count),
+                extraStopPaidLabel(extraStops, isOwner ? "client" : "supplier", formatINR),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              style={styles.extraStopsTimeline}
+            />
+          ) : (
+            <>
+              <RouteExtraStopsNote
+                summary={extraStops}
+                side={isOwner ? "client" : "supplier"}
+                style={styles.extraStopsNote}
+              />
+              <RouteExtraStopsPlan
+                stops={extraStopRows}
+                side={isOwner ? "client" : "supplier"}
+                style={styles.extraStopsPlan}
+              />
+            </>
+          )}
         </View>
       </GlassCard>
 
@@ -573,6 +596,12 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
 const styles = StyleSheet.create({
   extraStopsNote: {
     marginTop: 8,
+  },
+  extraStopsTimeline: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.border,
   },
   extraStopsPlan: {
     marginTop: 10,
