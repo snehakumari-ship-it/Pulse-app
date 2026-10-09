@@ -45,7 +45,8 @@ const ART_MIN_W = 56;
 
 export interface NetworkLoadsQuickCardsProps {
   compact?: boolean;
-  layout?: "default" | "sidebar";
+  /** "inline" — a short side-by-side strip that sits beside the story row. */
+  layout?: "default" | "sidebar" | "inline";
 }
 
 type MarketplaceCardProps = {
@@ -54,6 +55,7 @@ type MarketplaceCardProps = {
   compact?: boolean;
   variant: "tile" | "sidebar";
   isMobile?: boolean;
+  inline?: boolean;
 };
 
 function MarketplaceArt({
@@ -82,6 +84,7 @@ function MarketplaceCard({
   compact,
   variant,
   isMobile,
+  inline = false,
 }: MarketplaceCardProps) {
   const { width } = useWindowDimensions();
   const [cardWidth, setCardWidth] = useState(0);
@@ -89,8 +92,8 @@ function MarketplaceCard({
   const mobileTile = isMobile && variant === "tile";
   const locked = Boolean(action.locked);
 
-  const illusMaxW = sidebar ? 88 : compact || width < 380 ? 92 : 112;
-  const illusMaxH = sidebar ? 72 : compact || width < 380 ? 78 : 92;
+  const illusMaxW = inline ? 84 : sidebar ? 88 : compact || width < 380 ? 92 : 112;
+  const illusMaxH = inline ? 56 : sidebar ? 72 : compact || width < 380 ? 78 : 92;
 
   // The illustration and arrow are fixed-size, so a narrow card used to squeeze
   // the text column to a few pixels. Give the text its floor first, then spend
@@ -104,7 +107,7 @@ function MarketplaceCard({
   const illusBoxW = Math.min(illusMaxW, Math.floor(artBudget));
   const showIllustration = illusBoxW >= ART_MIN_W;
   const illusBoxH = Math.max(
-    48,
+    inline ? 40 : 48,
     Math.round(illusMaxH * (illusBoxW / illusMaxW)),
   );
 
@@ -188,6 +191,7 @@ function MarketplaceCard({
       style={[
         styles.card,
         sidebar && styles.cardSidebar,
+        inline && styles.cardInline,
         compact && !sidebar && styles.cardCompact,
         { backgroundColor: action.wash },
         locked && styles.cardLocked,
@@ -200,7 +204,13 @@ function MarketplaceCard({
           <Text style={styles.lockedBadgeText}>Locked</Text>
         </View>
       ) : null}
-      <View style={[styles.cardBody, sidebar && styles.cardBodySidebar]}>
+      <View
+        style={[
+          styles.cardBody,
+          sidebar && styles.cardBodySidebar,
+          inline && styles.cardBodyInline,
+        ]}
+      >
         <View style={[styles.textCol, sidebar && styles.textColSidebar]}>
           <Text
             style={[styles.chip, { color: action.accent }]}
@@ -280,7 +290,8 @@ export function NetworkLoadsQuickCards({
   const router = useRouter();
   const guardVerified = useVerifiedActionGuard();
   const { width } = useWindowDimensions();
-  const sidebar = layout === "sidebar";
+  const inline = layout === "inline";
+  const sidebar = layout === "sidebar" || inline;
   const isMobile = !sidebar && (NATIVE_APP || width < SPLIT_STACK_BREAKPOINT);
   /** Tablet web sits between: one row of 4 is too tight, so pair them 2×2. */
   const twoUp = !sidebar && !isMobile && width < TILE_FOUR_UP_MIN_WIDTH;
@@ -320,7 +331,9 @@ export function NetworkLoadsQuickCards({
             ? isMobile
               ? styles.cardSlotMobile
               : [styles.cardSlot, twoUp && styles.cardSlotTwoUp]
-            : styles.sidebarCardPress
+            : inline
+              ? styles.inlineCardSlot
+              : styles.sidebarCardPress
         }
       >
         <Pressable
@@ -346,6 +359,7 @@ export function NetworkLoadsQuickCards({
               compact={compact}
               variant={variant}
               isMobile={isMobile}
+              inline={inline}
             />
           )}
         </Pressable>
@@ -356,7 +370,7 @@ export function NetworkLoadsQuickCards({
   if (sidebar) {
     return (
       <View style={styles.wrapSidebar}>
-        <View style={styles.railSidebar}>
+        <View style={inline ? styles.railInline : styles.railSidebar}>
           {NETWORK_LOADS_QUICK_ACTIONS.map((action) =>
             renderCard(action, "sidebar"),
           )}
@@ -501,6 +515,12 @@ const styles = StyleSheet.create({
     gap: 10,
     width: "100%",
   },
+  railInline: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+    width: "100%",
+  },
   card: {
     flex: 1,
     width: "100%",
@@ -610,6 +630,10 @@ const styles = StyleSheet.create({
   cardSidebar: {
     minHeight: 100,
   },
+  cardInline: {
+    minHeight: 84,
+    borderRadius: 16,
+  },
   cardPressed: {
     opacity: 0.94,
     transform: [{ scale: 0.985 }],
@@ -628,6 +652,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     minHeight: 100,
     gap: 10,
+  },
+  cardBodyInline: {
+    paddingVertical: 10,
+    minHeight: 84,
   },
   textCol: {
     flex: 1,
@@ -702,6 +730,11 @@ const styles = StyleSheet.create({
   cardPress: {
     width: "100%",
     alignSelf: "stretch",
+    minWidth: 0,
+  },
+  inlineCardSlot: {
+    flex: 1,
+    flexBasis: 0,
     minWidth: 0,
   },
   sidebarCardPress: {

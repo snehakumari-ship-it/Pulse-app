@@ -1083,7 +1083,7 @@ function NetworkScreenInner() {
               </View>
               {isWideNetwork ? (
                 <View style={styles.storyMarketAside}>
-                  <NetworkLoadsQuickCards layout="sidebar" />
+                  <NetworkLoadsQuickCards layout="inline" />
                 </View>
               ) : null}
             </View>
@@ -1823,7 +1823,7 @@ const styles = StyleSheet.create({
   },
   storyMarketRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 16,
   },
   storyMarketStories: {
@@ -1831,7 +1831,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   storyMarketAside: {
-    width: 340,
+    width: 600,
+    maxWidth: "50%",
     flexShrink: 0,
   },
   commandMainCard: {
