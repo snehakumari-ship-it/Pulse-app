@@ -52,6 +52,7 @@ import { TripsHubIndentStageCard } from "@/features/trips/components/TripsHubInd
 import { IndentStageViews } from "@/features/trips/components/IndentStagePoolView";
 import { useShipperPoolIndentView } from "@/features/network/hooks/useShipperPoolIndentView";
 import { FINITE_LIST_CAP } from "@/lib/pagination";
+import { useRouteExtraStopsSummaries } from "@/features/trips/hooks/useRouteExtraStopsQuery";
 import { GiveLoadIndentCardActions } from "@/features/network/components/LoadCenterIndentCardActions";
 import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIndentActions";
 import type { IndentRow } from "@/features/indents";
@@ -437,6 +438,11 @@ export default function TripsScreen() {
       ),
     [dateFilteredUnallocatedIndents, searchQuery],
   );
+  const unallocatedIndentIds = useMemo(
+    () => unallocatedIndents.map((i) => i.id),
+    [unallocatedIndents],
+  );
+  const extraStopsByIndentId = useRouteExtraStopsSummaries("indent", unallocatedIndentIds);
   const failedStageIndents = useMemo(() => {
     if (!orgId) return [];
     return allIndents.filter((indent) => {
@@ -1819,6 +1825,7 @@ export default function TripsScreen() {
         <TripsHubIndentStageCard
           indent={indent}
           bidCount={bidCount}
+          extraStopCount={extraStopsByIndentId.get(indent.id)?.count ?? 0}
           hubGrid={hubGrid}
           layoutCompact={tripsHubLayoutCompact}
           onPress={openIndent}

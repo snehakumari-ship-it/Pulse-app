@@ -30,12 +30,16 @@ import type { IndentBidAlertInfo } from "@/features/indents/utils/bidding/indent
 import type { IndentBidFooterInsight } from "@/features/indents/utils/bidding/indentLiveBids.util";
 import { formatINR } from "@/lib/format";
 import { RouteExtraStopsNote } from "@/features/trips/components/RouteExtraStopsNote";
+import { RouteExtraStopsPlan } from "@/features/trips/components/RouteExtraStopsPlan";
+import type { RouteExtraStopRow } from "@/features/trips/services/routeExtraStops.service";
 import {
   EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
   type RouteExtraStopSummary,
 } from "@/features/trips/utils/routeExtraStops.util";
 
 const cardShadow = indentHubCardShadow as ViewStyle;
+
+const NO_EXTRA_STOP_ROWS: readonly RouteExtraStopRow[] = [];
 
 export type IndentReviewHubCardProps = {
   isOwner: boolean;
@@ -79,6 +83,8 @@ export type IndentReviewHubCardProps = {
   supplierTargetInr?: number;
   /** Stops in between; their charges are already inside the shown rates. */
   extraStops?: RouteExtraStopSummary;
+  /** The stops themselves, in order — listed under the route. */
+  extraStopRows?: readonly RouteExtraStopRow[];
   /** Awarded vendor (Give Load owner). Shown on Parties when the load is awarded. */
   vendorName?: string | null;
   vendorRate?: string | null;
@@ -185,6 +191,7 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
   clientPriceInr = 0,
   supplierTargetInr = 0,
   extraStops = EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
+  extraStopRows = NO_EXTRA_STOP_ROWS,
   vendorName = null,
   vendorRate = null,
   primaryActionLabel,
@@ -224,6 +231,7 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
         clientPriceInr={clientPriceInr}
         supplierTargetInr={supplierTargetInr}
         extraStops={extraStops}
+        extraStopRows={extraStopRows}
         vendorName={vendorName}
         vendorRate={vendorRate}
         client={client}
@@ -380,6 +388,11 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
             summary={extraStops}
             side={isOwner ? "client" : "supplier"}
             style={styles.extraStopsNote}
+          />
+          <RouteExtraStopsPlan
+            stops={extraStopRows}
+            side={isOwner ? "client" : "supplier"}
+            style={styles.extraStopsPlan}
           />
         </View>
       </GlassCard>
@@ -560,6 +573,12 @@ export const IndentReviewHubCard = memo(function IndentReviewHubCard({
 const styles = StyleSheet.create({
   extraStopsNote: {
     marginTop: 8,
+  },
+  extraStopsPlan: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.border,
   },
   stack: {
     gap: 8,

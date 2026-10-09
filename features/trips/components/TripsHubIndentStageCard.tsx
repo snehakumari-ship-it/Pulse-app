@@ -14,6 +14,7 @@ import {
   indentHubSourceTags,
   indentHasAwardRevokedTag,
 } from "@/features/trips/utils/indentHubCardPresentation";
+import { extraStopChipLabel } from "@/features/trips/utils/routeExtraStops.util";
 import type { ReactNode } from "react";
 
 function indentAsHubTripShape(indent: IndentRow): TripRow {
@@ -33,6 +34,7 @@ function indentAsHubTripShape(indent: IndentRow): TripRow {
 export function TripsHubIndentStageCard({
   indent,
   bidCount,
+  extraStopCount = 0,
   onPress,
   tr,
   hubGrid = false,
@@ -46,6 +48,8 @@ export function TripsHubIndentStageCard({
 }: {
   indent: IndentRow;
   bidCount: number;
+  /** FTL stops between pickup and drop. */
+  extraStopCount?: number;
   onPress: () => void;
   tr: (key: string) => string;
   hubGrid?: boolean;
@@ -73,6 +77,7 @@ export function TripsHubIndentStageCard({
       stageLabel={stageLabel}
       origin={indent.pickup_area || "—"}
       dest={indent.drop_location || "—"}
+      routeViaLabel={extraStopChipLabel(extraStopCount)}
       pickupIso={indent.pickup_date ?? indent.created_at}
       onPress={onPress}
       tr={tr}

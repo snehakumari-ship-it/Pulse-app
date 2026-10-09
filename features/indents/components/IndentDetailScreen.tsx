@@ -2,7 +2,10 @@
  * Indent detail — single indent view. Hero card aligns with Load Center cards
  * (pills, route row, indent id, specs slab); freight card, Live Bids, footer follow.
  */
-import { useRouteExtraStopsSummary } from "@/features/trips/hooks/useRouteExtraStopsQuery";
+import {
+  useRouteExtraStopRowsFor,
+  useRouteExtraStopsSummary,
+} from "@/features/trips/hooks/useRouteExtraStopsQuery";
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
@@ -273,6 +276,7 @@ export function IndentDetailScreen({
     peekIndentFirstPaint(indentId),
   );
   const extraStops = useRouteExtraStopsSummary("indent", indent?.id);
+  const extraStopRows = useRouteExtraStopRowsFor("indent", indent?.id);
   const indentStoryIds = useMemo(
     () => (indent?.id ? [indent.id] : []),
     [indent?.id],
@@ -1475,6 +1479,7 @@ export function IndentDetailScreen({
               clientPriceInr={clientPriceNum}
               supplierTargetInr={supplierTargetNum}
               extraStops={extraStops}
+              extraStopRows={extraStopRows}
               vendorName={isOwner ? awardedVendorName : null}
               vendorRate={
                 isOwner &&

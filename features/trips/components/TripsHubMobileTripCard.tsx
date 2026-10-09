@@ -51,6 +51,7 @@ export const MOBILE_TRIP_CANVAS_BG = HUB_MOBILE_LIST_CANVAS_BG;
 
 const REF = HUB_MOBILE_TICKET_REF;
 const ROUTE_ARROW_TOP = 2;
+const ROUTE_VIA_CAPTION_LINE = 10;
 const ROUTE_PIN_SIZE = 8;
 const CHIP_AVATAR = HUB_CARD_PARTY_CHIP_AVATAR;
 
@@ -379,6 +380,8 @@ export type TripsHubMobileTripCardProps = {
   hidePartyRow?: boolean;
   /** Load spec under the route (vehicle · weight · material). */
   specLine?: string | null;
+  /** Small caption above the route arrow, e.g. "+1 stop" for multi-stop FTL. */
+  routeViaLabel?: string | null;
 };
 
 export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
@@ -421,6 +424,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   displayNumber,
   hidePartyRow = false,
   specLine = null,
+  routeViaLabel = null,
 }: TripsHubMobileTripCardProps) {
   const tripNo = asLabel(
     displayNumber?.trim() || getTripDisplayNumber(trip, viewerOrgId),
@@ -511,7 +515,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
             pressed && styles.bodyPressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`${tripNo} ${clientName}, ${originTagJoined}, ${asLabel(origin)} to ${asLabel(dest)}`}
+          accessibilityLabel={`${tripNo} ${clientName}, ${originTagJoined}, ${asLabel(origin)} to ${asLabel(dest)}${routeViaLabel ? `, ${routeViaLabel} in between` : ""}`}
         >
           <View style={[styles.head, fillGrid && styles.headGrid]}>
             <View
@@ -619,7 +623,12 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
               align="left"
               dense={dense || fillGrid}
             />
-            <View style={styles.routeMid}>
+            <View style={[styles.routeMid, routeViaLabel ? styles.routeMidVia : null]}>
+              {routeViaLabel ? (
+                <Text style={styles.routeViaCaption} numberOfLines={1}>
+                  {routeViaLabel}
+                </Text>
+              ) : null}
               <Text style={styles.routeArrow}>→</Text>
             </View>
             <RouteLeg
@@ -1099,6 +1108,18 @@ const styles = StyleSheet.create({
     fontWeight: "300",
     color: REF.muted,
     lineHeight: 18,
+  },
+  routeMidVia: {
+    width: 56,
+    paddingTop: 0,
+    marginTop: ROUTE_ARROW_TOP - ROUTE_VIA_CAPTION_LINE,
+  },
+  routeViaCaption: {
+    fontSize: 8,
+    fontWeight: "700",
+    lineHeight: ROUTE_VIA_CAPTION_LINE,
+    color: Theme.primary,
+    letterSpacing: 0.2,
   },
   divider: {
     height: StyleSheet.hairlineWidth,

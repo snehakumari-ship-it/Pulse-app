@@ -29,6 +29,10 @@ import {
   extraStopPaidLabel,
   type RouteExtraStopSummary,
 } from "@/features/trips/utils/routeExtraStops.util";
+import { RouteExtraStopsPlan } from "@/features/trips/components/RouteExtraStopsPlan";
+import type { RouteExtraStopRow } from "@/features/trips/services/routeExtraStops.service";
+
+const NO_EXTRA_STOP_ROWS: readonly RouteExtraStopRow[] = [];
 
 const LINK = "#2563EB";
 const INK = "#111827";
@@ -71,6 +75,8 @@ export type IndentMobileLoadDetailProps = {
   supplierTargetInr?: number;
   /** Stops in between; their charges are already inside the shown rates. */
   extraStops?: RouteExtraStopSummary;
+  /** The stops themselves, in order — listed under the route. */
+  extraStopRows?: readonly RouteExtraStopRow[];
   vendorName?: string | null;
   vendorRate?: string | null;
   client: IndentFreightCardClientProps;
@@ -379,6 +385,7 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
   clientPriceInr = 0,
   supplierTargetInr = 0,
   extraStops = EMPTY_ROUTE_EXTRA_STOP_SUMMARY,
+  extraStopRows = NO_EXTRA_STOP_ROWS,
   vendorName = null,
   vendorRate = null,
   client,
@@ -651,6 +658,12 @@ export const IndentMobileLoadDetail = memo(function IndentMobileLoadDetail({
               ) : null}
             </View>
           </View>
+
+          <RouteExtraStopsPlan
+            stops={extraStopRows}
+            side={extraStopSide}
+            style={styles.extraStopsPlan}
+          />
 
           {chips.length > 0 ? (
             <View style={styles.chipRow}>
@@ -1040,6 +1053,12 @@ const styles = StyleSheet.create({
   },
   routeCol: { flex: 1, minWidth: 0 },
   routeColEnd: { alignItems: "flex-end" },
+  extraStopsPlan: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.border,
+  },
   dotline: {
     flexDirection: "row",
     alignItems: "center",
