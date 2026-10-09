@@ -19,22 +19,22 @@ import { formatINR } from "@/lib/format";
 import { ChevronRight, Layers } from "lucide-react-native";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
-function plural(n: number, word: string) {
+export function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-function rateRange(min: number | null, max: number | null): string | null {
+export function rateRange(min: number | null, max: number | null): string | null {
   if (min == null || max == null) return null;
   return min === max ? formatINR(min) : `${formatINR(min)} – ${formatINR(max)}`;
 }
 
-function pickupWindow(from: string | null, to: string | null): string | null {
+export function pickupWindow(from: string | null, to: string | null): string | null {
   if (!from) return null;
   if (!to || to === from) return formatStoryDate(from);
   return `${formatStoryDate(from)} – ${formatStoryDate(to)}`;
 }
 
-function tonnage(kg: number | null): string | null {
+export function tonnage(kg: number | null): string | null {
   if (kg == null || kg <= 0) return null;
   const t = Math.round((kg / 1000) * 10) / 10;
   if (t < 0.1) return `${Math.round(kg)} kg`;
@@ -142,7 +142,7 @@ export function NetworkLoadPoolCard({
   );
 }
 
-const styles = StyleSheet.create({
+export const networkPoolCardStyles = StyleSheet.create({
   card: {
     flex: 1,
     borderRadius: 14,
@@ -266,3 +266,4 @@ const styles = StyleSheet.create({
   ctaDisabled: { opacity: 0.45 },
   ctaText: { fontSize: 12, fontWeight: "700", color: Theme.buttonPrimaryText },
 });
+const styles = networkPoolCardStyles;

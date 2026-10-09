@@ -88,7 +88,9 @@ import { useSuccessToast } from "@/features/network/hooks/useSuccessToast";
 import { useTripDeployment } from "@/features/network/hooks/useTripDeployment";
 import { AwardModal } from "@/features/network/components/AwardModal";
 import { BidModal } from "@/features/network/components/bidding/BidModal";
+import { directQuoteCounterState } from "@/features/indents/utils/bidding/directQuoteCounter.util";
 import { NetworkPoolQuoteModal } from "@/features/network/components/bidding/NetworkPoolQuoteModal";
+import { NetworkBidPoolList } from "@/features/network/components/pooled/NetworkBidPoolList";
 import { NetworkLoadPoolList } from "@/features/network/components/pooled/NetworkLoadPoolList";
 import {
   isSponsoredReachLoad,
@@ -514,6 +516,11 @@ export function LoadCenterView({
   const findWorkOpenPoolLoads = useMemo(
     () => findWorkOpenLoads.filter(isPoolableOpenLoad),
     [findWorkOpenLoads, isPoolableOpenLoad],
+  );
+  /** My Bids before search — pooled bids are grouped from all of it so a shown pool is whole. */
+  const quotedFindWorkLoads = useMemo(
+    () => findWorkLoads.filter((load) => myQuoteByIndentId.has(load.id)),
+    [findWorkLoads, myQuoteByIndentId],
   );
 
   const [networkVisibleCount, setNetworkVisibleCount] = useState(
@@ -1790,6 +1797,9 @@ export function LoadCenterView({
               awardedToMeIndentIds.has(load.id),
             )
           : null;
+      const counterState = directQuoteCounterState(existingQuote);
+      const isCountered = counterState === "open";
+      const counterTaken = counterState === "taken";
       const statusLabel =
         statusFilterTab === "DONE"
           ? mobileLabels.statusLabel
@@ -1797,20 +1807,14 @@ export function LoadCenterView({
             ? "awarded"
             : isRejected
               ? "rejected"
-              : isPending &&
-                  existingQuote?.counter_amount != null &&
-                  Number(existingQuote.counter_amount) > 0
+              : isCountered
                 ? "countered"
-                : isPending
-                  ? "receiving bids"
-                  : "open market";
+                : counterTaken
+                  ? "counter accepted"
+                  : isPending
+                    ? "receiving bids"
+                    : "open market";
       const quoteAmount = Number(existingQuote?.amount ?? 0);
-      const counterInr =
-        existingQuote?.counter_amount != null &&
-        Number(existingQuote.counter_amount) > 0
-          ? Number(existingQuote.counter_amount)
-          : null;
-      const isCountered = isPending && counterInr != null;
       const quoteVariant = isDoneOutcome
         ? "done"
         : isAwardedByIndent
@@ -1836,9 +1840,10 @@ export function LoadCenterView({
       );
       /** Terminal Done cards: no Rebid — only converted keeps View details. */
       const allowPrimaryCta =
-        doneOutcome == null ||
-        doneOutcome.kind === "converted" ||
-        doneOutcome.interactive;
+        !(counterTaken && !isAwardedByIndent) &&
+        (doneOutcome == null ||
+          doneOutcome.kind === "converted" ||
+          doneOutcome.interactive);
       const ctaLabel =
         doneOutcome?.kind === "converted"
           ? "View details"
@@ -2538,6 +2543,18 @@ export function LoadCenterView({
                               openKanbanColumn("get", col, pool.id)
                             }
                           />
+                        ) : col.id === "QUOTED" ? (
+                          <NetworkBidPoolList
+                            quotedLoads={quotedFindWorkLoads}
+                            shownLoads={col.loads}
+                            quoteByIndentId={myQuoteByIndentId}
+                            isPoolable={isPoolableOpenLoad}
+                            renderIndividualCard={renderGetLoadGridCard}
+                            renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                            onViewPool={(pool) =>
+                              openKanbanColumn("get", col, pool.id)
+                            }
+                          />
                         ) : null
                       }
                     />
@@ -2591,8 +2608,19 @@ export function LoadCenterView({
                     onQuotePool={setQuotePool}
                     renderPoolMemberCard={renderGetLoadPoolMemberCard}
                   />
+                ) : statusFilterTab === "QUOTED" ? (
+                  <NetworkBidPoolList
+                    quotedLoads={quotedFindWorkLoads}
+                    shownLoads={filteredFindWorkList}
+                    quoteByIndentId={myQuoteByIndentId}
+                    isPoolable={isPoolableOpenLoad}
+                    renderIndividualCard={
+                      isMobileView ? renderGetLoadMobileCard : renderGetLoadListCard
+                    }
+                    renderPoolMemberCard={renderGetLoadPoolMemberCard}
+                  />
                 ) : null}
-                {statusFilterTab === "OPEN" ? null : visibleFindWorkList.map((load) => (
+                {statusFilterTab === "OPEN" || statusFilterTab === "QUOTED" ? null : visibleFindWorkList.map((load) => (
                   <View
                     key={load.id}
                     style={
@@ -2606,7 +2634,9 @@ export function LoadCenterView({
                       : renderGetLoadListCard(load)}
                   </View>
                 ))}
-                {statusFilterTab === "OPEN" ? null : renderNetworkLoadMore()}
+                {statusFilterTab === "OPEN" || statusFilterTab === "QUOTED"
+                  ? null
+                  : renderNetworkLoadMore()}
               </LoadCenterHubMobileListCanvas>
             ))}
               </View>
@@ -2767,6 +2797,9 @@ export function LoadCenterView({
         poolOrgId={orgId}
         initialOpenPoolId={kanbanInitialPoolId}
         canQuotePools={Boolean(orgId)}
+        bidPoolQuotes={expandedKanbanMode === "get" ? myQuoteByIndentId : undefined}
+        bidPoolLoads={expandedKanbanMode === "get" ? quotedFindWorkLoads : undefined}
+        isBidPoolable={isPoolableOpenLoad}
       >
         <NetworkPoolQuoteModal
           pool={quotePool}

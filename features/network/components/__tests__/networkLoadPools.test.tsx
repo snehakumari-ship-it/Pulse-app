@@ -300,7 +300,8 @@ describe("desktop Network Loads column preview", () => {
 function renderModal(
   onQuotePool = jest.fn(),
   extra: {
-    poolLoads?: IndentRow[];
+    /** null: caller passes no complete source (column loads only). */
+    poolLoads?: IndentRow[] | null;
     initialOpenPoolId?: string | null;
     column?: never;
   } = {},
@@ -309,7 +310,7 @@ function renderModal(
     <LoadCenterKanbanColumnModal
       visible
       column={extra.column ?? column}
-      poolLoads={extra.poolLoads}
+      poolLoads={extra.poolLoads === null ? undefined : (extra.poolLoads ?? LOADS)}
       initialOpenPoolId={extra.initialOpenPoolId ?? null}
       onClose={jest.fn()}
       renderCard={(load) => (
@@ -406,6 +407,7 @@ describe("Network Loads as pools", () => {
         <LoadCenterKanbanColumnModal
           visible
           column={column}
+          poolLoads={LOADS}
           onClose={jest.fn()}
           renderCard={() => null}
           renderPoolMemberCard={realMemberCard(anonymous)}
@@ -490,6 +492,30 @@ describe("Network Loads as pools", () => {
     expect(screen.queryByTestId("network-pool-mutuals")).toBeNull();
     expect(screen.queryByText(/mutual/i)).toBeNull();
     expect(mockMutualsFor).not.toHaveBeenCalled();
+  });
+
+  it("search-filtered column loads alone never form a pool that can be quoted", () => {
+    const onQuotePool = renderModal(jest.fn(), {
+      poolLoads: null,
+      column: { ...(column as object), loads: [LOADS[0]!] } as never,
+    });
+    expect(screen.queryByLabelText(/^Network pool, /)).toBeNull();
+    expect(screen.queryByLabelText(/^Quote for pool/)).toBeNull();
+    expect(screen.queryByLabelText(/^Bid now/)).toBeNull();
+    expect(onQuotePool).not.toHaveBeenCalled();
+  });
+
+  it("a filtered column with the complete source quotes the whole pool, never a slice", () => {
+    const onQuotePool = renderModal(jest.fn(), {
+      column: { ...(column as object), loads: [LOADS[1]!] } as never,
+    });
+    expect(screen.queryByLabelText(/^Quote for pool, 1 load$/)).toBeNull();
+    fireEvent.press(screen.getByLabelText("Quote for pool, 3 loads"));
+    expect(onQuotePool.mock.calls[0][0].members.map((m: IndentRow) => m.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
   });
 
   it("quotes the whole pool from the list", () => {

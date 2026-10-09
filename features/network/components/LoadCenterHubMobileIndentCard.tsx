@@ -141,6 +141,7 @@ function resolveStatusChip(
     return { text: "BIDS", tone: "live" };
   }
   if (s === "countered") return { text: "COUNTER", tone: "warn" };
+  if (s === "counter accepted") return { text: "AGREED", tone: "bidded" };
   if (s === "declined" || s === "rejected") {
     return { text: "REJECTED", tone: "warn" };
   }
@@ -184,6 +185,7 @@ function resolveChannelLabel(
       return "You already bid";
     }
     if (s === "countered") return "Counter offer received";
+    if (s === "counter accepted") return "Counter accepted · awaiting award";
     if (
       s === "bids won" ||
       s === "awarded" ||
