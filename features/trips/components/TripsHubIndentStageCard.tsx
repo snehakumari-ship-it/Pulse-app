@@ -35,6 +35,7 @@ export function TripsHubIndentStageCard({
   indent,
   bidCount,
   extraStopCount = 0,
+  extraStopNames,
   onPress,
   tr,
   hubGrid = false,
@@ -50,6 +51,8 @@ export function TripsHubIndentStageCard({
   bidCount: number;
   /** FTL stops between pickup and drop. */
   extraStopCount?: number;
+  /** Stop cities in route order, shown under the arrow. */
+  extraStopNames?: readonly string[];
   onPress: () => void;
   tr: (key: string) => string;
   hubGrid?: boolean;
@@ -78,6 +81,7 @@ export function TripsHubIndentStageCard({
       origin={indent.pickup_area || "—"}
       dest={indent.drop_location || "—"}
       routeViaLabel={extraStopChipLabel(extraStopCount)}
+      routeViaDetail={extraStopNames?.length ? extraStopNames.join(", ") : null}
       pickupIso={indent.pickup_date ?? indent.created_at}
       onPress={onPress}
       tr={tr}

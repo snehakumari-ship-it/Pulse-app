@@ -52,7 +52,10 @@ import { TripsHubIndentStageCard } from "@/features/trips/components/TripsHubInd
 import { IndentStageViews } from "@/features/trips/components/IndentStagePoolView";
 import { useShipperPoolIndentView } from "@/features/network/hooks/useShipperPoolIndentView";
 import { FINITE_LIST_CAP } from "@/lib/pagination";
-import { useRouteExtraStopsSummaries } from "@/features/trips/hooks/useRouteExtraStopsQuery";
+import {
+  useRouteExtraStopRows,
+  useRouteExtraStopsSummaries,
+} from "@/features/trips/hooks/useRouteExtraStopsQuery";
 import { GiveLoadIndentCardActions } from "@/features/network/components/LoadCenterIndentCardActions";
 import { useGiveLoadIndentActions } from "@/features/network/hooks/useGiveLoadIndentActions";
 import type { IndentRow } from "@/features/indents";
@@ -444,6 +447,19 @@ export default function TripsScreen() {
     [unallocatedIndents],
   );
   const extraStopsByIndentId = useRouteExtraStopsSummaries("indent", unallocatedIndentIds);
+  const extraStopRows = useRouteExtraStopRows("indent", unallocatedIndentIds);
+  const extraStopNamesByIndentId = useMemo(() => {
+    const byIndent = new Map<string, string[]>();
+    for (const row of extraStopRows) {
+      if (!row.indent_id) continue;
+      const city = row.location.split(",")[0]?.trim();
+      if (!city) continue;
+      const list = byIndent.get(row.indent_id);
+      if (list) list.push(city);
+      else byIndent.set(row.indent_id, [city]);
+    }
+    return byIndent;
+  }, [extraStopRows]);
   const failedStageIndents = useMemo(() => {
     if (!orgId) return [];
     return allIndents.filter((indent) => {
@@ -1831,6 +1847,7 @@ export default function TripsScreen() {
           indent={indent}
           bidCount={bidCount}
           extraStopCount={extraStopsByIndentId.get(indent.id)?.count ?? 0}
+          extraStopNames={extraStopNamesByIndentId.get(indent.id)}
           hubGrid={hubGrid}
           layoutCompact={tripsHubLayoutCompact}
           onPress={openIndent}

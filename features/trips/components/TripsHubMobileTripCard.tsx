@@ -51,7 +51,7 @@ export const MOBILE_TRIP_CANVAS_BG = HUB_MOBILE_LIST_CANVAS_BG;
 
 const REF = HUB_MOBILE_TICKET_REF;
 const ROUTE_ARROW_TOP = 2;
-const ROUTE_VIA_CAPTION_LINE = 10;
+const ROUTE_VIA_CAPTION_LINE = 12;
 const ROUTE_PIN_SIZE = 8;
 const CHIP_AVATAR = HUB_CARD_PARTY_CHIP_AVATAR;
 
@@ -382,6 +382,8 @@ export type TripsHubMobileTripCardProps = {
   specLine?: string | null;
   /** Small caption above the route arrow, e.g. "+1 stop" for multi-stop FTL. */
   routeViaLabel?: string | null;
+  /** Stop names under the arrow, shown only with `routeViaLabel`. */
+  routeViaDetail?: string | null;
 };
 
 export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
@@ -425,6 +427,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
   hidePartyRow = false,
   specLine = null,
   routeViaLabel = null,
+  routeViaDetail = null,
 }: TripsHubMobileTripCardProps) {
   const tripNo = asLabel(
     displayNumber?.trim() || getTripDisplayNumber(trip, viewerOrgId),
@@ -515,7 +518,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
             pressed && styles.bodyPressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`${tripNo} ${clientName}, ${originTagJoined}, ${asLabel(origin)} to ${asLabel(dest)}${routeViaLabel ? `, ${routeViaLabel} in between` : ""}`}
+          accessibilityLabel={`${tripNo} ${clientName}, ${originTagJoined}, ${asLabel(origin)} to ${asLabel(dest)}${routeViaLabel ? `, ${routeViaLabel} in between${routeViaDetail ? `: ${routeViaDetail}` : ""}` : ""}`}
         >
           <View style={[styles.head, fillGrid && styles.headGrid]}>
             <View
@@ -615,6 +618,7 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
               styles.route,
               dense && styles.routeDense,
               fillGrid && styles.routeGrid,
+              routeViaLabel ? styles.routeWithVia : null,
             ]}
           >
             <RouteLeg
@@ -630,6 +634,11 @@ export const TripsHubMobileTripCard = memo(function TripsHubMobileTripCard({
                 </Text>
               ) : null}
               <Text style={styles.routeArrow}>→</Text>
+              {routeViaLabel && routeViaDetail ? (
+                <Text style={styles.routeViaDetail} numberOfLines={2}>
+                  {routeViaDetail}
+                </Text>
+              ) : null}
             </View>
             <RouteLeg
               location={dest}
@@ -1109,17 +1118,27 @@ const styles = StyleSheet.create({
     color: REF.muted,
     lineHeight: 18,
   },
+  routeWithVia: {
+    paddingTop: ROUTE_VIA_CAPTION_LINE,
+  },
   routeMidVia: {
-    width: 56,
+    width: 76,
     paddingTop: 0,
     marginTop: ROUTE_ARROW_TOP - ROUTE_VIA_CAPTION_LINE,
   },
   routeViaCaption: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: "700",
     lineHeight: ROUTE_VIA_CAPTION_LINE,
     color: Theme.primary,
     letterSpacing: 0.2,
+  },
+  routeViaDetail: {
+    fontSize: 9,
+    fontWeight: "500",
+    lineHeight: 11,
+    color: REF.muted,
+    textAlign: "center",
   },
   divider: {
     height: StyleSheet.hairlineWidth,
