@@ -1068,19 +1068,28 @@ function NetworkScreenInner() {
             </View>
           </View>
             </View>
-            <NetworkStoryStrip
-              orgId={orgId}
-              orgName={organization?.name ?? ""}
-              feedPosts={feedPosts}
-              feedLoading={feedQ.isLoading}
-              onCreatePost={onCreatePost}
-              canCreatePost={canPostLoads}
-              networkPartnerOrgIds={integratedClientOrgIds}
-              embedded={isWideNetwork}
-            />
+            <View style={isWideNetwork ? styles.storyMarketRow : undefined}>
+              <View style={isWideNetwork ? styles.storyMarketStories : undefined}>
+                <NetworkStoryStrip
+                  orgId={orgId}
+                  orgName={organization?.name ?? ""}
+                  feedPosts={feedPosts}
+                  feedLoading={feedQ.isLoading}
+                  onCreatePost={onCreatePost}
+                  canCreatePost={canPostLoads}
+                  networkPartnerOrgIds={integratedClientOrgIds}
+                  embedded={isWideNetwork}
+                />
+              </View>
+              {isWideNetwork ? (
+                <View style={styles.storyMarketAside}>
+                  <NetworkLoadsQuickCards layout="sidebar" />
+                </View>
+              ) : null}
+            </View>
               </View>
         </View>
-        <NetworkLoadsQuickCards compact={isCompactPhone} />
+        {isWideNetwork ? null : <NetworkLoadsQuickCards compact={isCompactPhone} />}
         {ENABLE_UNLINKED_COUNTERPARTIES && orgId ? (
           <UnlinkedCounterpartiesSection orgId={orgId} />
         ) : null}
@@ -1811,6 +1820,19 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 16,
+  },
+  storyMarketRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 16,
+  },
+  storyMarketStories: {
+    flex: 1,
+    minWidth: 0,
+  },
+  storyMarketAside: {
+    width: 340,
+    flexShrink: 0,
   },
   commandMainCard: {
     flex: 1,
