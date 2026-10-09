@@ -92,8 +92,8 @@ function MarketplaceCard({
   const mobileTile = isMobile && variant === "tile";
   const locked = Boolean(action.locked);
 
-  const illusMaxW = inline ? 84 : sidebar ? 88 : compact || width < 380 ? 92 : 112;
-  const illusMaxH = inline ? 56 : sidebar ? 72 : compact || width < 380 ? 78 : 92;
+  const illusMaxW = inline ? 96 : sidebar ? 88 : compact || width < 380 ? 92 : 112;
+  const illusMaxH = inline ? 68 : sidebar ? 72 : compact || width < 380 ? 78 : 92;
 
   // The illustration and arrow are fixed-size, so a narrow card used to squeeze
   // the text column to a few pixels. Give the text its floor first, then spend
@@ -631,7 +631,7 @@ const styles = StyleSheet.create({
     minHeight: 100,
   },
   cardInline: {
-    minHeight: 84,
+    minHeight: 88,
     borderRadius: 16,
   },
   cardPressed: {
@@ -655,7 +655,7 @@ const styles = StyleSheet.create({
   },
   cardBodyInline: {
     paddingVertical: 10,
-    minHeight: 84,
+    minHeight: 88,
   },
   textCol: {
     flex: 1,
