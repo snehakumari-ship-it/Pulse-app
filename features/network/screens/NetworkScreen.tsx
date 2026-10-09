@@ -1831,8 +1831,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   storyMarketAside: {
-    width: 600,
-    maxWidth: "50%",
+    width: 680,
+    maxWidth: "56%",
     flexShrink: 0,
   },
   commandMainCard: {

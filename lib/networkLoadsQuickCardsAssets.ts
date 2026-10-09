@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import type { SvgProps } from "react-native-svg";
 
-import PulseExchangeBidding from "@/assets/illustrations/pulse_exchange_bidding.svg";
+import PulseExchangeTruck from "@/assets/illustrations/pulse_exchange_truck.svg";
 import PulseMarketplaceBoost from "@/assets/illustrations/pulse_marketplace_boost.svg";
 import Theme from "@/constants/Theme";
 
@@ -30,8 +30,8 @@ export const NETWORK_LOADS_QUICK_ACTIONS: NetworkLoadsQuickAction[] = [
     label: "Pulse Exchange",
     sub: "Post loads, win live bids",
     chip: "Exchange",
-    illustration: PulseExchangeBidding,
-    aspect: 480 / 320,
+    illustration: PulseExchangeTruck,
+    aspect: 480 / 282,
     accent: Theme.brandBlueInk,
     wash: "rgba(205, 233, 247, 0.45)",
   },
