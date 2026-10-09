@@ -22,7 +22,12 @@ import {
 } from "@/features/network/utils/marketplaceSearch.util";
 import { MARKETPLACE_LOAD_PAGE_SIZE } from "@/features/network/utils/marketplaceLoadsPage.util";
 import { IncompleteLaneNotice } from "@/features/network/components/pooled/IncompleteLaneNotice";
+import { NetworkBidPoolCard } from "@/features/network/components/pooled/NetworkBidPoolCard";
 import { NetworkLoadPoolCard } from "@/features/network/components/pooled/NetworkLoadPoolCard";
+import {
+  buildNetworkBidPools,
+  type NetworkBidQuote,
+} from "@/features/network/utils/networkBidPools.util";
 import { useServerNetworkPoolIds } from "@/features/network/hooks/useNetworkPoolLanesQuery";
 import {
   buildNetworkLoadPools,
@@ -96,12 +101,23 @@ export type LoadCenterKanbanColumnModalProps = {
   canQuotePools?: boolean;
   /** Indent card inside an opened pool — details only, no per-indent commercial action. */
   renderPoolMemberCard?: (load: IndentRow) => ReactNode;
-  /** Every open Network load before search, so a shown pool is always whole. */
+  /**
+   * Every open Network load before search, so a shown pool is always whole.
+   * Column loads may be search-filtered, so without this no pool is shown or quotable.
+   */
   poolLoads?: IndentRow[];
   /** Viewing org; pools the server does not list for it are not shown. */
   poolOrgId?: string | null;
   /** Pool to open when the column opens (from the board preview). */
   initialOpenPoolId?: string | null;
+  /**
+   * When set, My Bids (QUOTED) groups pooled Network quotes into one anonymous
+   * card per pool; `isBidPoolable` false (sponsored Reach) stays individual.
+   */
+  bidPoolQuotes?: ReadonlyMap<string, NetworkBidQuote>;
+  isBidPoolable?: (load: IndentRow) => boolean;
+  /** Every quoted load before search; bid pools are built only from this, never from column loads. */
+  bidPoolLoads?: IndentRow[];
 };
 
 function maxColumnsForWidth(width: number): 1 | 2 | 3 {
@@ -266,6 +282,9 @@ export function LoadCenterKanbanColumnModal({
   poolLoads,
   poolOrgId = null,
   initialOpenPoolId = null,
+  bidPoolQuotes,
+  isBidPoolable,
+  bidPoolLoads,
 }: LoadCenterKanbanColumnModalProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -287,6 +306,11 @@ export function LoadCenterKanbanColumnModal({
   const pooledMode =
     searchFirst && onQuotePool != null && renderPoolMemberCard != null;
   const awaitingSearch = searchFirst && !searchReady && !pooledMode;
+  const bidPooledMode =
+    column?.id === "QUOTED" &&
+    bidPoolQuotes != null &&
+    bidPoolLoads != null &&
+    renderPoolMemberCard != null;
   const [openPoolId, setOpenPoolId] = useState<string | null>(null);
 
   const tabs = column?.tabs ?? [];
@@ -346,8 +370,7 @@ export function LoadCenterKanbanColumnModal({
       return { pools: [] as NetworkLoadPool<IndentRow>[], unpooled: [] as IndentRow[] };
     }
     if (!poolLoads) {
-      const built = buildNetworkLoadPools(stageLoads);
-      return { pools: keepServerPools(built.pools, serverPoolIds), unpooled: built.unpooled };
+      return { pools: [] as NetworkLoadPool<IndentRow>[], unpooled: [] as IndentRow[] };
     }
     const shownIds = new Set(stageLoads.map((l) => l.id));
     const all = buildNetworkLoadPools(poolLoads);
@@ -366,7 +389,41 @@ export function LoadCenterKanbanColumnModal({
     ? (networkPools.pools.find((p) => p.id === openPoolId) ?? null)
     : null;
 
+  const stageLoadPasses = useCallback(
+    (load: IndentRow) =>
+      loadMatchesSearch(load, searchQuery) &&
+      fieldEquals(load.pickup_area, pickupFilter) &&
+      fieldEquals(load.drop_location, dropFilter) &&
+      fieldEquals(load.vehicle_type, vehicleFilter),
+    [searchQuery, pickupFilter, dropFilter, vehicleFilter],
+  );
+  const stageLoadIds = useMemo(() => new Set(stageLoads.map((l) => l.id)), [stageLoads]);
+  const shownInStage = useCallback(
+    (load: IndentRow) => stageLoadIds.has(load.id) && stageLoadPasses(load),
+    [stageLoadIds, stageLoadPasses],
+  );
+  const bidPools = useMemo(
+    () =>
+      bidPooledMode && bidPoolQuotes && bidPoolLoads
+        ? buildNetworkBidPools(bidPoolLoads, bidPoolQuotes, isBidPoolable)
+        : null,
+    [bidPooledMode, bidPoolLoads, bidPoolQuotes, isBidPoolable],
+  );
+  const shownBidPools = useMemo(
+    () =>
+      bidPools ? bidPools.pools.filter((p) => p.members.some(shownInStage)) : [],
+    [bidPools, shownInStage],
+  );
+  const openBidPool =
+    openPoolId && bidPools
+      ? (bidPools.pools.find((p) => p.id === openPoolId) ?? null)
+      : null;
+
   const filteredLoads = useMemo(() => {
+    if (bidPools) {
+      if (openBidPool) return openBidPool.members;
+      return bidPools.individual.filter(shownInStage);
+    }
     if (pooledMode) {
       if (openPool) return openPool.members;
       return networkPools.unpooled.filter(
@@ -390,6 +447,9 @@ export function LoadCenterKanbanColumnModal({
         fieldEquals(load.vehicle_type, vehicle),
     );
   }, [
+    bidPools,
+    openBidPool,
+    shownInStage,
     pooledMode,
     openPool,
     networkPools,
@@ -415,9 +475,14 @@ export function LoadCenterKanbanColumnModal({
   );
 
   const showPoolList = pooledMode && !openPool;
+  const showBidPoolList = bidPools != null && !openBidPool;
   const columns = columnsForGrid(
     width,
-    showPoolList ? shownPools.length : visibleLoads.length,
+    showPoolList
+      ? shownPools.length
+      : showBidPoolList
+        ? shownBidPools.length + visibleLoads.length
+        : visibleLoads.length,
   );
 
   const cellStyle = useMemo(() => {
@@ -483,8 +548,11 @@ export function LoadCenterKanbanColumnModal({
   const badgeCount = allColumnLoads.length;
   const shownCount = showPoolList
     ? shownPools.reduce((n, p) => n + p.members.length, 0) + filteredLoads.length
-    : filteredLoads.length;
+    : showBidPoolList
+      ? shownBidPools.reduce((n, p) => n + p.members.length, 0) + filteredLoads.length
+      : filteredLoads.length;
   const poolSummary = `${shownPools.length} pool${shownPools.length === 1 ? "" : "s"} · ${shownCount} load${shownCount === 1 ? "" : "s"}`;
+  const bidPoolSummary = `${shownBidPools.length} pool${shownBidPools.length === 1 ? "" : "s"} · ${shownCount} load${shownCount === 1 ? "" : "s"}`;
 
   if (!column) return null;
 
@@ -657,6 +725,10 @@ export function LoadCenterKanbanColumnModal({
                 ? "Choose pickup, drop, and vehicle to see matching loads"
                 : openPool
                   ? `${openPool.members.length} load${openPool.members.length === 1 ? "" : "s"} in this pool · one quote`
+                  : openBidPool
+                    ? `${openBidPool.members.length} load${openBidPool.members.length === 1 ? "" : "s"} in this pool · your pooled bid`
+                  : showBidPoolList && shownBidPools.length > 0
+                    ? bidPoolSummary
                   : showPoolList
                     ? `${poolSummary} · one quote per pool`
                     : hasActiveFilters
@@ -850,6 +922,51 @@ export function LoadCenterKanbanColumnModal({
               </Text>
             </View>
           ) : null}
+          {openBidPool ? (
+            <View
+              style={[
+                styles.poolDetail,
+                Platform.OS === "web"
+                  ? ({ maxWidth: boardMaxWidth, alignSelf: "center", width: "100%" } as object)
+                  : null,
+              ]}
+            >
+              <Pressable
+                onPress={() => setOpenPoolId(null)}
+                style={styles.poolBack}
+                accessibilityRole="button"
+                accessibilityLabel="Back to my bids"
+                hitSlop={8}
+              >
+                <FontAwesome name="chevron-left" size={11} color={Theme.primary} />
+                <Text style={styles.poolBackText}>My bids</Text>
+              </Pressable>
+              <NetworkBidPoolCard pool={openBidPool} showViewAction={false} />
+              <Text style={styles.poolSectionTitle}>
+                Indents in this pool
+              </Text>
+            </View>
+          ) : null}
+          {showBidPoolList && shownBidPools.length > 0 ? (
+            <View
+              style={[
+                styles.grid,
+                columns === 1 && styles.gridStack,
+                Platform.OS !== "web" && { maxWidth: boardMaxWidth, alignSelf: "center" },
+                webGridStyle as object,
+                filteredLoads.length > 0 && styles.bidPoolGridGap,
+              ]}
+            >
+              {shownBidPools.map((pool) => (
+                <View key={pool.id} style={cellStyle}>
+                  <NetworkBidPoolCard
+                    pool={pool}
+                    onViewPool={() => setOpenPoolId(pool.id)}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : null}
           {showPoolList ? (
             shownPools.length === 0 && filteredLoads.length === 0 ? (
               <View style={styles.empty}>
@@ -893,7 +1010,8 @@ export function LoadCenterKanbanColumnModal({
             )
           ) : null}
           {showPoolList && filteredLoads.length > 0 ? <IncompleteLaneNotice /> : null}
-          {showPoolList && filteredLoads.length === 0 ? null : filteredLoads.length === 0 ? (
+          {(showPoolList || (showBidPoolList && shownBidPools.length > 0)) &&
+          filteredLoads.length === 0 ? null : filteredLoads.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
                 <FontAwesome
@@ -950,7 +1068,9 @@ export function LoadCenterKanbanColumnModal({
                   <View style={styles.cardFill}>
                     {pooledMode && renderPoolMemberCard
                       ? renderPoolMemberCard(load)
-                      : renderCard(load)}
+                      : openBidPool && renderPoolMemberCard
+                        ? renderPoolMemberCard(load)
+                        : renderCard(load)}
                   </View>
                 </View>
               ))}
@@ -1633,6 +1753,7 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.screenBackground,
   },
   poolDetail: { gap: 12, marginBottom: GRID_GAP },
+  bidPoolGridGap: { marginBottom: GRID_GAP },
   poolBack: {
     flexDirection: "row",
     alignItems: "center",

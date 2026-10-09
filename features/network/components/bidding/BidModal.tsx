@@ -9,6 +9,12 @@ import {
   type IndentRow,
 } from "@/features/indents";
 import { formatMarketplaceTransactionError } from "@/features/marketplace/utils/marketplaceErrorFormat.util";
+import { acceptDirectQuoteCounter } from "@/features/indents/services/direct-quotes.service";
+import {
+  applyAcceptedCounter,
+  openCounterAmount,
+  routeDirectQuoteSubmit,
+} from "@/features/indents/utils/bidding/directQuoteCounter.util";
 import { submitNetworkQuote } from "@/features/network/services/networkPools.service";
 import { useInvalidateIndents } from "@/lib/queries";
 import { queryKeys } from "@/lib/queryKeys";
@@ -74,17 +80,35 @@ export function BidModal({
       if (!orgId || !load || submittingQuote) return false;
       const hadExistingQuote = !!myQuoteByIndentId.get(load.id);
       const existingQuoteBeforeSave = myQuoteByIndentId.get(load.id);
+      const route = routeDirectQuoteSubmit(existingQuoteBeforeSave, amount);
+      if (route.kind === "blocked") {
+        setEntryError(route.message);
+        return false;
+      }
       try {
         setSubmittingQuote(true);
-        const { error } = await submitNetworkQuote(load.id, orgId, amount);
+        const { error } =
+          route.kind === "accept_counter"
+            ? await acceptDirectQuoteCounter(route.quoteId, route.counterAmount)
+            : await submitNetworkQuote(load.id, orgId, amount);
         if (error) {
           setEntryError(formatMarketplaceTransactionError(error.message));
           refetchMarketIndents();
+          if (route.kind === "accept_counter") refetchMyQuotes();
           return false;
         }
-        successMsgRef.current = hadExistingQuote
-          ? "Quote updated"
-          : "Offer Published";
+        if (route.kind === "accept_counter") {
+          queryClient.setQueryData<DirectQuoteRow[]>(
+            [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+            (rows) => applyAcceptedCounter(rows, route.quoteId, route.counterAmount),
+          );
+        }
+        successMsgRef.current =
+          route.kind === "accept_counter"
+            ? "Counter accepted"
+            : hadExistingQuote
+              ? "Quote updated"
+              : "Offer Published";
         invalidateIndents(orgId);
         await Promise.allSettled([
           queryClient.invalidateQueries({
@@ -163,7 +187,8 @@ export function BidModal({
       ownerName={ownerName}
       targetRateInr={targetRate > 0 ? targetRate : undefined}
       initialAmount={
-        activeBidQuote?.amount != null ? Number(activeBidQuote.amount) : null
+        openCounterAmount(activeBidQuote) ??
+        (activeBidQuote?.amount != null ? Number(activeBidQuote.amount) : null)
       }
       isUpdate={hasExistingQuote && isPendingQuote}
       validationError={entryError}

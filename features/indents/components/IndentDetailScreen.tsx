@@ -30,9 +30,17 @@ import type { SupplierQuoteActionHint } from "@/features/indents/components/Inde
 import { submitNetworkQuote } from "@/features/network/services/networkPools.service";
 import {
     acceptDirectQuoteCounter,
+    type DirectQuoteRow,
     submitDirectQuoteCounterOffer,
     updateDirectQuoteStatus,
 } from "@/features/indents/services/direct-quotes.service";
+import {
+    applyAcceptedCounter,
+    directQuoteCounterState,
+    openCounterAmount,
+    routeDirectQuoteSubmit,
+    withOpenCounterOnly,
+} from "@/features/indents/utils/bidding/directQuoteCounter.util";
 import {
     cancelIndent,
     getIndentDisplayNumber,
@@ -811,10 +819,23 @@ export function IndentDetailScreen({
     load();
   }, [load]);
 
+  /** Set on a successful counter accept so the screen updates before the quotes refetch lands. */
+  const [acceptedCounter, setAcceptedCounter] = useState<{
+    quoteId: string;
+    amount: number;
+  } | null>(null);
+  const myQuoteRow = useMemo(() => {
+    const row = indent
+      ? (myQuotes.find((q) => q.indent_id === indent.id) ?? null)
+      : null;
+    return row && acceptedCounter?.quoteId === row.id
+      ? { ...row, amount: acceptedCounter.amount }
+      : row;
+  }, [myQuotes, indent, acceptedCounter]);
+  const myQuoteCounterState = directQuoteCounterState(myQuoteRow);
   const myQuote = useMemo(
-    () =>
-      indent ? (myQuotes.find((q) => q.indent_id === indent.id) ?? null) : null,
-    [myQuotes, indent],
+    () => (myQuoteRow ? withOpenCounterOnly(myQuoteRow) : null),
+    [myQuoteRow],
   );
 
   const linkedTrip = useMemo(() => {
@@ -883,20 +904,35 @@ export function IndentDetailScreen({
   const submitQuoteAmount = useCallback(
     async (amount: number): Promise<boolean> => {
       if (!indent || !orgId || submittingQuote) return false;
+      const route = routeDirectQuoteSubmit(myQuoteRow, amount);
+      if (route.kind === "blocked") {
+        setQuoteEntryError(route.message);
+        return false;
+      }
       try {
         setSubmittingQuote(true);
-        const counter = Number(myQuote?.counter_amount ?? 0);
-        const takesCounter =
-          !!myQuote &&
-          normalizeStatus(myQuote.status) === "pending" &&
-          counter > 0 &&
-          Number(amount) === counter;
-        const { error: quoteError } = takesCounter
-          ? await acceptDirectQuoteCounter(myQuote.id, counter)
-          : await submitNetworkQuote(indent.id, orgId, amount);
+        const { error: quoteError } =
+          route.kind === "accept_counter"
+            ? await acceptDirectQuoteCounter(route.quoteId, route.counterAmount)
+            : await submitNetworkQuote(indent.id, orgId, amount);
         if (quoteError) {
-          setQuoteEntryError(formatMarketplaceTransactionError(quoteError.message));
+          const message = formatMarketplaceTransactionError(quoteError.message);
+          setQuoteEntryError(message);
+          if (route.kind === "accept_counter") {
+            void refetchMyQuotes();
+            if (!quoteModalVisible) Alert.alert("Could not accept counter", message);
+          }
           return false;
+        }
+        if (route.kind === "accept_counter") {
+          setAcceptedCounter({ quoteId: route.quoteId, amount: route.counterAmount });
+          queryClient.setQueryData<DirectQuoteRow[]>(
+            [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+            (rows) => applyAcceptedCounter(rows, route.quoteId, route.counterAmount),
+          );
+          queryClient.invalidateQueries({
+            queryKey: [...queryKeys.indents.finite(orgId), "my-direct-quotes"],
+          });
         }
         queryClient.invalidateQueries({
           queryKey: ["indents", indent.id, "direct-quotes"],
@@ -919,12 +955,13 @@ export function IndentDetailScreen({
     [
       indent,
       orgId,
-      myQuote,
+      myQuoteRow,
       queryClient,
       refetchMyQuotes,
       refetchQuotes,
       load,
       submittingQuote,
+      quoteModalVisible,
     ],
   );
 
@@ -955,7 +992,7 @@ export function IndentDetailScreen({
             amount: Number(myQuote?.amount ?? 0),
             targetRateInr: Number(indent.supplier_target ?? 0),
             status: myQuoteStatus,
-            canUpdateBid: canOpenQuoteModalBeforeRender,
+            canUpdateBid: canOpenQuoteModalBeforeRender && myQuoteCounterState === "none",
             hasQuote: !!myQuote,
           })
         : null,
@@ -966,6 +1003,7 @@ export function IndentDetailScreen({
       myQuote,
       myQuoteStatus,
       canOpenQuoteModalBeforeRender,
+      myQuoteCounterState,
     ],
   );
 
@@ -1140,13 +1178,19 @@ export function IndentDetailScreen({
     canSurface("tripops.indents.bid");
   const canOpenQuoteModal =
     canSupplierBid && statusLower !== "awarded" && statusLower !== "completed";
+  /** Once countered, the bid itself is locked server-side; only the counter can be accepted. */
+  const canEditQuote = canOpenQuoteModal && myQuoteCounterState === "none";
+  const canOpenQuoteEntry = canOpenQuoteModal && myQuoteCounterState !== "taken";
   const liveBidsCount = isOwner ? quotes.length : myQuote ? 1 : 0;
   const isListeningForBids =
     isOwner &&
     (statusLower === "broadcast" || statusLower === "open") &&
     liveBidsCount === 0;
   const isIndentCompleted = statusLower === "completed";
-  const supplierFooterStatus = anonymous
+  const supplierFooterStatus =
+    myQuoteCounterState === "taken"
+    ? "COUNTER ACCEPTED"
+    : anonymous
     ? "QUOTE FROM POOL"
     : myQuoteStatus === "accepted"
       ? isIndentCompleted
@@ -1173,7 +1217,7 @@ export function IndentDetailScreen({
     ? null
     : canSupplierAllocateVehicle
     ? "allocate"
-    : !canOpenQuoteModal && !showSupplierPartySummaries
+    : !canOpenQuoteEntry && !showSupplierPartySummaries
       ? "locked"
       : isIndentCompleted && myQuoteStatus === "accepted"
         ? "completed"
@@ -1226,15 +1270,16 @@ export function IndentDetailScreen({
       ? 52
       : footerReserve;
 
-  const myCounterAmount =
-    myQuote?.counter_amount != null && Number(myQuote.counter_amount) > 0
-      ? Number(myQuote.counter_amount)
-      : null;
-  const isCounteredPending =
-    !isOwner &&
-    hasMyPendingQuote &&
-    myCounterAmount != null &&
-    myCounterAmount > 0;
+  const myCounterAmount = openCounterAmount(myQuoteRow);
+  const isCounteredPending = !isOwner && myCounterAmount != null;
+  /** Pool member detail: re-quoting stays pool-only, but a shipper's counter on this load can be taken. */
+  const canAcceptCounterAnonymously =
+    anonymous &&
+    isCounteredPending &&
+    SUPPLIER_BID_ENABLED_STATUSES.has(statusLower) &&
+    canSurface("tripops.indents.bid");
+  const canAcceptCounter =
+    isCounteredPending && (canOpenQuoteModal || canAcceptCounterAnonymously);
 
   const mobilePrimaryAction = (() => {
     if (isOwner && statusLower === "awarded") {
@@ -1253,15 +1298,15 @@ export function IndentDetailScreen({
         },
       };
     }
-    if (!isOwner && canOpenQuoteModal && isCounteredPending) {
+    if (canAcceptCounter) {
       return {
-        label: `Accept ${formatINR(myCounterAmount!)}`,
+        label: submittingQuote ? "Accepting…" : `Accept ${formatINR(myCounterAmount!)}`,
         onPress: () => {
           void submitQuoteAmount(myCounterAmount!);
         },
       };
     }
-    if (!isOwner && canOpenQuoteModal) {
+    if (!isOwner && canEditQuote) {
       return {
         label: hasMyPendingQuote ? "Update bid" : "Submit bid",
         onPress: openQuoteEntry,
@@ -1491,12 +1536,6 @@ export function IndentDetailScreen({
               }
               primaryActionLabel={mobilePrimaryAction?.label}
               onPrimaryAction={mobilePrimaryAction?.onPress}
-              secondaryActionLabel={
-                isCounteredPending && canOpenQuoteModal ? "Update bid" : undefined
-              }
-              onSecondaryAction={
-                isCounteredPending && canOpenQuoteModal ? openQuoteEntry : undefined
-              }
               bidsSlot={
                 stackedHub && isOwner ? (
                   <View style={styles.mobileLiveBidsShell}>
@@ -1552,7 +1591,7 @@ export function IndentDetailScreen({
                       myQuote={myQuote}
                       supplierQuoteActionHint={supplierQuoteActionHint}
                       supplierQuoteAlert={supplierQuoteAlert}
-                      canOpenQuoteModal={canOpenQuoteModal}
+                      canOpenQuoteModal={canOpenQuoteEntry}
                       onQuotePress={openQuoteEntry}
                       showSupplierPartySummaries={false}
                       orgId={orgId}
@@ -1620,7 +1659,7 @@ export function IndentDetailScreen({
               onQuotePress={
                 useSplitHub && !isOwner
                   ? undefined
-                  : canOpenQuoteModal
+                  : canEditQuote
                     ? openQuoteEntry
                     : undefined
               }
@@ -1712,7 +1751,7 @@ export function IndentDetailScreen({
             myQuote={myQuote}
             supplierQuoteActionHint={supplierQuoteActionHint}
             supplierQuoteAlert={supplierQuoteAlert}
-            canOpenQuoteModal={canOpenQuoteModal}
+            canOpenQuoteModal={canOpenQuoteEntry}
             onQuotePress={openQuoteEntry}
             showSupplierPartySummaries={showSupplierPartySummaries}
             orgId={orgId}
@@ -1868,7 +1907,25 @@ export function IndentDetailScreen({
                 cancelIndentButton ?? <View style={styles.footerSpacer} />
               )}
             </>
-          ) : canOpenQuoteModal ? (
+          ) : canAcceptCounter ? (
+            <TouchableOpacity
+              style={styles.footerBidBtn}
+              onPress={() => {
+                void submitQuoteAmount(myCounterAmount!);
+              }}
+              activeOpacity={0.9}
+              accessibilityLabel={`Accept ${formatINR(myCounterAmount!)}`}
+              hitSlop={Layout.touchTargetHitSlop}
+              disabled={submittingQuote}
+            >
+              <FontAwesome name="check" size={16} color={Theme.textOnDark} />
+              <Text style={styles.footerCancelText}>
+                {submittingQuote
+                  ? "ACCEPTING…"
+                  : `ACCEPT ${formatINR(myCounterAmount!)}`}
+              </Text>
+            </TouchableOpacity>
+          ) : canEditQuote ? (
             <TouchableOpacity
               style={styles.footerBidBtn}
               onPress={openQuoteEntry}
