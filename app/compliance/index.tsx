@@ -1491,13 +1491,6 @@ export default function ComplianceScreen() {
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
-            canWithdraw={canManageFinance}
-            onReturnedToVerified={async (tripId) => {
-              await syncChange({ type: "payment", tripId }).catch(() => undefined);
-              verifiedSliceAfterStageRef.current = "verified";
-              setStage("compliance_verified");
-              setCardTripId(tripId);
-            }}
           />
         </TableQueueScroll>
       ) : viewMode === "table" ? (
