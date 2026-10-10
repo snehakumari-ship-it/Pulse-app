@@ -716,7 +716,7 @@ const styles = StyleSheet.create({
   ewayLine: { flexDirection: "row", alignItems: "center", gap: 4, minWidth: 0 },
   ewayDate: { flexShrink: 1 },
   colDocs: { flex: 0.68, minWidth: 52, justifyContent: "center" },
-  statusTouch: { justifyContent: "center", alignSelf: "flex-start" },
+  statusTouch: { justifyContent: "center", alignSelf: "flex-start", minHeight: 44 },
   statusPill: {
     paddingHorizontal: 6,
     paddingVertical: 1,

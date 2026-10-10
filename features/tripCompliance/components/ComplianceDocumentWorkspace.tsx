@@ -120,6 +120,7 @@ import {
   View,
   type GestureResponderEvent,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1934,7 +1935,7 @@ export function DocumentScreen({
                   ? ({
                       cursor: dragging ? "grabbing" : "grab",
                       userSelect: "none",
-                    } as ViewStyle)
+                    } as unknown as ViewStyle)
                   : null,
               ]}
               accessibilityLabel={
@@ -2809,7 +2810,11 @@ export function ComplianceDocumentWorkspace({
       if (sync) onChanged({ type: "vehicleDocuments", vehicleId });
       return true;
     }
-    if (row.entityDoc?.id && row.entityDoc.source !== "driver-kyc") {
+    if (
+      row.entityDoc?.id &&
+      row.entityDoc.source !== "driver-kyc" &&
+      (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
+    ) {
       const { error } = await verifyDocument(row.entityDoc.id, actorId);
       if (error) {
         alertMessage("Couldn't approve document", error.message);
@@ -2859,7 +2864,11 @@ export function ComplianceDocumentWorkspace({
       );
       return false;
     }
-    if (row.entityDoc?.id && row.entityDoc.source !== "driver-kyc") {
+    if (
+      row.entityDoc?.id &&
+      row.entityDoc.source !== "driver-kyc" &&
+      (row.entityDoc.entity_type === "vehicle" || row.entityDoc.entity_type === "driver")
+    ) {
       const { error } = await rejectDocument(row.entityDoc.id, note);
       if (error) {
         alertMessage("Couldn't decline document", error.message);
@@ -5996,7 +6005,7 @@ const styles = StyleSheet.create({
   openLayer: {
     ...StyleSheet.absoluteFillObject,
     cursor: "zoom-in",
-  } as ViewStyle,
+  } as unknown as ViewStyle,
   screenRoot: {
     flex: 1,
     alignItems: "center",
@@ -6269,7 +6278,7 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
     textAlign: "right",
     fontVariant: ["tabular-nums"],
-    ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as ViewStyle) : null),
+    ...(Platform.OS === "web" ? ({ whiteSpace: "nowrap" } as unknown as TextStyle) : null),
   },
   docSideNavOverlayLeft: {
     position: "absolute",
