@@ -36,6 +36,7 @@ import type { ComplianceLedgerCategory } from "@/features/tripCompliance/service
 import { setTripDocumentVerification, updateCompliancePaymentReference, updateCompliancePaymentTransactionDate } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
   COMPLIANCE_DRIVER_DOCUMENT_TYPES,
+  COMPLIANCE_STAGE_FILTER_LABEL,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
@@ -106,6 +107,8 @@ import { Banknote, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, Chev
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   Modal,
   Platform,
@@ -610,7 +613,7 @@ function cssPreviewTransform(
     ? containScaleForRotation(viewport.width, viewport.height, rotation)
     : 1;
   const rot = normalizePreviewRotation(rotation);
-  return `rotate(${rot}deg) scale(${scale * fit}) translate(${pan.x}px, ${pan.y}px)`;
+  return `translate(${pan.x}px, ${pan.y}px) rotate(${rot}deg) scale(${scale * fit})`;
 }
 
 /** Normalize degrees to [0, 360). */
@@ -634,7 +637,44 @@ function containScaleForRotation(
   rotation: number,
 ): number {
   if (!previewRotationSwapsAxes(rotation) || width < 1 || height < 1) return 1;
-  return Math.min(width / height, height / width);
+  return Math.min(width / height, height / width) * 0.98;
+}
+
+/** Largest box that stays fully on screen before and after a 90° rotate. */
+function mediaLayoutForRotation(
+  viewportW: number,
+  viewportH: number,
+  rotation: number,
+): { width: number; height: number } {
+  if (viewportW < 1 || viewportH < 1) return { width: 0, height: 0 };
+  if (!previewRotationSwapsAxes(rotation)) {
+    return { width: viewportW, height: viewportH };
+  }
+  const side = Math.min(viewportW, viewportH);
+  return { width: side, height: side };
+}
+
+function clampScreenPan(
+  x: number,
+  y: number,
+  zoom: number,
+  viewportW: number,
+  viewportH: number,
+  mediaW: number,
+  mediaH: number,
+  rotation: number,
+): { x: number; y: number } {
+  if (viewportW <= 0 || viewportH <= 0) return { x: 0, y: 0 };
+  const swap = previewRotationSwapsAxes(rotation);
+  const visualW = (swap ? mediaH : mediaW) * Math.max(zoom, 0);
+  const visualH = (swap ? mediaW : mediaH) * Math.max(zoom, 0);
+  const maxX = Math.max(0, (visualW - viewportW) / 2);
+  const maxY = Math.max(0, (visualH - viewportH) / 2);
+  if (maxX <= 0 && maxY <= 0) return { x: 0, y: 0 };
+  return {
+    x: Math.min(maxX, Math.max(-maxX, x)),
+    y: Math.min(maxY, Math.max(-maxY, y)),
+  };
 }
 
 /**
@@ -916,8 +956,8 @@ function previewViewTransform(
     ? containScaleForRotation(viewport.width, viewport.height, rotation)
     : 1;
   return [
-    { rotate: `${normalizePreviewRotation(rotation)}deg` as const },
     { scale: scale * fit },
+    { rotate: `${normalizePreviewRotation(rotation)}deg` as const },
     { translateX: pan.x },
     { translateY: pan.y },
   ];
@@ -1214,7 +1254,8 @@ function OriginalDocumentPreview({
   const cursorStyle =
     Platform.OS === "web"
       ? ({
-          cursor: dragging ? "grabbing" : zoom >= MAX_PREVIEW_ZOOM - 0.01 ? "zoom-out" : "zoom-in",
+          cursor: dragging ? "grabbing" : pannable ? "grab" : zoom >= MAX_PREVIEW_ZOOM - 0.01 ? "zoom-out" : "zoom-in",
+          userSelect: "none",
         } as unknown as ViewStyle)
       : null;
 
@@ -1242,33 +1283,39 @@ function OriginalDocumentPreview({
           ? `${label}. Scroll or click to zoom. Drag to pan when zoomed.`
           : `${label}. Scroll or click to zoom. Drag to pan when zoomed.`
       }
-      onStartShouldSetResponder={() => pannable}
-      onMoveShouldSetResponder={() => pannable}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
       onResponderGrant={(event) => {
         dragMoved.current = false;
-        if (!canPanPreview(viewRef.current.zoom)) return;
         setDragging(true);
         drag.current = {
           x: event.nativeEvent.pageX,
           y: event.nativeEvent.pageY,
-          panX: pan.x,
-          panY: pan.y,
+          panX: viewRef.current.panX,
+          panY: viewRef.current.panY,
         };
       }}
       onResponderMove={(event) => {
-        if (!drag.current || !canPanPreview(viewRef.current.zoom)) return;
+        if (!drag.current) return;
         if (
           Math.hypot(event.nativeEvent.pageX - drag.current.x, event.nativeEvent.pageY - drag.current.y) > 4
         ) {
           dragMoved.current = true;
         }
-        // Screen-space delta (pan is applied after rotate) — cursor and doc move together.
-        setPan(
-          clampLocalPan(
-            drag.current.panX + event.nativeEvent.pageX - drag.current.x,
-            drag.current.panY + event.nativeEvent.pageY - drag.current.y,
-          ),
+        const next = clampLocalPan(
+          drag.current.panX + event.nativeEvent.pageX - drag.current.x,
+          drag.current.panY + event.nativeEvent.pageY - drag.current.y,
         );
+        viewRef.current.panX = next.x;
+        viewRef.current.panY = next.y;
+        if (Platform.OS === "web") {
+          const el = mediaRef.current as unknown as HTMLElement | null;
+          const frame = frameRef.current;
+          if (el?.style) {
+            el.style.transform = cssPreviewTransform(next, viewRef.current.zoom, frame.rotation, frame.box);
+          }
+        }
+        setPan(next);
       }}
       onResponderRelease={() => {
         drag.current = null;
@@ -1427,6 +1474,7 @@ export function DocumentScreen({
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const viewRef = useRef({ scale: 1, panX: 0, panY: 0, rotation: 0 });
   const screenMediaRef = useRef<View>(null);
@@ -1438,6 +1486,15 @@ export function DocumentScreen({
   const panRafRef = useRef(0);
   const pendingPanRef = useRef<{ x: number; y: number } | null>(null);
   const schedulePan = useCallback((next: { x: number; y: number }) => {
+    const current = viewRef.current;
+    current.panX = next.x;
+    current.panY = next.y;
+    if (Platform.OS === "web") {
+      const el = screenMediaRef.current as unknown as HTMLElement | null;
+      if (el?.style) {
+        el.style.transform = cssPreviewTransform(next, current.scale, current.rotation);
+      }
+    }
     pendingPanRef.current = next;
     if (panRafRef.current) return;
     panRafRef.current = requestAnimationFrame(() => {
@@ -1445,7 +1502,7 @@ export function DocumentScreen({
       const pending = pendingPanRef.current;
       if (pending) setPan(pending);
     });
-  }, []);
+  }, [frame.height, frame.width]);
   useEffect(
     () => () => {
       if (panRafRef.current) cancelAnimationFrame(panRafRef.current);
@@ -1465,16 +1522,27 @@ export function DocumentScreen({
   const showTyped = Boolean(typedLines && typedLines.length > 0 && !uri);
   const showPdf = Boolean(uri && isPdf && !showTyped);
   const showImage = Boolean(uri && !isPdf && !showTyped);
+  const mediaBox = mediaLayoutForRotation(frame.width, frame.height, rotation);
 
   const applyView = useCallback(
     (nextScale: number, nextPan: { x: number; y: number }, size = frame, rot = rotation) => {
       const zoom = clampPreviewZoom(nextScale);
-      const panNext = clampPreviewPan(nextPan.x, nextPan.y, zoom, size.width, size.height, rot);
+      const box = mediaLayoutForRotation(size.width, size.height, rot);
+      const panNext = clampScreenPan(
+        nextPan.x,
+        nextPan.y,
+        zoom,
+        size.width,
+        size.height,
+        box.width,
+        box.height,
+        rot,
+      );
       viewRef.current = { scale: zoom, panX: panNext.x, panY: panNext.y, rotation: rot };
       if (Platform.OS === "web") {
         const el = screenMediaRef.current as unknown as HTMLElement | null;
         if (el?.style) {
-          el.style.transform = cssPreviewTransform(panNext, zoom, rot, size);
+          el.style.transform = cssPreviewTransform(panNext, zoom, rot);
         }
       }
       if (viewFlushRaf.current) return;
@@ -1502,8 +1570,18 @@ export function DocumentScreen({
   /** Keep pan inside the viewport when zoom or rotation changes. */
   useEffect(() => {
     if (!visible || frame.width <= 0) return;
-    setPan((prev) => clampPreviewPan(prev.x, prev.y, scale, frame.width, frame.height, rotation));
-  }, [visible, frame.width, frame.height, scale, rotation]);
+    setPan((prev) =>
+      clampScreenPan(prev.x, prev.y, scale, frame.width, frame.height, mediaBox.width, mediaBox.height, rotation),
+    );
+  }, [visible, frame.width, frame.height, mediaBox.height, mediaBox.width, scale, rotation]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== "web" || !visible || frame.width < 1) return;
+    const el = screenMediaRef.current as unknown as HTMLElement | null;
+    if (!el?.style) return;
+    el.style.transform = cssPreviewTransform(pan, scale, rotation);
+    el.style.transformOrigin = "center center";
+  }, [visible, frame, pan, scale, rotation]);
 
   /** Never leave the spinner up forever if onLoad/onError never fire (common on slow signed URLs). */
   useEffect(() => {
@@ -1560,11 +1638,16 @@ export function DocumentScreen({
     const node = stageRef.current as unknown as HTMLElement | null;
     if (!node?.addEventListener) return;
 
+    const clampLive = (x: number, y: number, zoom: number, vw: number, vh: number, rot: number) => {
+      const box = mediaLayoutForRotation(vw, vh, rot);
+      return clampScreenPan(x, y, zoom, vw, vh, box.width, box.height, rot);
+    };
+
     const panFromWheel = (event: WheelEvent) => {
       const rect = node.getBoundingClientRect();
       const current = viewRef.current;
       schedulePan(
-        clampPreviewPan(
+        clampLive(
           current.panX - event.deltaX,
           current.panY - event.deltaY,
           current.scale,
@@ -1596,7 +1679,7 @@ export function DocumentScreen({
       const cursorY = event.clientY - rect.top - rect.height / 2;
       const next = clampPreviewZoom(current.scale * wheelZoomFactor(event.deltaY));
       const ratio = next / Math.max(current.scale, 0.001);
-      const nextPan = clampPreviewPan(
+      const nextPan = clampLive(
         cursorX - ratio * (cursorX - current.panX),
         cursorY - ratio * (cursorY - current.panY),
         next,
@@ -1614,27 +1697,29 @@ export function DocumentScreen({
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
       const current = viewRef.current;
-      if (!canPanPreview(current.scale, current.rotation)) return;
       if (!showImage && !pdfViewOwned) return;
+      event.preventDefault();
       drag.current = {
         x: event.clientX,
         y: event.clientY,
         panX: current.panX,
         panY: current.panY,
       };
+      setDragging(true);
       try {
         node.setPointerCapture(event.pointerId);
       } catch {
         /* ignore */
       }
       node.style.cursor = "grabbing";
+      node.style.userSelect = "none";
     };
     const onPointerMove = (event: PointerEvent) => {
       if (!drag.current) return;
       const current = viewRef.current;
       const rect = node.getBoundingClientRect();
       schedulePan(
-        clampPreviewPan(
+        clampLive(
           drag.current.panX + event.clientX - drag.current.x,
           drag.current.panY + event.clientY - drag.current.y,
           current.scale,
@@ -1647,13 +1732,14 @@ export function DocumentScreen({
     const endPointer = (event: PointerEvent) => {
       if (!drag.current) return;
       drag.current = null;
+      setDragging(false);
       try {
         node.releasePointerCapture(event.pointerId);
       } catch {
         /* ignore */
       }
-      const current = viewRef.current;
-      node.style.cursor = canPanPreview(current.scale, current.rotation) ? "grab" : "default";
+      node.style.cursor = "grab";
+      node.style.userSelect = "";
     };
     const onDoubleClick = (event: MouseEvent) => {
       if (showPdf || showTyped) return;
@@ -1749,7 +1835,7 @@ export function DocumentScreen({
   const atLastPage = page >= pageLimit;
   const showPdfPageTools = showPdf && !sideNavEnabled;
   const busyResolving = resolving && !uri && !showTyped;
-  const pannable = (showImage || showPdf) && canPanPreview(scale, rotation);
+  const pannable = showImage || showPdf;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -1822,13 +1908,11 @@ export function DocumentScreen({
                   <Pressable
                     style={[styles.previewRotateBtn, styles.previewToolBtnNamed]}
                     onPress={() => {
-                      setRotation((value) => {
-                        const next = (value + 90) % 360;
-                        setPan((prev) =>
-                          clampPreviewPan(prev.x, prev.y, scale, frame.width, frame.height, next),
-                        );
-                        return next;
-                      });
+                      const next = (rotation + 90) % 360;
+                      setRotation(next);
+                      setScale(1);
+                      setPan({ x: 0, y: 0 });
+                      viewRef.current = { scale: 1, panX: 0, panY: 0, rotation: next };
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Rotate"
@@ -1882,7 +1966,10 @@ export function DocumentScreen({
                 fullPage && styles.screenStagePage,
                 showTyped && styles.screenStageTyped,
                 Platform.OS === "web" && (showImage || showPdf)
-                  ? ({ cursor: pannable ? "grab" : "default" } as ViewStyle)
+                  ? ({
+                      cursor: dragging ? "grabbing" : "grab",
+                      userSelect: "none",
+                    } as ViewStyle)
                   : null,
               ]}
               accessibilityLabel={
@@ -1921,12 +2008,14 @@ export function DocumentScreen({
                       }
                       if (!showImage && !pdfViewOwned) return;
                       schedulePan(
-                        clampPreviewPan(
+                        clampScreenPan(
                           drag.current.panX + event.nativeEvent.pageX - drag.current.x,
                           drag.current.panY + event.nativeEvent.pageY - drag.current.y,
                           viewRef.current.scale,
                           frame.width,
                           frame.height,
+                          mediaBox.width,
+                          mediaBox.height,
                           viewRef.current.rotation,
                         ),
                       );
@@ -1948,14 +2037,15 @@ export function DocumentScreen({
                 <View
                   ref={screenMediaRef}
                   style={[
-                    styles.screenPage,
+                    mediaBox.width > 0
+                      ? { width: mediaBox.width, height: mediaBox.height }
+                      : styles.screenPage,
                     styles.previewLiveLayer,
                     {
                       transform: previewViewTransform(
                         pan,
                         pdfViewOwned ? scale : 1,
-                        rotation,
-                        frame,
+                        pdfViewOwned ? rotation : 0,
                       ),
                     },
                   ]}
@@ -1968,7 +2058,7 @@ export function DocumentScreen({
                     // Hide Chrome PDF chrome — its built-in rotate breaks smooth scroll.
                     // Use the header Rotate control instead.
                     showToolbar={false}
-                    sizing={pdfViewOwned ? "original" : "fit"}
+                    sizing="fit"
                     zoom={pdfViewOwned ? 1 : scale}
                     page={showPdfPageTools ? page : undefined}
                     scrollbar={!pdfViewOwned}
@@ -1994,11 +2084,13 @@ export function DocumentScreen({
                       ref={screenMediaRef}
                       pointerEvents="none"
                       style={[
-                        styles.screenPage,
+                        mediaBox.width > 0
+                          ? { width: mediaBox.width, height: mediaBox.height }
+                          : styles.screenPage,
                         styles.previewLiveLayer,
                         {
                           opacity: imageLoading ? 0.15 : 1,
-                          transform: previewViewTransform(pan, scale, rotation, frame),
+                          transform: previewViewTransform(pan, scale, rotation),
                         },
                       ]}
                     >
@@ -2196,6 +2288,7 @@ export function ComplianceDocumentWorkspace({
   const appliedFocusToken = useRef(0);
   const focusUploadTypeRef = useRef<string | null>(null);
   const appliedChargeFocus = useRef(0);
+  const appliedSelectedTripId = useRef<string | null>(selectedTripId ?? null);
   const { truckTypeByVehicleId, supplierNameByTripId } = tripFacts;
   const [selectedId, setSelectedId] = useState<string | null>(selectedTripId ?? summaries[0]?.trip.id ?? null);
   const [tab, setTab] = useState<DocTab>("trip");
@@ -2431,7 +2524,12 @@ export function ComplianceDocumentWorkspace({
   }, [chargeFocusToken, chargeFocusTripId, summaries]);
 
   useEffect(() => {
-    if (selectedTripId && summaries.some((item) => item.trip.id === selectedTripId)) {
+    if (
+      selectedTripId &&
+      selectedTripId !== appliedSelectedTripId.current &&
+      summaries.some((item) => item.trip.id === selectedTripId)
+    ) {
+      appliedSelectedTripId.current = selectedTripId;
       setSelectedId(selectedTripId);
       return;
     }
@@ -2472,6 +2570,7 @@ export function ComplianceDocumentWorkspace({
 
   const selectListTrip = useCallback(
     (tripId: string) => {
+      appliedSelectedTripId.current = tripId;
       setSelectedId(tripId);
       setTab("trip");
       setDocIndex(0);
@@ -2502,7 +2601,6 @@ export function ComplianceDocumentWorkspace({
   useEffect(() => {
     setDocIndex(0);
     resetPreviewView();
-    setChecklistPreviewMode("document");
     setDeclineOpen(false);
     setRejectOpen(false);
     setExpiryPrompt((prev) => {
@@ -2510,6 +2608,10 @@ export function ComplianceDocumentWorkspace({
       return null;
     });
   }, [summary?.trip.id, tab, resetPreviewView]);
+
+  useEffect(() => {
+    setChecklistPreviewMode("document");
+  }, [summary?.trip.id]);
 
   useEffect(() => {
     if (verifyNotice?.tone !== "success") return;
@@ -2533,9 +2635,10 @@ export function ComplianceDocumentWorkspace({
             const bAt = b.doc?.uploaded_at ?? b.entityDoc?.created_at ?? "";
             return bAt.localeCompare(aAt);
           })[0];
-        if (newest) {
+        const typed = newest ?? pool.find((row) => row.type === focusType);
+        if (typed) {
           focusUploadTypeRef.current = null;
-          return newest.key;
+          return typed.key;
         }
       }
       if (prev && pool.some((row) => row.key === prev)) return prev;
@@ -3175,6 +3278,28 @@ export function ComplianceDocumentWorkspace({
     if (!hasFile(row)) return;
     resetPreviewView();
   }, [resetPreviewView]);
+  const openDocumentUploadFromDetails = useCallback(
+    (target: { vault: string; type?: string }) => {
+      const vault = target.vault.trim().toLowerCase();
+      if (vault === "finance") {
+        setTab("trip");
+        setChecklistPreviewMode("finance");
+      } else if (vault === "vehicle") {
+        setTab("vehicle");
+        setChecklistPreviewMode("document");
+      } else if (vault === "driver") {
+        setTab("driver");
+        setChecklistPreviewMode("document");
+      } else {
+        setTab("trip");
+        setChecklistPreviewMode("document");
+      }
+      if (target.type) focusUploadTypeRef.current = target.type;
+      resetPreviewView();
+      setScreenOpen(false);
+    },
+    [resetPreviewView],
+  );
   const tabMissingCounts = useMemo(() => {
     if (!summary) return { trip: 0, vehicle: 0, driver: 0, finance: 0 };
     const finance = deriveFinanceDocumentRows(summary.documents);
@@ -3359,7 +3484,12 @@ export function ComplianceDocumentWorkspace({
           : state.phase === "declined"
             ? "Declined · replace the files or approve"
             : `${state.total} uploaded · ready for review`;
-    const showActions = Boolean(canVerify && state && (state.phase === "review" || state.phase === "declined"));
+    const showActions = Boolean(
+      canVerify &&
+      summary?.stage !== "pending_for_docs" &&
+      state &&
+      (state.phase === "review" || state.phase === "declined"),
+    );
     const approving = groupBusy?.group === group && groupBusy.decision === "verified";
     const declining = groupBusy?.group === group && groupBusy.decision === "rejected";
     const declined = state?.phase === "declined";
@@ -3767,7 +3897,13 @@ export function ComplianceDocumentWorkspace({
                         </Text>
                       </View>
                     ) : null}
-                    <View style={styles.checklistDocs}>
+                    <ScrollView
+                      style={styles.checklistDocs}
+                      contentContainerStyle={styles.checklistDocsContent}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator
+                      keyboardShouldPersistTaps="handled"
+                    >
                       {showGroupedReview
                         ? (["required", "optional"] as const).map((group) => {
                             const requiredTypes = new Set(
@@ -3789,7 +3925,7 @@ export function ComplianceDocumentWorkspace({
                             );
                           })
                         : listRows.map(renderChecklistRow)}
-                    </View>
+                    </ScrollView>
                     <View
                       style={styles.checklistListGapArt}
                       pointerEvents="none"
@@ -3806,7 +3942,7 @@ export function ComplianceDocumentWorkspace({
                         <TouchableOpacity
                           style={[
                             styles.checklistModeBtn,
-                            checklistPreviewMode === "trip" && styles.checklistModeBtnActive,
+                            checklistPreviewMode === "trip" && styles.checklistModeBtnSelected,
                           ]}
                           activeOpacity={0.8}
                           onPress={() => setChecklistPreviewMode("trip")}
@@ -3817,7 +3953,7 @@ export function ComplianceDocumentWorkspace({
                           <Text
                             style={[
                               styles.checklistModeBtnText,
-                              checklistPreviewMode === "trip" && styles.checklistModeBtnTextActive,
+                              checklistPreviewMode === "trip" && styles.checklistModeBtnTextSelected,
                             ]}
                             numberOfLines={1}
                           >
@@ -3828,7 +3964,7 @@ export function ComplianceDocumentWorkspace({
                           <TouchableOpacity
                             style={[
                               styles.checklistModeBtn,
-                              checklistPreviewMode === "advance" && styles.checklistModeBtnActive,
+                              checklistPreviewMode === "advance" && styles.checklistModeBtnSelected,
                             ]}
                             activeOpacity={0.8}
                             onPress={() => setChecklistPreviewMode("advance")}
@@ -3839,7 +3975,7 @@ export function ComplianceDocumentWorkspace({
                             <Text
                               style={[
                                 styles.checklistModeBtnText,
-                                checklistPreviewMode === "advance" && styles.checklistModeBtnTextActive,
+                                checklistPreviewMode === "advance" && styles.checklistModeBtnTextSelected,
                               ]}
                               numberOfLines={1}
                             >
@@ -3979,6 +4115,7 @@ export function ComplianceDocumentWorkspace({
                         ]}
                         onPress={() => {
                           setRotation((value) => (value + 90) % 360);
+                          setZoom(1);
                           setToolLabel("rotate");
                         }}
                         disabled={!toolsEnabled}
@@ -3987,7 +4124,7 @@ export function ComplianceDocumentWorkspace({
                         accessibilityState={{ disabled: !toolsEnabled }}
                         {...(Platform.OS === "web" ? { title: "Rotate" } : {})}
                       >
-                        <RotateCwSquare size={14} color={toolColor} strokeWidth={2.1} />
+                        <RotateCwSquare size={12} color={toolColor} strokeWidth={2.1} />
                         {toolLabel === "rotate" ? (
                           <Text style={styles.previewToolName}>Rotate</Text>
                         ) : null}
@@ -4001,7 +4138,7 @@ export function ComplianceDocumentWorkspace({
                           accessibilityLabel="Zoom out"
                           accessibilityState={{ disabled: !toolsEnabled }}
                         >
-                          <Minus size={14} color={toolColor} />
+                          <Minus size={12} color={toolColor} />
                         </Pressable>
                         <Text style={[styles.previewZoomLabel, !toolsEnabled && styles.previewZoomLabelDisabled]}>
                           {Math.round(zoom * 100)}%
@@ -4014,7 +4151,7 @@ export function ComplianceDocumentWorkspace({
                           accessibilityLabel="Zoom in"
                           accessibilityState={{ disabled: !toolsEnabled }}
                         >
-                          <Plus size={14} color={toolColor} />
+                          <Plus size={12} color={toolColor} />
                         </Pressable>
                       </View>
                       <Pressable
@@ -4030,7 +4167,7 @@ export function ComplianceDocumentWorkspace({
                         accessibilityState={{ disabled: !toolsEnabled }}
                         {...(Platform.OS === "web" ? { title: "Refresh" } : {})}
                       >
-                        <RefreshCw size={13} color={toolColor} strokeWidth={2.2} />
+                        <RefreshCw size={12} color={toolColor} strokeWidth={2.2} />
                         {toolLabel === "refresh" ? (
                           <Text style={styles.previewToolName}>Refresh</Text>
                         ) : null}
@@ -4044,7 +4181,7 @@ export function ComplianceDocumentWorkspace({
                         accessibilityState={{ disabled: !canExpand }}
                         {...(Platform.OS === "web" ? { title: "Full screen" } : {})}
                       >
-                        <Maximize2 size={14} color={expandColor} />
+                        <Maximize2 size={12} color={expandColor} />
                       </Pressable>
                     </View>
                   </View>
@@ -4059,6 +4196,7 @@ export function ComplianceDocumentWorkspace({
                           : null
                       }
                       supplierName={supplierNameByTripId[summary.trip.id] ?? null}
+                      onOpenDocumentUpload={openDocumentUploadFromDetails}
                     />
                   ) : checklistPreviewMode === "advance" && summary && !compliancePendingView ? (
                     <ChecklistAdvancePaymentPanel
@@ -4430,7 +4568,7 @@ function TripDetailFact({
       </Text>
       <Text
         style={[styles.tripFactValue, emphasize && styles.tripFactValueEmphasize]}
-        numberOfLines={1}
+        numberOfLines={wide ? 2 : 1}
       >
         {value}
       </Text>
@@ -4438,9 +4576,40 @@ function TripDetailFact({
   );
 }
 
+function TripDetailAnimatedIcon({ children }: { children: React.ReactNode }) {
+  const drift = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(drift, {
+          toValue: 1,
+          duration: 2200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(drift, {
+          toValue: 0,
+          duration: 2200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [drift]);
+  const translateY = drift.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1.5, -1.5],
+  });
+  return <Animated.View style={{ transform: [{ translateY }] }}>{children}</Animated.View>;
+}
+
 function TripDetailSection({
   title,
   icon: Icon,
+  iconColor = Theme.complianceRoutePickup,
+  iconWash = Theme.complianceIconWash,
   children,
   columns,
   factLayout = "grid",
@@ -4448,6 +4617,8 @@ function TripDetailSection({
 }: {
   title: string;
   icon?: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
+  iconColor?: string;
+  iconWash?: string;
   children: React.ReactNode;
   columns: 2 | 3;
   factLayout?: "grid" | "list";
@@ -4458,11 +4629,15 @@ function TripDetailSection({
     <View style={[styles.tripDetailSection, style]}>
       <View style={styles.tripDetailSectionHeader}>
         {Icon ? (
-          <View style={styles.tripDetailSectionIconWell}>
-            <Icon size={13} color={Theme.textSecondary} strokeWidth={2.1} />
+          <View style={[styles.tripDetailSectionIconWell, { backgroundColor: iconWash }]}>
+            <TripDetailAnimatedIcon>
+              <Icon size={13} color={iconColor} strokeWidth={2.1} />
+            </TripDetailAnimatedIcon>
           </View>
         ) : null}
-        <Text style={styles.tripDetailSectionTitle}>{title}</Text>
+        <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
+          {title}
+        </Text>
       </View>
       <View style={factLayout === "list" ? styles.tripFactList : styles.tripFactGrid}>
         {items.map((child, index) => {
@@ -4558,14 +4733,24 @@ function profitLabels(trip: TripCommercialFacts): { profit: string; percent: str
   return { profit: formatTripInr(profit), percent };
 }
 
-type TripMissingDocItem = { name: string; vault: string; required: boolean };
+type TripDocChipKind = "missing" | "pending" | "accepted";
+type TripMissingDocItem = {
+  name: string;
+  type: string;
+  vault: string;
+  required: boolean;
+  kind: TripDocChipKind;
+};
+type TripDocGroup = { label: string; items: TripMissingDocItem[] };
 type TripDocOverview = {
   missing: number;
   pending: number;
   accepted: number;
   total: number;
   missingItems: TripMissingDocItem[];
-  missingGroups: Array<{ label: string; items: TripMissingDocItem[] }>;
+  missingGroups: TripDocGroup[];
+  pendingGroups: TripDocGroup[];
+  acceptedGroups: TripDocGroup[];
 };
 
 function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
@@ -4604,33 +4789,52 @@ function tripDocumentGroups(summary: ComplianceTripSummary): Array<{
 
 function tripDocumentOverview(summary: ComplianceTripSummary): TripDocOverview {
   const missingItems: TripMissingDocItem[] = [];
-  const missingGroups: Array<{ label: string; items: TripMissingDocItem[] }> = [];
+  const missingGroups: TripDocGroup[] = [];
+  const pendingGroups: TripDocGroup[] = [];
+  const acceptedGroups: TripDocGroup[] = [];
   let missing = 0;
   let pending = 0;
   let accepted = 0;
   let total = 0;
   for (const group of tripDocumentGroups(summary)) {
     total += group.rows.length;
-    const items: TripMissingDocItem[] = [];
+    const missingInGroup: TripMissingDocItem[] = [];
+    const pendingInGroup: TripMissingDocItem[] = [];
+    const acceptedInGroup: TripMissingDocItem[] = [];
     for (const row of group.rows) {
+      const item = {
+        name: group.finance ? labelForFinanceDocType(row.type) : labelForDocType(row.type),
+        type: row.type,
+        vault: group.label,
+        required: row.required,
+        kind: "missing" as TripDocChipKind,
+      };
       if (row.status === "missing") {
         missing += 1;
-        const item = {
-          name: group.finance ? labelForFinanceDocType(row.type) : labelForDocType(row.type),
-          vault: group.label,
-          required: row.required,
-        };
-        items.push(item);
+        missingInGroup.push(item);
         missingItems.push(item);
       } else if (row.status === "verified") {
         accepted += 1;
+        acceptedInGroup.push({ ...item, kind: "accepted" });
       } else {
         pending += 1;
+        pendingInGroup.push({ ...item, kind: "pending" });
       }
     }
-    if (items.length > 0) missingGroups.push({ label: group.label, items });
+    if (missingInGroup.length > 0) missingGroups.push({ label: group.label, items: missingInGroup });
+    if (pendingInGroup.length > 0) pendingGroups.push({ label: group.label, items: pendingInGroup });
+    if (acceptedInGroup.length > 0) acceptedGroups.push({ label: group.label, items: acceptedInGroup });
   }
-  return { missing, pending, accepted, total, missingItems, missingGroups };
+  return {
+    missing,
+    pending,
+    accepted,
+    total,
+    missingItems,
+    missingGroups,
+    pendingGroups,
+    acceptedGroups,
+  };
 }
 
 function docNumberForType(
@@ -4650,10 +4854,12 @@ function ChecklistTripDetailsPanel({
   summary,
   truckType,
   supplierName,
+  onOpenDocumentUpload,
 }: {
   summary: ComplianceTripSummary;
   truckType: string | null;
   supplierName: string | null;
+  onOpenDocumentUpload?: (target: { vault: string; type?: string }) => void;
 }) {
   const trip = summary.trip;
   const commercial = trip as typeof trip & TripCommercialFacts;
@@ -4753,10 +4959,26 @@ function ChecklistTripDetailsPanel({
       ? "Review the pending documents. This trip is ready for the next stage once they are accepted."
       : "Required documents are accepted. This trip is ready for the next stage.";
   const [paneWidth, setPaneWidth] = useState(0);
+  const [docChipKind, setDocChipKind] = useState<TripDocChipKind>("missing");
+  useEffect(() => {
+    setDocChipKind("missing");
+  }, [trip.id]);
   /** Side-by-side card pairs when the preview pane is wide enough. */
   const pairCards = paneWidth >= 400;
   const tripColumns: 2 | 3 = paneWidth >= 520 ? 3 : 2;
   const missingChipColumns: 2 | 3 = paneWidth >= 480 ? 3 : 2;
+  const selectedDocGroups =
+    docChipKind === "pending"
+      ? docOverview.pendingGroups
+      : docChipKind === "accepted"
+        ? docOverview.acceptedGroups
+        : docOverview.missingGroups;
+  const selectedDocEmpty =
+    docChipKind === "pending"
+      ? "No documents pending"
+      : docChipKind === "accepted"
+        ? "No documents accepted"
+        : "All documents on file";
 
   return (
     <View
@@ -4766,7 +4988,14 @@ function ChecklistTripDetailsPanel({
         setPaneWidth((prev) => (prev === next ? prev : next));
       }}
     >
-      <TripDetailSection title="Trip" icon={Truck} columns={tripColumns} style={styles.tripDetailSectionLead}>
+      <TripDetailSection
+        title="Trip"
+        icon={Truck}
+        iconColor={Theme.complianceRoutePickup}
+        iconWash={Theme.complianceIconWash}
+        columns={tripColumns}
+        style={styles.tripDetailSectionLead}
+      >
         <TripDetailFact label="Trip ID" value={tripId} />
         <TripDetailFact label="Vehicle" value={vehicle} />
         {tripColumns === 3 ? <TripDetailFact label="Truck type" value={truckLabel} /> : null}
@@ -4781,6 +5010,8 @@ function ChecklistTripDetailsPanel({
         <TripDetailSection
           title="Parties"
           icon={Users}
+          iconColor={Theme.complianceStageInfoFg}
+          iconWash={Theme.complianceStageInfoBg}
           columns={2}
           factLayout="list"
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
@@ -4791,6 +5022,8 @@ function ChecklistTripDetailsPanel({
         <TripDetailSection
           title="Documents"
           icon={FileText}
+          iconColor={Theme.complianceStageBalanceFg}
+          iconWash={Theme.complianceStageBalanceBg}
           columns={2}
           factLayout="list"
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
@@ -4804,6 +5037,8 @@ function ChecklistTripDetailsPanel({
         <TripDetailSection
           title="Rates"
           icon={Banknote}
+          iconColor={Theme.complianceDocOkFg}
+          iconWash={Theme.complianceDocOkBg}
           columns={2}
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
         >
@@ -4817,6 +5052,8 @@ function ChecklistTripDetailsPanel({
         <TripDetailSection
           title="Banking"
           icon={Landmark}
+          iconColor={Theme.accentBrown}
+          iconWash={Theme.accentBrownWash}
           columns={2}
           factLayout="list"
           style={[styles.tripDetailSectionPair, !pairCards && styles.tripDetailSectionPairFull]}
@@ -4833,17 +5070,29 @@ function ChecklistTripDetailsPanel({
 
       <View style={styles.tripDetailInsightCard}>
         <View style={styles.tripDetailSectionHeader}>
-          <View style={styles.tripDetailSectionIconWell}>
-            <NotebookText size={13} color={Theme.textSecondary} strokeWidth={2.1} />
+          <View style={[styles.tripDetailSectionIconWell, { backgroundColor: Theme.complianceStagePendingBg }]}>
+            <TripDetailAnimatedIcon>
+              <NotebookText size={13} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
+            </TripDetailAnimatedIcon>
           </View>
-          <Text style={styles.tripDetailSectionTitle}>Summary & interpretation</Text>
+          <Text style={styles.tripDetailSectionTitle} numberOfLines={1}>
+            Summary & interpretation
+          </Text>
         </View>
         <View style={styles.tripDetailInsightBody}>
           <Text style={styles.tripDetailNextStep}>{nextStep}</Text>
           <View style={styles.tripDetailStatRow}>
-            <View style={[styles.tripDetailStatTile, styles.tripDetailStatTileMissing]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show missing documents"
+              accessibilityState={{ selected: docChipKind === "missing" }}
+              onPress={() => setDocChipKind("missing")}
+              style={[styles.tripDetailStatTile, styles.tripDetailStatTileMissing]}
+            >
               <View style={styles.tripDetailStatHead}>
-                <FileText size={11} color={Theme.complianceDocNeedFg} strokeWidth={2.1} />
+                <TripDetailAnimatedIcon>
+                  <FileText size={11} color={Theme.complianceDocNeedFg} strokeWidth={2.1} />
+                </TripDetailAnimatedIcon>
                 <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelMissing]} numberOfLines={1}>
                   Docs missing
                 </Text>
@@ -4851,10 +5100,18 @@ function ChecklistTripDetailsPanel({
               <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValueMissing]}>
                 {docOverview.missing}
               </Text>
-            </View>
-            <View style={[styles.tripDetailStatTile, styles.tripDetailStatTilePending]}>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show pending documents"
+              accessibilityState={{ selected: docChipKind === "pending" }}
+              onPress={() => setDocChipKind("pending")}
+              style={[styles.tripDetailStatTile, styles.tripDetailStatTilePending]}
+            >
               <View style={styles.tripDetailStatHead}>
-                <Clock size={11} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
+                <TripDetailAnimatedIcon>
+                  <Clock size={11} color={Theme.complianceStagePendingFg} strokeWidth={2.1} />
+                </TripDetailAnimatedIcon>
                 <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelPending]} numberOfLines={1}>
                   Docs pending
                 </Text>
@@ -4862,10 +5119,18 @@ function ChecklistTripDetailsPanel({
               <Text style={[styles.tripDetailStatValue, styles.tripDetailStatValuePending]}>
                 {docOverview.pending}
               </Text>
-            </View>
-            <View style={[styles.tripDetailStatTile, styles.tripDetailStatTileAccepted]}>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Show accepted documents"
+              accessibilityState={{ selected: docChipKind === "accepted" }}
+              onPress={() => setDocChipKind("accepted")}
+              style={[styles.tripDetailStatTile, styles.tripDetailStatTileAccepted]}
+            >
               <View style={styles.tripDetailStatHead}>
-                <CircleCheck size={11} color={Theme.complianceDocOkFg} strokeWidth={2.1} />
+                <TripDetailAnimatedIcon>
+                  <CircleCheck size={11} color={Theme.complianceDocOkFg} strokeWidth={2.1} />
+                </TripDetailAnimatedIcon>
                 <Text style={[styles.tripDetailStatLabel, styles.tripDetailStatLabelAccepted]} numberOfLines={1}>
                   Docs accepted
                 </Text>
@@ -4874,55 +5139,91 @@ function ChecklistTripDetailsPanel({
                 {docOverview.accepted}
                 <Text style={styles.tripDetailStatTotal}>/{docOverview.total}</Text>
               </Text>
-            </View>
+            </Pressable>
           </View>
 
-          {docOverview.missingGroups.length > 0 ? (
+          {selectedDocGroups.length > 0 ? (
             <View style={styles.tripDetailDocGroups}>
-              {docOverview.missingGroups.map((group) => (
+              {selectedDocGroups.map((group) => (
                 <View key={group.label} style={styles.tripDetailDocGroup}>
-                  <Text style={styles.tripDetailDocGroupLabel}>{group.label}</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${group.label} documents`}
+                    onPress={() => onOpenDocumentUpload?.({ vault: group.label })}
+                    style={styles.tripDetailDocGroupLabelHit}
+                  >
+                    <Text style={styles.tripDetailDocGroupLabel}>{group.label}</Text>
+                  </Pressable>
                   <View style={styles.tripDetailMissingWrap}>
-                    {group.items.map((item, index) => (
-                      <View
+                    {group.items.map((item, index) => {
+                      const chipTone =
+                        item.kind === "accepted"
+                          ? "accepted"
+                          : item.kind === "pending" || !item.required
+                            ? "optional"
+                            : "required";
+                      return (
+                      <Pressable
                         key={`${group.label}-${item.name}-${index}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${group.label} to upload ${item.name}`}
+                        onPress={() =>
+                          onOpenDocumentUpload?.({ vault: group.label, type: item.type })
+                        }
                         style={[
                           styles.tripDetailMissingChip,
                           missingChipColumns === 3
                             ? styles.tripDetailMissingChipThird
                             : styles.tripDetailMissingChipHalf,
-                          item.required
-                            ? styles.tripDetailMissingChipRequired
-                            : styles.tripDetailMissingChipOptional,
+                          chipTone === "accepted"
+                            ? styles.tripDetailMissingChipAccepted
+                            : chipTone === "required"
+                              ? styles.tripDetailMissingChipRequired
+                              : styles.tripDetailMissingChipOptional,
                         ]}
                       >
                         <FileText
                           size={8}
-                          color={item.required ? Theme.complianceDocNeedFg : Theme.complianceGroupWarningFg}
+                          color={
+                            chipTone === "accepted"
+                              ? Theme.complianceDocOkFg
+                              : chipTone === "required"
+                                ? Theme.complianceDocNeedFg
+                                : Theme.complianceGroupWarningFg
+                          }
                           strokeWidth={2.1}
                         />
                         <Text
                           style={[
                             styles.tripDetailMissingChipTitle,
-                            item.required
-                              ? styles.tripDetailMissingChipTitleRequired
-                              : styles.tripDetailMissingChipTitleOptional,
+                            chipTone === "accepted"
+                              ? styles.tripDetailMissingChipTitleAccepted
+                              : chipTone === "required"
+                                ? styles.tripDetailMissingChipTitleRequired
+                                : styles.tripDetailMissingChipTitleOptional,
                           ]}
                           numberOfLines={1}
                         >
                           {item.name}
                         </Text>
                         <Text style={styles.tripDetailMissingChipMeta} numberOfLines={1}>
-                          {item.required ? "Required" : "Optional"}
+                          {item.kind === "accepted"
+                            ? "Accepted"
+                            : item.kind === "pending"
+                              ? "Pending"
+                              : item.required
+                                ? "Required"
+                                : "Optional"}
                         </Text>
-                      </View>
-                    ))}
+                      </Pressable>
+                      );
+                    })}
                   </View>
                 </View>
               ))}
             </View>
           ) : (
-            <Text style={styles.tripDetailMissingEmpty}>All documents on file</Text>
+            <Text style={styles.tripDetailMissingEmpty}>{selectedDocEmpty}</Text>
           )}
         </View>
       </View>
@@ -5220,11 +5521,11 @@ const TripListRow = React.memo(function TripListRow({
   const verification = verificationStatusVisual(summary);
   const tripStatus =
     summary.stage === "compliance_pending" ? tripOpsStatusBadge(trip.status) : null;
-  const isRejected = isFinanceDeclinedTrip(summary);
-  const declineRemark =
-    isRejected || isComplianceDeclineActive(summary)
-      ? summary.complianceDeclineReason?.trim() || ""
-      : "";
+  const isRejected =
+    isFinanceDeclinedTrip(summary) || isComplianceDeclineActive(summary);
+  const declineRemark = isRejected
+    ? summary.complianceDeclineReason?.trim() || ""
+    : "";
   const customerName = trip.client_name?.trim() || "—";
   const supplierLabel = (supplierName ?? trip.supplier_name)?.trim() || "—";
   const origin = splitHubRouteLocationDisplay(trip.pickup_area ?? "");
@@ -5700,7 +6001,7 @@ const styles = StyleSheet.create({
     gap: 5,
     overflow: "hidden",
   },
-  tabActive: { backgroundColor: Theme.buttonDark, borderColor: Theme.buttonDark },
+  tabActive: { backgroundColor: Theme.liquidGoodBack, borderColor: Theme.liquidGoodBack },
   tabText: { fontSize: 11, fontWeight: "500", lineHeight: 14, textAlign: "center", color: Theme.textPrimaryDark },
   tabTextActive: { color: Theme.buttonDarkText, fontWeight: "600" },
   tabBadge: {
@@ -5719,7 +6020,7 @@ const styles = StyleSheet.create({
     lineHeight: 11,
     color: Theme.complianceStageDocsFg,
   },
-  tabBadgeTextActive: { color: Theme.complianceStageDocsFg },
+  tabBadgeTextActive: { color: Theme.liquidGoodBack },
   stage: {
     flex: 1,
     minHeight: 0,
@@ -6129,7 +6430,9 @@ const styles = StyleSheet.create({
     width: 360,
     maxWidth: "46%",
     flexShrink: 0,
+    alignSelf: "stretch",
     minHeight: 0,
+    flexDirection: "column",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
@@ -6160,29 +6463,44 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
     flexWrap: "nowrap",
+    padding: 1,
+    gap: 0,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   checklistPanelTab: {
+    flexGrow: 1,
     flexShrink: 1,
+    flexBasis: 0,
     minWidth: 0,
     height: 22,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     paddingVertical: 0,
     gap: 3,
+    borderWidth: 0,
+    backgroundColor: "transparent",
   },
   checklistPanelTabText: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "500",
   },
   checklistPanelTabBadge: {
-    minWidth: 12,
+    minWidth: 14,
     height: 12,
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
+    borderRadius: 999,
   },
   checklistPanelTabBadgeText: {
     fontSize: 8,
     lineHeight: 10,
+    fontWeight: "700",
   },
   checklistToolbarActions: {
     flexDirection: "row",
@@ -6198,33 +6516,35 @@ const styles = StyleSheet.create({
   checklistUploadPillText: {
     fontSize: 8,
   },
-  /** Document rows only. Shrinks to the space left above the fixed illustration. */
+  /** Document rows only. Scrolls so the last row and preview actions stay reachable. */
   checklistDocs: {
     flex: 1,
     flexShrink: 1,
     minHeight: 0,
-    overflow: "hidden",
-    justifyContent: "flex-start",
   },
-  /** Reserved illustration slot — never grows or shrinks with the document count. */
+  checklistDocsContent: {
+    flexGrow: 1,
+    paddingBottom: 4,
+  },
+  /** Compact illustration slot — sized to the preview card, not clipped. */
   checklistListGapArt: {
     flexGrow: 0,
     flexShrink: 0,
-    height: 132,
+    height: 80,
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     overflow: "hidden",
   },
   checklistPreviewActionsSection: {
     flexShrink: 0,
-    gap: 8,
+    gap: 6,
     marginHorizontal: 8,
     marginBottom: 8,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 6,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
@@ -6271,49 +6591,55 @@ const styles = StyleSheet.create({
   verifyTripBtn: {
     flex: 1,
     minWidth: 0,
-    minHeight: 34,
-    borderRadius: 8,
+    minHeight: 28,
+    borderRadius: 7,
     backgroundColor: Theme.positive,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   verifyTripBtnText: {
     color: Theme.cardWhite,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
   },
   declineTripBtn: {
     flex: 1,
     minWidth: 0,
-    minHeight: 34,
-    borderRadius: 8,
+    minHeight: 28,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: Theme.negative,
     backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   declineTripBtnText: {
     color: Theme.negative,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
   },
   checklistModeBtn: {
     flexGrow: 1,
     flexShrink: 1,
     flexBasis: "47%",
-    minWidth: 120,
-    minHeight: 32,
-    borderRadius: 8,
+    minWidth: 100,
+    minHeight: 28,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.compliancePageBg,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  checklistModeBtnSelected: {
+    backgroundColor: Theme.compliancePageBg,
+    borderColor: Theme.textPrimaryDark,
   },
   checklistModeBtnActive: {
     backgroundColor: Theme.buttonDark,
@@ -6324,6 +6650,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.textPrimaryDark,
     textAlign: "center",
+  },
+  checklistModeBtnTextSelected: {
+    fontWeight: "700",
   },
   checklistModeBtnTextActive: {
     color: Theme.buttonDarkText,
@@ -6367,39 +6696,39 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     backgroundColor: "transparent",
   },
-  /** Trip details fill the preview pane. No inner scroll. */
   tripDetailsPanel: {
     flex: 1,
     minHeight: 0,
     overflow: "hidden",
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 4,
     gap: 4,
   },
   tripDetailSectionLead: {
     flexGrow: 0,
-    flexShrink: 1,
+    flexShrink: 0,
   },
   tripDetailInsightCard: {
     flexGrow: 1,
     flexShrink: 1,
     minHeight: 0,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
-    shadowColor: Theme.shadow,
-    shadowOffset: { width: 0, height: 1 },
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 1,
   },
   tripDetailNextStep: {
     flexShrink: 0,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: "600",
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "500",
+    letterSpacing: -0.1,
     color: Theme.textPrimaryDark,
   },
   tripDetailInsightBody: {
@@ -6408,7 +6737,7 @@ const styles = StyleSheet.create({
     minHeight: 0,
     flexDirection: "column",
     gap: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
     paddingTop: 4,
     paddingBottom: 6,
     overflow: "hidden",
@@ -6417,16 +6746,21 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: 6,
   },
   tripDetailStatTile: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 0,
+    flexShrink: 0,
     borderRadius: 10,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 5,
-    gap: 1,
+    paddingVertical: 3,
+    gap: 0,
+    ...Platform.select({
+      web: { cursor: "pointer" } as ViewStyle,
+      default: {},
+    }),
   },
   tripDetailStatTileMissing: {
     backgroundColor: Theme.complianceDocNeedBg,
@@ -6447,8 +6781,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   tripDetailStatLabel: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 0,
+    flexShrink: 0,
     fontSize: 9,
     fontWeight: "600",
     letterSpacing: 0.2,
@@ -6463,10 +6797,10 @@ const styles = StyleSheet.create({
     color: Theme.complianceDocOkFg,
   },
   tripDetailStatValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
-    letterSpacing: -0.4,
-    lineHeight: 16,
+    letterSpacing: -0.3,
+    lineHeight: 15,
   },
   tripDetailStatValueMissing: {
     color: Theme.complianceDocNeedFg,
@@ -6483,13 +6817,22 @@ const styles = StyleSheet.create({
     color: Theme.complianceGroupSuccessFg,
   },
   tripDetailDocGroups: {
-    flexGrow: 0,
+    flexGrow: 1,
     flexShrink: 1,
     minHeight: 0,
-    gap: 3,
+    gap: 2,
+    overflow: "hidden",
   },
   tripDetailDocGroup: {
-    gap: 2,
+    gap: 1,
+    flexShrink: 1,
+  },
+  tripDetailDocGroupLabelHit: {
+    alignSelf: "flex-start",
+    ...Platform.select({
+      web: { cursor: "pointer" } as ViewStyle,
+      default: {},
+    }),
   },
   tripDetailDocGroupLabel: {
     fontSize: 8,
@@ -6515,11 +6858,15 @@ const styles = StyleSheet.create({
     gap: 3,
     minWidth: 0,
     maxWidth: "32%",
-    minHeight: 16,
+    minHeight: 15,
     borderRadius: 6,
     borderWidth: 1,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 0,
+    ...Platform.select({
+      web: { cursor: "pointer" } as ViewStyle,
+      default: {},
+    }),
   },
   tripDetailMissingChipThird: {
     flexGrow: 0,
@@ -6538,6 +6885,10 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.complianceGroupWarningBg,
     borderColor: Theme.complianceGroupWarningDot,
   },
+  tripDetailMissingChipAccepted: {
+    backgroundColor: Theme.complianceDocOkBg,
+    borderColor: Theme.complianceVerifiedPillBorder,
+  },
   tripDetailMissingChipTitle: {
     flexShrink: 1,
     minWidth: 0,
@@ -6550,6 +6901,9 @@ const styles = StyleSheet.create({
   },
   tripDetailMissingChipTitleOptional: {
     color: Theme.complianceGroupWarningFg,
+  },
+  tripDetailMissingChipTitleAccepted: {
+    color: Theme.complianceDocOkFg,
   },
   tripDetailMissingChipMeta: {
     flexShrink: 0,
@@ -6643,14 +6997,14 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     flexShrink: 1,
     minHeight: 0,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: Theme.complianceTripCardBorder,
+    borderColor: Theme.borderLight,
     backgroundColor: Theme.cardWhite,
     overflow: "hidden",
     minWidth: 0,
-    shadowColor: Theme.shadow,
-    shadowOffset: { width: 0, height: 1 },
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 1,
@@ -6668,7 +7022,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 4,
+    gap: 8,
   },
   tripDetailPairRowStack: {
     flexDirection: "column",
@@ -6678,25 +7032,27 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.complianceTripCardBorder,
-    backgroundColor: Theme.complianceIconWash,
+    borderBottomColor: Theme.borderLight,
+    backgroundColor: Theme.cardWhite,
   },
   tripDetailSectionIconWell: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    backgroundColor: Theme.cardWhite,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Theme.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   tripDetailSectionTitle: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    letterSpacing: -0.15,
+    lineHeight: 15,
+    fontWeight: "500",
+    letterSpacing: -0.1,
     color: Theme.textPrimaryDark,
   },
   tripFactGrid: {
@@ -6707,51 +7063,54 @@ const styles = StyleSheet.create({
     alignContent: "flex-start",
     alignItems: "flex-start",
     paddingHorizontal: 4,
-    paddingVertical: 2,
+    paddingTop: 2,
+    paddingBottom: 4,
   },
   tripFactList: {
     flexGrow: 1,
     flexShrink: 1,
+    paddingBottom: 2,
   },
   tripFactRow: {
     flexGrow: 0,
     flexShrink: 0,
-    minHeight: 24,
+    minHeight: 22,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.complianceTripCardBorder,
+    borderBottomColor: Theme.borderLight,
   },
   tripFactRowLast: {
     borderBottomWidth: 0,
   },
   tripFactRowLabel: {
     flexGrow: 0,
-    flexShrink: 1,
-    maxWidth: "58%",
-    fontSize: 8,
-    lineHeight: 11,
-    fontWeight: "600",
-    letterSpacing: 0.2,
+    flexShrink: 0,
+    width: "36%",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "500",
+    letterSpacing: 0.25,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
   tripFactRowValue: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "500",
     color: Theme.textPrimaryDark,
-    lineHeight: 14,
+    lineHeight: 15,
+    letterSpacing: -0.1,
     textAlign: "right",
   },
   tripFactCell: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 2,
     minWidth: 0,
     justifyContent: "center",
   },
@@ -6763,24 +7122,23 @@ const styles = StyleSheet.create({
   },
   tripFactCellWide: {
     width: "100%",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.surfaceBorder,
+    paddingVertical: 2,
   },
   tripFactLabel: {
-    fontSize: 8,
-    lineHeight: 10,
-    fontWeight: "600",
-    letterSpacing: 0.2,
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "500",
+    letterSpacing: 0.25,
     textTransform: "uppercase",
     color: Theme.textMuted,
     marginBottom: 1,
   },
   tripFactValue: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "500",
     color: Theme.textPrimaryDark,
-    lineHeight: 14,
+    lineHeight: 15,
+    letterSpacing: -0.1,
   },
   tripFactValueEmphasize: {
     fontWeight: "700",
@@ -7000,23 +7358,23 @@ const styles = StyleSheet.create({
   },
   previewToolbar: {
     flexShrink: 0,
-    height: 48,
-    paddingHorizontal: 12,
+    height: 32,
+    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
   },
   previewZoomLabel: {
-    minWidth: 48,
-    height: 32,
-    paddingHorizontal: 6,
-    fontSize: 12,
+    minWidth: 38,
+    height: 24,
+    paddingHorizontal: 4,
+    fontSize: 11,
     fontWeight: "600",
-    lineHeight: 32,
+    lineHeight: 24,
     color: Theme.textPrimaryDark,
     textAlign: "center",
     fontVariant: ["tabular-nums"],
@@ -7030,20 +7388,20 @@ const styles = StyleSheet.create({
   previewToolbarTitle: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
   },
   previewToolbarActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     flexShrink: 0,
   },
   previewToolBtn: {
-    minWidth: 32,
-    height: 32,
-    borderRadius: 8,
+    minWidth: 24,
+    height: 24,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: Theme.compliancePageBg,
@@ -7051,10 +7409,10 @@ const styles = StyleSheet.create({
     borderColor: Theme.complianceTripCardBorder,
   },
   previewRotateBtn: {
-    minWidth: 32,
-    height: 32,
-    paddingHorizontal: 7,
-    borderRadius: 8,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 6,
+    borderRadius: 6,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -7078,16 +7436,16 @@ const styles = StyleSheet.create({
   previewZoomCluster: {
     flexDirection: "row",
     alignItems: "center",
-    height: 32,
-    borderRadius: 8,
+    height: 24,
+    borderRadius: 6,
     backgroundColor: Theme.compliancePageBg,
     borderWidth: 1,
     borderColor: Theme.complianceTripCardBorder,
     overflow: "hidden",
   },
   previewZoomBtn: {
-    width: 32,
-    height: 32,
+    width: 24,
+    height: 24,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -7096,13 +7454,13 @@ const styles = StyleSheet.create({
   },
   previewFooter: {
     flexShrink: 0,
-    height: 36,
-    paddingLeft: 12,
-    paddingRight: 10,
+    height: 24,
+    paddingLeft: 8,
+    paddingRight: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.complianceTripCardBorder,
     backgroundColor: Theme.cardWhite,
@@ -7188,8 +7546,8 @@ const styles = StyleSheet.create({
   },
   previewFooterMeta: {
     flexShrink: 0,
-    minWidth: 52,
-    fontSize: 12,
+    minWidth: 44,
+    fontSize: 11,
     fontWeight: "600",
     color: Theme.textMuted,
     textAlign: "right",

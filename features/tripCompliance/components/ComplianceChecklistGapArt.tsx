@@ -30,7 +30,7 @@ export function ComplianceChecklistGapArt() {
 
   const translateY = drift.interpolate({
     inputRange: [0, 1],
-    outputRange: [5, -5],
+    outputRange: [2, -2],
   });
 
   return (
@@ -45,9 +45,9 @@ export function ComplianceChecklistGapArt() {
 
 const styles = StyleSheet.create({
   image: {
-    width: "100%",
-    maxWidth: 220,
+    width: "72%",
+    maxWidth: 168,
     aspectRatio: 1008 / 606,
-    maxHeight: 116,
+    maxHeight: 72,
   },
 });

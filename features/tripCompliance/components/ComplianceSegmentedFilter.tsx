@@ -80,7 +80,7 @@ export function ComplianceSegmentedFilter<T extends string>({
                 compact && styles.segmentCompact,
                 cardDense && styles.segmentCardDense,
                 active && styles.segmentActive,
-                pressed && !active && styles.segmentPressed,
+                pressed && styles.segmentPressed,
               ]}
             >
               {cardDense ? (
@@ -92,21 +92,53 @@ export function ComplianceSegmentedFilter<T extends string>({
                   )}
                   <Text
                     style={[styles.cardDenseCopy, active && styles.labelActive]}
-                    numberOfLines={2}
+                    numberOfLines={1}
                   >
-                    {option.label}{" "}
-                    <Text style={[styles.cardDenseCount, active && styles.countActive]}>{count}</Text>
+                    {option.label}
                   </Text>
+                  <View
+                    style={[
+                      styles.countBadge,
+                      styles.countBadgeDense,
+                      active ? styles.countBadgeActive : null,
+                      option.dot && !active ? { backgroundColor: option.dot } : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.cardDenseCount,
+                        !option.dot && !active && styles.countOnLight,
+                        active && styles.countActive,
+                      ]}
+                    >
+                      {count}
+                    </Text>
+                  </View>
                 </View>
               ) : (
                 <View style={[styles.segmentInner, !narrow && styles.segmentInnerFull]}>
                   {option.dot ? <View style={[styles.dot, { backgroundColor: option.dot }]} /> : null}
-                  <Text style={[styles.label, active && styles.labelActive]} numberOfLines={2}>
+                  <Text style={[styles.label, active && styles.labelActive]} numberOfLines={1}>
                     {option.label}
                   </Text>
-                  <Text style={[styles.count, active && styles.countActive]} numberOfLines={1}>
-                    {count}
-                  </Text>
+                  <View
+                    style={[
+                      styles.countBadge,
+                      active ? styles.countBadgeActive : null,
+                      option.dot && !active ? { backgroundColor: option.dot } : null,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.count,
+                        !option.dot && !active && styles.countOnLight,
+                        active && styles.countActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {count}
+                    </Text>
+                  </View>
                 </View>
               )}
             </Pressable>
@@ -136,80 +168,84 @@ const styles = StyleSheet.create({
   barEmbeddedFull: {
     alignSelf: "stretch",
     width: "100%",
-    minWidth: "100%",
   },
   barNarrow: {
-    alignSelf: "flex-start",
+    alignSelf: "center",
     maxWidth: "100%",
   },
   barCardDense: {
     paddingHorizontal: 0,
     paddingTop: 0,
     paddingBottom: 0,
+    alignSelf: "stretch",
+    width: "100%",
   },
   track: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    padding: 2,
-    gap: 2,
+    justifyContent: "center",
+    alignSelf: "stretch",
+    width: "100%",
+    padding: 1,
+    gap: 0,
     borderRadius: 999,
-    backgroundColor: Theme.compliancePageBg,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   trackFull: {
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
+    width: "100%",
     maxWidth: "100%",
   },
   trackNarrow: {
-    alignSelf: "flex-start",
+    alignSelf: "center",
+    width: "auto",
   },
   trackCompact: {
-    borderRadius: 8,
-    padding: 2,
-    gap: 2,
+    borderRadius: 999,
+    padding: 1,
+    gap: 0,
   },
   trackCardDense: {
-    borderRadius: 7,
-    padding: 2,
-    gap: 2,
+    borderRadius: 999,
+    padding: 1,
+    gap: 0,
   },
   segment: {
-    minWidth: 0,
     height: 22,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 0,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "transparent",
   },
   segmentFlex: {
-    flexGrow: 0,
+    flexGrow: 1,
     flexShrink: 0,
   },
   segmentNarrow: {
     flexGrow: 0,
     flexShrink: 0,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   segmentCompact: {
     height: 22,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 0,
     borderRadius: 999,
   },
   segmentCardDense: {
-    height: 20,
+    height: 22,
     paddingHorizontal: 6,
     paddingVertical: 0,
     borderRadius: 999,
   },
   segmentActive: {
-    backgroundColor: Theme.buttonDark,
-    borderColor: Theme.buttonDark,
+    backgroundColor: Theme.liquidGoodBack,
     borderRadius: 999,
   },
   segmentPressed: { opacity: 0.7 },
@@ -218,21 +254,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexWrap: "nowrap",
-    gap: 4,
+    gap: 3,
     minWidth: 0,
   },
   segmentInnerFull: {
-    flexWrap: "wrap",
-    width: "100%",
+    flexWrap: "nowrap",
+    width: "auto",
   },
-  /** Dot + wrapping “Label count” so full words fit inside equal-width chips. */
+  /** Label + count stay on one line so every word remains visible. */
   segmentInnerCardDense: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "center",
+    flexWrap: "nowrap",
     gap: 3,
-    width: "100%",
-    minWidth: 0,
+    width: "auto",
     paddingHorizontal: 1,
   },
   dot: {
@@ -246,7 +282,6 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     flexShrink: 0,
-    marginTop: 3,
   },
   dotCardDenseSpacer: {
     width: 0,
@@ -254,47 +289,65 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   label: {
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "600",
-    color: Theme.textSecondary,
+    flexShrink: 0,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
     includeFontPadding: false,
     textAlign: "center",
   },
   cardDenseCopy: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: "600",
-    color: Theme.textSecondary,
+    flexShrink: 0,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
     includeFontPadding: false,
-    textAlign: "left",
+    textAlign: "center",
   },
   labelActive: {
     color: Theme.buttonDarkText,
-    fontWeight: "700",
+    fontWeight: "500",
+  },
+  countBadge: {
+    minWidth: 14,
+    height: 12,
+    paddingHorizontal: 4,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.surface,
+  },
+  countBadgeDense: {
+    height: 12,
+    minWidth: 14,
+    paddingHorizontal: 4,
+  },
+  countBadgeActive: {
+    backgroundColor: Theme.cardWhite,
   },
   count: {
     flexShrink: 0,
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: 9,
+    lineHeight: 11,
     fontWeight: "700",
-    color: Theme.textMuted,
+    color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],
     includeFontPadding: false,
   },
   cardDenseCount: {
-    fontSize: 9,
-    lineHeight: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
-    color: Theme.textMuted,
+    color: Theme.buttonDarkText,
     fontVariant: ["tabular-nums"],
   },
+  countOnLight: {
+    color: Theme.textPrimaryDark,
+  },
   countActive: {
-    color: Theme.buttonDarkText,
+    color: Theme.liquidGoodBack,
     fontWeight: "700",
   },
 });

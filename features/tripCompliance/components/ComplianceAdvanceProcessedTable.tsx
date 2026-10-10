@@ -694,26 +694,10 @@ export function ComplianceAdvanceProcessedTable({
       else next.add(tripId);
       return next;
     });
-  const missingUtr = visibleRows.filter((s) => !savedValue(s, enrichment?.[s.trip.id], "utr")).length;
-
   return (
     <View style={styles.wrap}>
+      {selected.size > 0 ? (
       <View style={styles.titleBar}>
-        <View style={styles.titleLeft}>
-          <Text style={styles.title} numberOfLines={1}>
-            Advance processed payments
-          </Text>
-          <View style={styles.titleCount}>
-            <Text style={styles.titleCountText}>{visibleRows.length}</Text>
-          </View>
-          {visibleRows.length > 0 ? (
-            <Text style={styles.titleMuted} numberOfLines={1}>
-              {missingUtr > 0 ? `${missingUtr} awaiting UTR` : "All UTRs recorded"}
-            </Text>
-          ) : null}
-          {isFetching ? <ActivityIndicator size="small" color={Theme.compliancePayTableTitleMuted} /> : null}
-        </View>
-        {selected.size > 0 ? (
           <View style={styles.titleRight}>
             <Text style={styles.titleMuted}>{selected.size} selected</Text>
             <TouchableOpacity
@@ -742,8 +726,8 @@ export function ComplianceAdvanceProcessedTable({
               )}
             </TouchableOpacity>
           </View>
-        ) : null}
       </View>
+      ) : null}
 
       <View style={[styles.row, styles.headerRow]}>
         <View style={styles.rowLead}>

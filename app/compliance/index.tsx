@@ -14,6 +14,10 @@ import { ComplianceExportConfirmModal } from "@/features/tripCompliance/componen
 import { CompliancePaymentConfirmModal } from "@/features/tripCompliance/components/CompliancePaymentConfirmModal";
 import { ComplianceSegmentedFilter } from "@/features/tripCompliance/components/ComplianceSegmentedFilter";
 import { ComplianceTripsTable } from "@/features/tripCompliance/components/ComplianceTripsTable";
+import {
+    COMPLIANCE_QUEUE_WINDOW_SIZE,
+    useComplianceListWindow,
+} from "@/features/tripCompliance/hooks/useComplianceListWindow";
 import { useComplianceListTripFacts } from "@/features/tripCompliance/hooks/useComplianceListTripFacts";
 import { useComplianceProductEnabled } from "@/features/tripCompliance/hooks/useComplianceProductEnabled";
 import {
@@ -23,6 +27,7 @@ import {
     useComplianceStageFilter,
     useComplianceTripsQuery,
     type ComplianceQueueFilter,
+    type ComplianceStageCounts,
 } from "@/features/tripCompliance/hooks/useComplianceTripsQuery";
 import { tripAppearsInAwaitingPod } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
@@ -103,7 +108,7 @@ import { useMemberAccess } from "@/lib/useMemberAccess";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Download, FileText, LayoutGrid, Search, Table2, Wallet } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type TextStyle } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useWindowDimensions, View, type LayoutChangeEvent, type NativeSyntheticEvent, type NativeScrollEvent, type TextStyle } from "react-native";
 
 function complianceQueueLabel(stage: ComplianceQueueFilter): string {
   if (stage === "all") return "All";
@@ -111,34 +116,16 @@ function complianceQueueLabel(stage: ComplianceQueueFilter): string {
   return COMPLIANCE_STAGE_FILTER_LABEL[stage];
 }
 
-function StageDeptGroup({
-  department,
-  children,
-}: {
-  department: string;
-  children: React.ReactNode;
-}) {
-  const [chipsWidth, setChipsWidth] = useState<number | undefined>(undefined);
-  return (
-    <View style={styles.stageDeptGroup}>
-      <Text
-        style={[styles.stageDeptLabel, chipsWidth != null ? { width: chipsWidth } : null]}
-        numberOfLines={1}
-      >
-        {department}
-      </Text>
-      <View
-        style={styles.stageDeptChips}
-        onLayout={(e) => {
-          const next = Math.round(e.nativeEvent.layout.width);
-          setChipsWidth((prev) => (prev === next ? prev : next));
-        }}
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
+const STAGE_DEPT_GROUPS = [
+  { department: "Ground Ops", stages: ["pending_for_docs"] },
+  { department: "Compliance", stages: ["compliance_pending"] },
+  {
+    department: "Finance",
+    stages: ["compliance_verified", "advance_payment_processed"],
+  },
+  { department: "Debit", stages: ["hard_copy_pod_received"] },
+  { department: "Finance", stages: ["balance_pending"] },
+] as const;
 
 function StageChip({
   label,
@@ -146,42 +133,155 @@ function StageChip({
   countColor,
   active,
   onPress,
+  caption,
+  reserveCaption = false,
 }: {
   label: string;
   count: number;
   countColor: string;
   active: boolean;
   onPress: () => void;
+  caption?: string;
+  reserveCaption?: boolean;
 }) {
+  const showCaptionCol = Boolean(caption) || reserveCaption;
   return (
     <TouchableOpacity
       onPress={onPress}
+      activeOpacity={0.88}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
-      style={[styles.chip, active && styles.chipActive]}
+      style={styles.chipStack}
       hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
     >
-      <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
-        {label}
-      </Text>
-      {count > 0 ? (
-        <View
-          style={[
-            styles.chipCountBadge,
-            { backgroundColor: active ? Theme.buttonDarkText : countColor },
-          ]}
-        >
-          <Text
+      <View style={[styles.chip, active && styles.chipActive]}>
+        <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+          {label}
+        </Text>
+        {count > 0 ? (
+          <View
             style={[
-              styles.chipCount,
-              { color: active ? Theme.buttonDark : Theme.buttonDarkText },
+              styles.chipCountBadge,
+              { backgroundColor: active ? Theme.cardWhite : countColor },
             ]}
           >
-            {count}
-          </Text>
-        </View>
+            <Text
+              style={[
+                styles.chipCount,
+                { color: active ? Theme.liquidGoodBack : Theme.buttonDarkText },
+              ]}
+            >
+              {count}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {showCaptionCol ? (
+        caption ? (
+          <View style={styles.chipCaptionPanel}>
+            <Text style={styles.chipCaption} numberOfLines={1}>
+              {caption}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.chipCaptionSlot} />
+        )
       ) : null}
     </TouchableOpacity>
+  );
+}
+
+function StageFilterRail({
+  stage,
+  counts,
+  onSelectStage,
+}: {
+  stage: ComplianceQueueFilter;
+  counts: ComplianceStageCounts;
+  onSelectStage: (next: ComplianceQueueFilter) => void;
+}) {
+  return (
+    <View style={styles.stageTrack} accessibilityRole="tablist">
+      <StageChip
+        label="All"
+        count={counts.all}
+        countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
+        active={stage === "all"}
+        onPress={() => onSelectStage("all")}
+        reserveCaption
+      />
+      {STAGE_DEPT_GROUPS.map((group) =>
+        group.stages.map((item) => (
+          <StageChip
+            key={item}
+            label={COMPLIANCE_STAGE_FILTER_LABEL[item]}
+            count={
+              item === "balance_pending"
+                ? counts.balance_pending + counts.payment_settled
+                : counts[item]
+            }
+            countColor={COMPLIANCE_FILTER_COUNT_TONE[item]}
+            active={stage === item}
+            onPress={() => onSelectStage(item)}
+            caption={group.department}
+          />
+        )),
+      )}
+    </View>
+  );
+}
+
+type TableQueueScrollEvent = NativeSyntheticEvent<NativeScrollEvent>;
+
+function TableQueueScroll({
+  onScroll,
+  onContentSizeChange,
+  onLayout,
+  fillIfShort,
+  loadingMore,
+  hasMore,
+  allLoaded,
+  total,
+  children,
+}: {
+  onScroll: (event: TableQueueScrollEvent) => void;
+  onContentSizeChange: (width: number, height: number) => void;
+  onLayout: (event: LayoutChangeEvent) => void;
+  fillIfShort: () => void;
+  loadingMore: boolean;
+  hasMore: boolean;
+  allLoaded: boolean;
+  total: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <ScrollView
+      style={styles.queueScroll}
+      contentContainerStyle={styles.queueScrollContent}
+      keyboardShouldPersistTaps="handled"
+      onScroll={onScroll}
+      scrollEventThrottle={16}
+      onContentSizeChange={onContentSizeChange}
+      onLayout={onLayout}
+    >
+      {children}
+      {loadingMore ? (
+        <View style={styles.tableLoadMore} accessibilityLabel="Loading more trips">
+          <ActivityIndicator size="small" color={Theme.textMuted} />
+        </View>
+      ) : null}
+      {hasMore && !loadingMore ? (
+        <View
+          style={styles.tableLoadSentinel}
+          onLayout={() => fillIfShort()}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+      ) : null}
+      {allLoaded && total > COMPLIANCE_QUEUE_WINDOW_SIZE ? (
+        <Text style={styles.tableLoadEnd}>All trips loaded</Text>
+      ) : null}
+    </ScrollView>
   );
 }
 
@@ -634,7 +734,7 @@ export default function ComplianceScreen() {
             rejected: pendingDocsRejectedCountScoped,
           }}
           options={[
-            { id: "all", label: "All", dot: null },
+            { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
             {
               id: "hold",
               label: "Compliance Hold",
@@ -703,7 +803,7 @@ export default function ComplianceScreen() {
             finance_declined: financeDeclinedCount,
           }}
           options={[
-            { id: "all", label: "All", dot: null },
+            { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
             {
               id: "hold",
               label: "Compliance Hold",
@@ -735,16 +835,19 @@ export default function ComplianceScreen() {
             embedded ? styles.verifiedFilterRowTable : styles.verifiedFilterRowCard,
           ]}
         >
-          <View style={styles.verifiedFilterGroup}>
-            <Text style={styles.verifiedFilterGroupLabel}>Queue</Text>
+          <View style={embedded ? styles.verifiedFilterGroupTable : styles.verifiedFilterGroupQueue}>
+            <View style={styles.verifiedFilterGroupLabelPanel}>
+              <Text style={styles.verifiedFilterGroupLabel}>Queue</Text>
+            </View>
             <ComplianceSegmentedFilter
               embedded
               compact
               cardDense={cardDense}
+              narrow={!embedded}
               value={verifiedSlice}
               counts={verifiedCounts}
               options={[
-                { id: "all", label: "All", dot: null },
+                { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
                 {
                   id: "verified",
                   label: "Verified",
@@ -755,8 +858,10 @@ export default function ComplianceScreen() {
               onChange={setVerifiedSlice}
             />
           </View>
-          <View style={styles.verifiedFilterGroup}>
-            <Text style={styles.verifiedFilterGroupLabel}>Declined</Text>
+          <View style={embedded ? styles.verifiedFilterGroupTable : styles.verifiedFilterGroupDeclined}>
+            <View style={styles.verifiedFilterGroupLabelPanel}>
+              <Text style={styles.verifiedFilterGroupLabel}>Declined</Text>
+            </View>
             <ComplianceSegmentedFilter
               embedded
               compact
@@ -766,8 +871,8 @@ export default function ComplianceScreen() {
               options={[
                 {
                   id: "compliance",
-                  label: "Compliance",
-                  a11yLabel: "Compliance declined by finance",
+                  label: "Ready to Verify",
+                  a11yLabel: "Ready to Verify",
                   dot: COMPLIANCE_STAGE_TONE.compliance_pending.fg,
                 },
                 {
@@ -796,7 +901,7 @@ export default function ComplianceScreen() {
             received: podReceivedPool.length,
           }}
           options={[
-            { id: "all", label: "All", dot: null },
+            { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
             {
               id: "pending",
               label: "POD Pending",
@@ -831,7 +936,7 @@ export default function ComplianceScreen() {
             settled: settlementSettledPool.length,
           }}
           options={[
-            { id: "all", label: "All", dot: null },
+            { id: "all", label: "Inbox", a11yLabel: "Inbox", dot: null },
             {
               id: "pending",
               label: "Balance Pending",
@@ -915,6 +1020,82 @@ export default function ComplianceScreen() {
   }, [searched, stage, tableDateSort, viewMode]);
   const visible = ordered;
   const filteredTotal = ordered.length;
+  const tableResetKey = useMemo(
+    () =>
+      [
+        viewMode,
+        stage,
+        pendingSlice,
+        pendingTransitSlice,
+        verifiedSlice,
+        podSlice,
+        settlementSlice,
+        awaitingPodSubview,
+        podReceivedSubview,
+        search.trim(),
+        tableDateSort,
+      ].join("|"),
+    [
+      awaitingPodSubview,
+      pendingSlice,
+      pendingTransitSlice,
+      podReceivedSubview,
+      podSlice,
+      search,
+      settlementSlice,
+      stage,
+      tableDateSort,
+      verifiedSlice,
+      viewMode,
+    ],
+  );
+  const {
+    visibleItems: tableWindowItems,
+    hasMore: tableHasMore,
+    loadingMore: tableLoadingMore,
+    allLoaded: tableAllLoaded,
+    loadMore: loadMoreTable,
+  } = useComplianceListWindow(ordered, { resetKey: tableResetKey });
+  const tableViewportH = useRef(0);
+  const tableContentH = useRef(0);
+  const fillTableIfShort = useCallback(() => {
+    if (viewMode !== "table" || !tableHasMore || tableLoadingMore) return;
+    if (tableViewportH.current < 1 || tableContentH.current < 1) return;
+    if (tableContentH.current <= tableViewportH.current + 24) loadMoreTable();
+  }, [loadMoreTable, tableHasMore, tableLoadingMore, viewMode]);
+  useEffect(() => {
+    fillTableIfShort();
+  }, [fillTableIfShort, tableWindowItems.length]);
+  const onTableScroll = useCallback(
+    (event: TableQueueScrollEvent) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+      tableContentH.current = contentSize.height;
+      tableViewportH.current = layoutMeasurement.height;
+      if (!tableHasMore || tableLoadingMore) return;
+      if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 160) {
+        loadMoreTable();
+      }
+    },
+    [loadMoreTable, tableHasMore, tableLoadingMore],
+  );
+  const onTableContentSizeChange = useCallback((_: number, height: number) => {
+    tableContentH.current = height;
+    fillTableIfShort();
+  }, [fillTableIfShort]);
+  const onTableLayout = useCallback((event: LayoutChangeEvent) => {
+    tableViewportH.current = event.nativeEvent.layout.height;
+    fillTableIfShort();
+  }, [fillTableIfShort]);
+  const tableQueueScrollProps = {
+    onScroll: onTableScroll,
+    onContentSizeChange: onTableContentSizeChange,
+    onLayout: onTableLayout,
+    fillIfShort: fillTableIfShort,
+    loadingMore: tableLoadingMore,
+    hasMore: tableHasMore,
+    allLoaded: tableAllLoaded,
+    total: filteredTotal,
+  };
 
   const contentTopInset = layout.isDesktopWeb ? Layout.desktopTopNavOffset : layout.top;
   const pagePad = Layout.screenPaddingHorizontal;
@@ -924,7 +1105,7 @@ export default function ComplianceScreen() {
   const compactActions = width < 700;
   const searchWidthStyle = stackToolbar
     ? undefined
-    : { width: Math.min(220, Math.max(160, Math.floor(width * 0.16))) };
+    : { width: Math.min(460, Math.max(420, Math.floor(width * 0.3))) };
 
   const openTrip = useCallback(
     (tripId: string) => {
@@ -1155,7 +1336,7 @@ export default function ComplianceScreen() {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder={isNarrow ? "Search trips…" : "Search trip ID, vehicle, driver, client, or supplier"}
+            placeholder="Search trip ID, vehicle, driver, client, or supplier"
             placeholderTextColor={Theme.textSecondary}
             style={styles.searchInput as TextStyle}
             autoCorrect={false}
@@ -1172,45 +1353,7 @@ export default function ComplianceScreen() {
             contentContainerStyle={styles.stageDeptWrap}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.stageDeptGroup}>
-              <View style={styles.stageDeptLabelSpacer} />
-              <StageChip
-                label="All"
-                count={counts.all}
-                countColor={COMPLIANCE_FILTER_COUNT_TONE.all}
-                active={stage === "all"}
-                onPress={() => selectStage("all")}
-              />
-            </View>
-            {(
-              [
-                { department: "Ground Ops", stages: ["pending_for_docs"] },
-                { department: "Compliance", stages: ["compliance_pending"] },
-                {
-                  department: "Finance",
-                  stages: ["compliance_verified", "advance_payment_processed"],
-                },
-                { department: "Debit", stages: ["hard_copy_pod_received"] },
-                { department: "Finance", stages: ["balance_pending"] },
-              ] as const
-            ).map((group) => (
-              <StageDeptGroup key={`${group.department}-${group.stages[0]}`} department={group.department}>
-                {group.stages.map((s) => (
-                  <StageChip
-                    key={s}
-                    label={COMPLIANCE_STAGE_FILTER_LABEL[s]}
-                    count={
-                      s === "balance_pending"
-                        ? counts.balance_pending + counts.payment_settled
-                        : counts[s]
-                    }
-                    countColor={COMPLIANCE_FILTER_COUNT_TONE[s]}
-                    active={stage === s}
-                    onPress={() => selectStage(s)}
-                  />
-                ))}
-              </StageDeptGroup>
-            ))}
+            <StageFilterRail stage={stage} counts={counts} onSelectStage={selectStage} />
           </ScrollView>
         </View>
       </View>
@@ -1342,9 +1485,9 @@ export default function ComplianceScreen() {
           </Text>
         </View>
       ) : viewMode === "table" && stage === "advance_payment_processed" && !search.trim() ? (
-        <ScrollView style={styles.queueScroll} contentContainerStyle={styles.queueScrollContent} keyboardShouldPersistTaps="handled">
+        <TableQueueScroll {...tableQueueScrollProps}>
           <ComplianceAdvanceProcessedTable
-            summaries={visible}
+            summaries={tableWindowItems}
             organizationId={currentOrganization?.id ?? ""}
             onOpenTrip={openTrip}
             onUtrSaved={(tripId) => void syncChange({ type: "payment", tripId })}
@@ -1356,11 +1499,11 @@ export default function ComplianceScreen() {
               setCardTripId(tripId);
             }}
           />
-        </ScrollView>
+        </TableQueueScroll>
       ) : viewMode === "table" ? (
-        <ScrollView style={styles.queueScroll} contentContainerStyle={styles.queueScrollContent} keyboardShouldPersistTaps="handled">
+        <TableQueueScroll {...tableQueueScrollProps}>
           <ComplianceTripsTable
-            summaries={visible}
+            summaries={tableWindowItems}
             onOpenTrip={openTrip}
             onOpenDetails={openDetails}
             onReview={(tripId, _documentKey, scope = "trip") => {
@@ -1370,7 +1513,10 @@ export default function ComplianceScreen() {
             onVerifyDocs={(tripId) => openComplianceCard(tripId, "trip")}
             onDeclineCompliance={canMarkVerified ? declineTrip : undefined}
             onPay={(tripId) => {
-              const summary = visible.find((s) => s.trip.id === tripId) ?? summaries.find((s) => s.trip.id === tripId);
+              const summary =
+                tableWindowItems.find((s) => s.trip.id === tripId) ??
+                visible.find((s) => s.trip.id === tripId) ??
+                summaries.find((s) => s.trip.id === tripId);
               if (summary) openPay(summary);
             }}
             canManageFinance={canManageFinance}
@@ -1379,7 +1525,7 @@ export default function ComplianceScreen() {
             onDateSortChange={isAdvanceProcessedStage ? undefined : setTableDateSort}
             dateSortEnabled={!isAdvanceProcessedStage}
           />
-        </ScrollView>
+        </TableQueueScroll>
       ) : (
         <ComplianceDocumentWorkspace
           style={styles.workspaceFill}
@@ -1646,27 +1792,46 @@ const styles = StyleSheet.create({
   queueBody: { flex: 1, minHeight: 0, marginTop: 8, gap: 4 },
   queueScroll: { flex: 1, width: "100%", minWidth: 0 },
   queueScrollContent: { paddingBottom: 8, width: "100%", minWidth: 0 },
+  tableLoadMore: {
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tableLoadSentinel: {
+    height: 1,
+  },
+  tableLoadEnd: {
+    paddingTop: 8,
+    paddingBottom: 10,
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
+  },
   workspaceFill: { flex: 1, minHeight: 0 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: Theme.compliancePageBg },
   searchRow: {
     flexShrink: 0,
-    height: 24,
+    height: 34,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    borderRadius: 999,
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
     backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   searchRowStacked: {
     width: "100%",
     maxWidth: "100%",
   },
   searchRowNarrow: {
-    height: 24,
-    paddingHorizontal: 7,
+    height: 34,
+    paddingHorizontal: 12,
   },
   searchInput: {
     flex: 1,
@@ -1730,7 +1895,7 @@ const styles = StyleSheet.create({
   toolbarRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     gap: 8,
   },
   toolbarStack: {
@@ -1759,6 +1924,7 @@ const styles = StyleSheet.create({
   tableSubFilterBar: {
     width: "100%",
     alignSelf: "stretch",
+    alignItems: "center",
     marginTop: 8,
     marginBottom: 2,
   },
@@ -1766,12 +1932,23 @@ const styles = StyleSheet.create({
   verifiedFilterRow: {
     width: "100%",
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+    alignItems: "flex-end",
+    gap: 10,
   },
   /** Table: same side inset as the trip rows. */
   verifiedFilterRowTable: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    width: "100%",
     paddingHorizontal: 4,
+    gap: 10,
+  },
+  verifiedFilterGroupTable: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "stretch",
+    alignItems: "stretch",
+    gap: 4,
   },
   /** Card pane: same inset as the trip cards so the subtabs share their edges. */
   verifiedFilterRowCard: {
@@ -1788,11 +1965,34 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
     gap: 4,
   },
+  verifiedFilterGroupQueue: {
+    flexGrow: 0,
+    flexShrink: 0,
+    alignItems: "center",
+    gap: 4,
+  },
+  verifiedFilterGroupDeclined: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "stretch",
+    gap: 4,
+  },
+  verifiedFilterGroupLabelPanel: {
+    alignSelf: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
   verifiedFilterGroupLabel: {
-    width: "100%",
     textAlign: "center",
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: "600",
     letterSpacing: 0.2,
     color: Theme.textSecondary,
@@ -1814,6 +2014,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 6,
     gap: 4,
+    alignItems: "stretch",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Theme.complianceCardBorder,
     backgroundColor: Theme.cardWhite,
@@ -1839,68 +2040,105 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "nowrap",
     alignItems: "center",
-    gap: 4,
-    paddingRight: 2,
+    gap: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   stageDeptWrap: {
     flexDirection: "row",
     flexWrap: "nowrap",
     alignItems: "flex-end",
-    gap: 4,
-    paddingRight: 2,
+    paddingRight: 8,
   },
-  stageDeptGroup: {
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 3,
-  },
-  stageDeptChips: {
+  stageTrack: {
     flexDirection: "row",
+    alignItems: "flex-end",
+    paddingHorizontal: 4,
+    paddingTop: 2,
+    paddingBottom: 2,
+    borderRadius: 16,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  chipStack: {
+    flexShrink: 0,
     alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  stageDeptLabel: {
-    height: 14,
-    lineHeight: 14,
-    textAlign: "center",
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-    color: Theme.textSecondary,
-    alignSelf: "center",
-  },
-  stageDeptLabelSpacer: {
-    height: 14,
+    justifyContent: "flex-start",
+    gap: 3,
   },
   chip: {
     flexShrink: 0,
-    height: 20,
     paddingHorizontal: 6,
-    borderRadius: 999,
-    backgroundColor: Theme.cardWhite,
-    borderWidth: 1,
-    borderColor: Theme.complianceCardBorder,
+    paddingTop: 3,
+    paddingBottom: 2,
+    borderRadius: 14,
+    backgroundColor: "transparent",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
   },
   chipActive: {
-    backgroundColor: Theme.buttonDark,
-    borderColor: Theme.buttonDark,
+    backgroundColor: Theme.liquidGoodBack,
   },
-  chipText: { fontSize: 10, fontWeight: "600", color: Theme.textPrimary, lineHeight: 12 },
-  chipTextActive: { color: Theme.buttonDarkText, fontWeight: "700" },
+  chipText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    lineHeight: 13,
+  },
+  chipTextActive: {
+    color: Theme.buttonDarkText,
+    fontWeight: "500",
+  },
   chipCountBadge: {
     minWidth: 14,
     height: 12,
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
-  chipCount: { fontSize: 8, fontWeight: "700", lineHeight: 10, textAlign: "center" },
+  chipCaptionPanel: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  chipCaption: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+    color: Theme.textSecondary,
+    textAlign: "center",
+  },
+  chipCaptionSlot: {
+    height: 14,
+  },
+  chipCount: {
+    fontSize: 8,
+    fontWeight: "700",
+    lineHeight: 10,
+    textAlign: "center",
+    fontVariant: ["tabular-nums"],
+  },
   viewToggle: {
     flexShrink: 0,
     height: 26,
