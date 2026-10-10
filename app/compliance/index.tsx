@@ -43,7 +43,7 @@ import {
     rejectTripCompliance,
     type ComplianceLedgerCategory,
 } from "@/features/tripCompliance/services/tripComplianceWrite.service";
-import { COMPLIANCE_STAGE_FILTER_LABEL, COMPLIANCE_STAGES, type ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
+import { COMPLIANCE_STAGE_FILTER_LABEL, type ComplianceTripSummary } from "@/features/tripCompliance/tripCompliance.types";
 import {
     AWAITING_POD_SUBVIEW_LABEL,
     AWAITING_POD_SUBVIEW_TONE,

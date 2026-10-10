@@ -36,7 +36,6 @@ import type { ComplianceLedgerCategory } from "@/features/tripCompliance/service
 import { setTripDocumentVerification, updateCompliancePaymentReference, updateCompliancePaymentTransactionDate } from "@/features/tripCompliance/services/tripComplianceWrite.service";
 import {
   COMPLIANCE_DRIVER_DOCUMENT_TYPES,
-  COMPLIANCE_STAGE_FILTER_LABEL,
   COMPLIANCE_VEHICLE_DOCUMENT_TYPES,
   documentRequiresExpiry,
   type ComplianceStage,
@@ -670,40 +669,6 @@ function clampScreenPan(
   const visualH = (swap ? mediaW : mediaH) * Math.max(zoom, 0);
   const maxX = Math.max(0, (visualW - viewportW) / 2);
   const maxY = Math.max(0, (visualH - viewportH) / 2);
-  if (maxX <= 0 && maxY <= 0) return { x: 0, y: 0 };
-  return {
-    x: Math.min(maxX, Math.max(-maxX, x)),
-    y: Math.min(maxY, Math.max(-maxY, y)),
-  };
-}
-
-/**
- * Pan limits in screen space (pan is applied after rotate/scale).
- * Rotated 100% is contain-fitted, so pan starts only after zoom-in.
- */
-function clampPreviewPan(
-  x: number,
-  y: number,
-  scale: number,
-  width: number,
-  height: number,
-  rotation = 0,
-): { x: number; y: number } {
-  if (width <= 0 || height <= 0) return { x: 0, y: 0 };
-  const zoom = Math.max(scale, 0);
-  const fit = containScaleForRotation(width, height, rotation);
-  const effective = zoom * fit;
-  let maxX = 0;
-  let maxY = 0;
-  if (previewRotationSwapsAxes(rotation)) {
-    const visualW = height * effective;
-    const visualH = width * effective;
-    maxX = Math.max(0, (visualW - width) / 2);
-    maxY = Math.max(0, (visualH - height) / 2);
-  } else if (zoom > 1) {
-    maxX = ((zoom - 1) * width) / 2;
-    maxY = ((zoom - 1) * height) / 2;
-  }
   if (maxX <= 0 && maxY <= 0) return { x: 0, y: 0 };
   return {
     x: Math.min(maxX, Math.max(-maxX, x)),

@@ -536,7 +536,7 @@ export function ComplianceAdvanceProcessedTable({
 }) {
   const queryClient = useQueryClient();
   const rows = useMemo(() => summaries.filter((s) => s.advance), [summaries]);
-  const { data: enrichment, isPending, isFetching } = useAdvanceProcessedTable(organizationId, rows);
+  const { data: enrichment, isPending } = useAdvanceProcessedTable(organizationId, rows);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
   const visibleRows = useMemo(
