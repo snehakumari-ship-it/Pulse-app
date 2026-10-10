@@ -6,9 +6,15 @@ import type { ComplianceDocumentRow, ComplianceTripSummary } from "@/features/tr
 import type { ComplianceDocRow } from "@/features/tripCompliance/utils/complianceDocumentRows.util";
 import {
   canVerifyTrip,
+  complianceVaultDocNumber,
+  complianceVaultDocNumbers,
   deriveComplianceEwayBill,
   deriveComplianceGroupStatus,
   isComplianceDeclineActive,
+  isFinanceDeclinedForCompliancePending,
+  isFinanceDeclinedForPendingDocs,
+  isFinanceDeclinedTrip,
+  isPendingDocsComplianceHold,
 } from "@/features/tripCompliance/utils/complianceTableStatus.util";
 
 // Local-date noon so "today"/"yesterday" are unambiguous in any TZ.
@@ -118,6 +124,7 @@ describe("deriveComplianceEwayBill — pick (AC-2, AC-5)", () => {
     expect(r.number).toBe("E1");
     expect(r.validTillLabel).toBe("10-Sep-26");
     expect(r.extraCount).toBe(2);
+    expect(r.numbers).toEqual(["E1", "E2", "E3"]);
   });
 });
 
@@ -191,6 +198,7 @@ describe("deriveComplianceEwayBill — empty (AC-4)", () => {
       validTillLabel: null,
       expired: false,
       extraCount: 0,
+      numbers: [],
     });
   });
 });
@@ -288,6 +296,19 @@ describe("canVerifyTrip (AC-19, AC-22) [D2]", () => {
       reason: "Trip compliance already verified",
     });
   });
+
+  it("finance-declined (Verified Reject) may be re-verified when docs are ready", () => {
+    expect(
+      canVerifyTrip(
+        summary({
+          documents: VERIFIED_TRIP_DOCS,
+          complianceVerifiedAt: "2026-09-01T00:00:00Z",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "Memo missing",
+        }),
+      ),
+    ).toEqual({ allowed: true, reason: null });
+  });
 });
 
 describe("isComplianceDeclineActive (AC-26, AC-28)", () => {
@@ -303,5 +324,130 @@ describe("isComplianceDeclineActive (AC-26, AC-28)", () => {
         summary({ complianceDeclinedAt: "2026-09-02T00:00:00Z", complianceVerifiedAt: "2026-09-03T00:00:00Z" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("isFinanceDeclinedTrip", () => {
+  it("true only when a verified trip was declined", () => {
+    expect(isFinanceDeclinedTrip(summary({}))).toBe(false);
+    expect(
+      isFinanceDeclinedTrip(summary({ complianceDeclinedAt: "2026-09-02T00:00:00Z" })),
+    ).toBe(false);
+    expect(
+      isFinanceDeclinedTrip(
+        summary({ complianceDeclinedAt: "2026-09-02T00:00:00Z", complianceVerifiedAt: "2026-09-01T00:00:00Z" }),
+      ),
+    ).toBe(true);
+    expect(
+      isFinanceDeclinedTrip(
+        summary({ complianceDeclinedAt: "2026-10-01T10:07:50Z", complianceVerifiedAt: "2026-10-01T10:26:36Z" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves Declined by finance after compliance re-verifies (verified_at later)", () => {
+    const declined = summary({
+      complianceVerifiedAt: "2026-09-01T00:00:00Z",
+      complianceDeclinedAt: "2026-09-02T00:00:00Z",
+      complianceDeclineReason: "Memo missing",
+    });
+    expect(isFinanceDeclinedTrip(declined)).toBe(true);
+    expect(isFinanceDeclinedForCompliancePending(declined)).toBe(true);
+
+    const reVerified = summary({
+      complianceVerifiedAt: "2026-09-03T00:00:00Z",
+      complianceDeclinedAt: "2026-09-02T00:00:00Z",
+      complianceDeclineReason: "Memo missing",
+    });
+    expect(isFinanceDeclinedTrip(reVerified)).toBe(false);
+    expect(isFinanceDeclinedForCompliancePending(reVerified)).toBe(false);
+    expect(isFinanceDeclinedForPendingDocs(reVerified)).toBe(false);
+  });
+});
+
+describe("finance reject queue routing", () => {
+  const base = {
+    complianceVerifiedAt: "2026-09-01T00:00:00Z",
+    complianceDeclinedAt: "2026-09-02T00:00:00Z",
+  };
+
+  it("sends Truck No / document rejects to Pending Docs → Rejected", () => {
+    const trip = summary({ ...base, complianceDeclineReason: "Truck No mismatch" });
+    expect(isFinanceDeclinedForPendingDocs(trip)).toBe(true);
+    expect(isFinanceDeclinedForCompliancePending(trip)).toBe(false);
+  });
+
+  it("sends Memo / vendor rejects to Compliance Pending → Declined by finance", () => {
+    const trip = summary({ ...base, complianceDeclineReason: "Memo missing" });
+    expect(isFinanceDeclinedForPendingDocs(trip)).toBe(false);
+    expect(isFinanceDeclinedForCompliancePending(trip)).toBe(true);
+  });
+
+  it("marks pre-verify holds on Pending Docs only when exclusive stage is pending_for_docs", () => {
+    expect(
+      isPendingDocsComplianceHold(
+        summary({
+          stage: "pending_for_docs",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "bad LR",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isPendingDocsComplianceHold(
+        summary({
+          stage: "compliance_pending",
+          complianceDeclinedAt: "2026-09-02T00:00:00Z",
+          complianceDeclineReason: "bad LR",
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("complianceVaultDocNumber", () => {
+  it("reads the invoice number ground ops typed in Asset Vault", () => {
+    const number = complianceVaultDocNumber(
+      [doc({ document_type: "invoice", document_number: "45821" })],
+      "invoice",
+    );
+    expect(number).toBe("45821");
+  });
+
+  it("lists every e-way bill and every LR, not only the first", () => {
+    expect(
+      complianceVaultDocNumbers(
+        [
+          doc({
+            document_type: "eway_bill",
+            document_number: JSON.stringify({
+              entries: [{ ewayNo: "111" }, { ewayNo: "222" }, { ewayNo: "333" }],
+            }),
+          }),
+        ],
+        "eway_bill",
+      ),
+    ).toEqual(["111", "222", "333"]);
+    expect(
+      complianceVaultDocNumbers(
+        [
+          doc({ document_type: "lr", document_number: "BHD1" }),
+          doc({ document_type: "lr", document_number: "BHD2", id: "lr-2" }),
+        ],
+        "lr",
+      ),
+    ).toEqual(["BHD1", "BHD2"]);
+  });
+
+  it("reads the LR number and the e-way number", () => {
+    expect(
+      complianceVaultDocNumber([doc({ document_type: "lr", document_number: "BHD" })], "lr"),
+    ).toBe("BHD");
+    expect(
+      complianceVaultDocNumber(
+        [doc({ document_type: "eway_bill", document_number: JSON.stringify({ ewayNo: "1234", validTill: "04-Sep-26" }) })],
+        "eway_bill",
+      ),
+    ).toBe("1234");
   });
 });

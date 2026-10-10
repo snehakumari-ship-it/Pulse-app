@@ -10,16 +10,36 @@ import { HardCopyPodPhotoUpload } from "@/features/trips/components/trip-detail/
 import {
   encodeHardCopyPodComment,
   fetchTripHardCopyPodState,
+  loadLrPodIndexByTripIds,
   logTripHardCopyPodCourier,
   markTripHardCopyPodReceived,
+  normalizeTripPodId,
+  saveTripIbondReceipt,
   type HardCopyPodReceiptMethod,
   type HardCopyPodStatus,
   type TripHardCopyPodState,
 } from "@/features/trips/services/tripDocumentLrPod.service";
-import { syncHardCopyPodRecord } from "@/lib/queries/invalidateHardCopyPodCaches";
+import { showAppAlert } from "@/lib/appAlert";
+import { queryKeys } from "@/lib/queryKeys";
+import {
+  publishHardCopyPodState,
+  syncHardCopyPodRecord,
+} from "@/lib/queries/invalidateHardCopyPodCaches";
+import {
+  hardCopyPodLrKey,
+  selectedHardCopyPodTripIds,
+  type HardCopyPodLrOption,
+} from "@/features/trips/utils/hardCopyPodLrSelection.util";
+import {
+  courierLrReceiptPlan,
+  decodeCourierLrRemarks,
+  encodeCourierLrRemarks,
+  hardCopyPodLrAlreadyReceived,
+  lrReceiptForTrip,
+} from "@/features/trips/utils/lrReceiptStatus.util";
 import Feather from "@expo/vector-icons/Feather";
 import { useQueryClient } from "@tanstack/react-query";
-import { createElement, useCallback, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,12 +66,26 @@ const HARD_COPY_POD_COURIERS = [
   "India Post",
 ] as const;
 
+function todayIsoDate(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function dateOrToday(value: string | null | undefined): string {
+  const trimmed = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : todayIsoDate();
+}
+
 function courierNameOptions(current: string): string[] {
   const saved = current.trim();
   const base: string[] = [...HARD_COPY_POD_COURIERS];
   if (!saved || base.includes(saved)) return base;
   return [saved, ...base];
 }
+
+export type { HardCopyPodLrOption };
 
 export type HardCopyPodManifestSummary = {
   manifestId: string;
@@ -60,6 +94,8 @@ export type HardCopyPodManifestSummary = {
   delivery: string;
   driverName: string;
   vehicleLabel: string;
+  vehicleType?: string | null;
+  vendorName?: string | null;
 };
 
 type Mode = "create" | "view" | "mark_received";
@@ -98,15 +134,25 @@ export function LogHardCopyPodModal({
   summary,
   initialMode = "create",
   onUpdated,
+  lrOptions = [],
+  inline = false,
 }: {
   visible: boolean;
+  /** Render the panel in place (no modal, overlay, or close button). `onClose` fires after save. */
+  inline?: boolean;
   onClose: () => void;
   tripId: string;
   organizationId?: string | null;
   canManage: boolean;
   summary: HardCopyPodManifestSummary;
   initialMode?: Mode;
-  onUpdated?: () => void;
+  /** Called with every trip the courier docket was saved for. */
+  onUpdated?: (tripIds?: string[]) => void | Promise<void>;
+  /**
+   * LRs that can share this docket. Trip ID is taken from each LR.
+   * The opened trip's own LRs are merged in when this list omits them.
+   */
+  lrOptions?: HardCopyPodLrOption[];
 }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -116,18 +162,27 @@ export function LogHardCopyPodModal({
   const [mode, setMode] = useState<Mode>(initialMode);
   const [loadingState, setLoadingState] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [ibondOn, setIbondOn] = useState(false);
+  const ibondOnRef = useRef(false);
+  const methodBeforeIbond = useRef<HardCopyPodReceiptMethod | null>(null);
   const [podState, setPodState] = useState<TripHardCopyPodState | null>(null);
 
   const [method, setMethod] = useState<HardCopyPodReceiptMethod | null>(null);
   const [receivedBy, setReceivedBy] = useState("");
-  const [receivedDate, setReceivedDate] = useState("");
+  const [receivedDate, setReceivedDate] = useState(todayIsoDate);
   const [receivedTime, setReceivedTime] = useState("");
   const [courierName, setCourierName] = useState("");
   const [awbNumber, setAwbNumber] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState(todayIsoDate);
   const [remarks, setRemarks] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [lrNumber, setLrNumber] = useState("—");
+  const [loadedLrOptions, setLoadedLrOptions] = useState<HardCopyPodLrOption[]>([]);
+  const [selectedLrKeys, setSelectedLrKeys] = useState<string[]>([]);
+  const [lrQuery, setLrQuery] = useState("");
+  const [storedReceivedLrs, setStoredReceivedLrs] = useState<string[]>([]);
+  const lrSelectionScope = useRef("");
 
   const refreshState = useCallback(async () => {
     setLoadingState(true);
@@ -142,14 +197,29 @@ export function LogHardCopyPodModal({
   }, [tripId]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setStoredReceivedLrs([]);
+      return;
+    }
     setMode(initialMode);
     setErrors({});
     void refreshState().then((state) => {
       if (!state) return;
-      if (state.status === "RECEIVED" || state.status === "IN_TRANSIT") {
+      if (state.status === "RECEIVED") {
+        publishHardCopyPodState(queryClient, tripId, state);
+      }
+      const decodedRemarks = decodeCourierLrRemarks(state.remarks);
+      const applyMethod = (next: HardCopyPodReceiptMethod | null) => {
+        if (ibondOnRef.current) {
+          methodBeforeIbond.current = next;
+          setMethod(null);
+          return;
+        }
+        setMethod(next);
+      };
+      if (state.status === "RECEIVED" || (state.status === "IN_TRANSIT" && initialMode !== "create")) {
         setMode(initialMode === "mark_received" ? "mark_received" : "view");
-        setMethod(state.receiptMethod);
+        applyMethod(state.receiptMethod);
         setReceivedBy(state.receivedBy ?? "");
         setReceivedDate(state.receivedDate ?? "");
         setReceivedTime(state.receivedTime ?? "");
@@ -157,29 +227,172 @@ export function LogHardCopyPodModal({
         setAwbNumber(state.awbNumber ?? "");
         setDispatchDate(state.dispatchDate ?? "");
         setExpectedDeliveryDate(state.expectedDeliveryDate ?? "");
-        setRemarks(state.remarks ?? "");
+        setRemarks(decodedRemarks.text ?? "");
+        setStoredReceivedLrs(decodedRemarks.receivedLrs);
+      } else if (state.status === "IN_TRANSIT") {
+        setMode("create");
+        applyMethod(state.receiptMethod === "person" ? "person" : "courier");
+        setReceivedBy(state.receivedBy ?? "");
+        setReceivedDate(dateOrToday(state.receivedDate));
+        setReceivedTime(state.receivedTime ?? "");
+        setCourierName(state.courier ?? "");
+        setAwbNumber(state.awbNumber ?? "");
+        setDispatchDate(state.dispatchDate ?? "");
+        setExpectedDeliveryDate(dateOrToday(state.expectedDeliveryDate));
+        setRemarks(decodedRemarks.text ?? "");
+        setStoredReceivedLrs(decodedRemarks.receivedLrs);
       } else {
         setMode("create");
-        setMethod(null);
+        applyMethod(null);
         setReceivedBy("");
-        setReceivedDate("");
+        setReceivedDate(todayIsoDate());
         setReceivedTime("");
         setCourierName("");
         setAwbNumber("");
         setDispatchDate("");
-        setExpectedDeliveryDate("");
+        setExpectedDeliveryDate(todayIsoDate());
         setRemarks("");
+        setStoredReceivedLrs([]);
       }
     });
-  }, [visible, initialMode, refreshState]);
+  }, [visible, initialMode, queryClient, refreshState, tripId]);
 
-  const invalidate = useCallback(async () => {
-    await syncHardCopyPodRecord(queryClient, {
-      tripId,
-      organizationId,
+  useEffect(() => {
+    if (!visible || !tripId.trim()) {
+      setLrNumber("—");
+      setLoadedLrOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const displayId =
+      summary.manifestId.trim() && summary.manifestId.trim() !== "—"
+        ? summary.manifestId.trim()
+        : tripId;
+    void loadLrPodIndexByTripIds([tripId]).then((index) => {
+      if (cancelled) return;
+      const numbers = index.get(normalizeTripPodId(tripId))?.lrNumbers ?? [];
+      setLrNumber(numbers.length > 0 ? numbers.join(", ") : "—");
+      setLoadedLrOptions(
+        numbers.map((lrNumber) => ({
+          lrNumber,
+          tripId,
+          tripDisplayId: displayId,
+        })),
+      );
     });
-    onUpdated?.();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, tripId, summary.manifestId]);
+
+  const lrChoices = useMemo(() => {
+    const byKey = new Map<string, HardCopyPodLrOption>();
+    // Passed-in document rows already name the upload trip. The opened-trip
+    // index is only a fallback for callers that do not pass those rows.
+    const source = lrOptions.length > 0 ? lrOptions : loadedLrOptions;
+    for (const option of source) {
+      const trip = option.tripId.trim();
+      const lr = option.lrNumber.trim();
+      if (!trip || !lr || lr === "—") continue;
+      const row = {
+        lrNumber: lr,
+        tripId: trip,
+        tripDisplayId: option.tripDisplayId.trim() || trip,
+        alreadyReceived: option.alreadyReceived === true,
+      };
+      byKey.set(hardCopyPodLrKey(row), row);
+    }
+    return Array.from(byKey.values());
+  }, [loadedLrOptions, lrOptions]);
+
+  useEffect(() => {
+    if (!visible) {
+      lrSelectionScope.current = "";
+      setLrQuery("");
+      return;
+    }
+    const scope = `${tripId}|${lrChoices
+      .map((option) => `${hardCopyPodLrKey(option)}:${option.alreadyReceived ? 1 : 0}`)
+      .join(",")}|${storedReceivedLrs.join(",")}`;
+    if (lrSelectionScope.current === scope) return;
+    lrSelectionScope.current = scope;
+    const own = lrChoices.filter((option) => option.tripId === tripId);
+    const pending = own.filter(
+      (option) => !hardCopyPodLrAlreadyReceived(option, tripId, storedReceivedLrs),
+    );
+    const hasPrior = pending.length !== own.length;
+    setSelectedLrKeys((hasPrior ? pending : own).map(hardCopyPodLrKey));
+  }, [visible, tripId, lrChoices, storedReceivedLrs]);
+
+  const selectedLrRows = useMemo(
+    () => lrChoices.filter((option) => selectedLrKeys.includes(hardCopyPodLrKey(option))),
+    [lrChoices, selectedLrKeys],
+  );
+
+  const tripDisplayId =
+    summary.manifestId.trim() && summary.manifestId.trim() !== "—"
+      ? summary.manifestId.trim()
+      : tripId;
+  const cardLrNumber = useMemo(() => {
+    const own = lrChoices
+      .filter((option) => option.tripId === tripId)
+      .map((option) => option.lrNumber.trim())
+      .filter(Boolean);
+    if (own.length > 0) return Array.from(new Set(own)).join(", ");
+    return lrNumber.trim() || "—";
+  }, [lrChoices, lrNumber, tripId]);
+  const openedLrReceipt = useMemo(() => {
+    const own = lrChoices.filter((option) => option.tripId === tripId).map((option) => option.lrNumber);
+    const prior = lrChoices
+      .filter(
+        (option) =>
+          option.tripId === tripId && hardCopyPodLrAlreadyReceived(option, tripId, storedReceivedLrs),
+      )
+      .map((option) => option.lrNumber);
+    return lrReceiptForTrip(own.length > 0 ? own : [], [...prior, ...storedReceivedLrs]);
+  }, [lrChoices, storedReceivedLrs, tripId]);
+  const receivedLrKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const option of lrChoices) {
+      if (hardCopyPodLrAlreadyReceived(option, tripId, storedReceivedLrs)) keys.add(hardCopyPodLrKey(option));
+    }
+    return keys;
+  }, [lrChoices, storedReceivedLrs, tripId]);
+
+  const invalidate = useCallback(async (tripIds?: string[]) => {
+    const ids = Array.from(
+      new Set((tripIds?.length ? tripIds : [tripId]).map((id) => id.trim()).filter(Boolean)),
+    );
+    await Promise.all(
+      ids.map((id) =>
+        syncHardCopyPodRecord(queryClient, {
+          tripId: id,
+          organizationId,
+        }),
+      ),
+    );
+    await onUpdated?.(ids);
   }, [onUpdated, organizationId, queryClient, tripId]);
+
+  const toggleIbond = useCallback(() => {
+    if (!canManage || saving || podState?.status === "RECEIVED") return;
+    if (ibondOn) {
+      ibondOnRef.current = false;
+      setIbondOn(false);
+      setMethod(methodBeforeIbond.current);
+      methodBeforeIbond.current = null;
+      return;
+    }
+    methodBeforeIbond.current = method;
+    setMethod(null);
+    ibondOnRef.current = true;
+    setErrors((current) => {
+      if (!current.method) return current;
+      const { method: _method, ...rest } = current;
+      return rest;
+    });
+    setIbondOn(true);
+  }, [canManage, ibondOn, method, podState?.status, saving]);
 
   const validateCreate = useCallback((): boolean => {
     const next: Record<string, string> = {};
@@ -189,9 +402,11 @@ export function LogHardCopyPodModal({
       if (!receivedBy.trim()) next.receivedBy = "Person name is required.";
       if (!receivedDate.trim()) next.receivedDate = "Received date is required.";
     } else {
+      if (lrChoices.length > 0 && selectedLrRows.length === 0) {
+        next.lrSelection = "Select at least one LR number.";
+      }
       if (!courierName.trim()) next.courierName = "Courier name is required.";
       if (!awbNumber.trim()) next.awbNumber = "Tracking / AWB number is required.";
-      if (!dispatchDate.trim()) next.dispatchDate = "Dispatch date is required.";
       if (!expectedDeliveryDate.trim()) {
         next.expectedDeliveryDate = "Received delivery date is required.";
       }
@@ -201,11 +416,12 @@ export function LogHardCopyPodModal({
   }, [
     awbNumber,
     courierName,
-    dispatchDate,
     expectedDeliveryDate,
+    lrChoices.length,
     method,
     receivedBy,
     receivedDate,
+    selectedLrRows.length,
   ]);
 
   const validateMarkReceived = useCallback((): boolean => {
@@ -218,11 +434,39 @@ export function LogHardCopyPodModal({
 
   const handleSaveCreate = useCallback(async () => {
     if (!canManage || saving) return;
+    if (ibondOn) {
+      setSaving(true);
+      try {
+        const savedIbond = await saveTripIbondReceipt(tripId);
+        if (savedIbond.error) {
+          showAppAlert("Hard Copy POD", savedIbond.error.message);
+          return;
+        }
+        await invalidate();
+        const saved = queryClient.getQueryData<TripHardCopyPodState>(
+          queryKeys.trips.hardCopyPod(tripId),
+        );
+        if (!(saved?.status === "RECEIVED" && saved.ibond)) {
+          publishHardCopyPodState(
+            queryClient,
+            tripId,
+            ibondReceivedState(saved ?? podState, savedIbond),
+          );
+        }
+        onClose();
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : "Couldn't save IBond.";
+        showAppAlert("Hard Copy POD", message);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!validateCreate() || !method) {
       Alert.alert(
         "Hard Copy POD",
         method === "courier"
-          ? "Enter courier name, tracking number, dispatch date, and received delivery date."
+          ? "Select the LR numbers, then enter courier name, docket number, dispatch date, and received date."
           : "Enter who received the POD and the received date.",
       );
       return;
@@ -256,34 +500,76 @@ export function LogHardCopyPodModal({
         dispatchDate,
         expectedDeliveryDate,
       });
-      const logged = await logTripHardCopyPodCourier(tripId, {
-        courier: courierName.trim(),
-        awbNumber: awbNumber.trim(),
-        dispatchDate,
-        expectedDeliveryDate: expectedDeliveryDate || null,
-        remarks: remarks || null,
-      });
-      const recorded = await markTripHardCopyPodReceived(tripId, {
-        courier: courierName.trim(),
-        awbNumber: awbNumber.trim(),
-        comment,
-      });
+      const tripIds = selectedHardCopyPodTripIds(lrChoices, new Set(selectedLrKeys));
+      const targets = tripIds.length > 0 ? tripIds : [tripId];
+      const selectedKeys = new Set(selectedLrKeys);
+      const saved: string[] = [];
+      let firstError: string | null = null;
+      let already = 0;
+      let stayedPartial = 0;
+      for (const id of targets) {
+        const plan = courierLrReceiptPlan({
+          tripId: id,
+          options: lrChoices,
+          selectedKeys,
+          openedTripId: tripId,
+          storedReceivedLrs,
+        });
+        const logged = await logTripHardCopyPodCourier(id, {
+          courier: courierName.trim(),
+          awbNumber: awbNumber.trim(),
+          dispatchDate,
+          expectedDeliveryDate: expectedDeliveryDate || null,
+          remarks: encodeCourierLrRemarks({ text: remarks, receivedLrs: plan.receivedLrs }),
+        });
+        if (!plan.complete) {
+          if (logged.error) {
+            firstError = firstError ?? logged.error.message;
+            continue;
+          }
+          saved.push(id);
+          if (logged.alreadyReceived) already += 1;
+          else stayedPartial += 1;
+          continue;
+        }
+        const recorded = await markTripHardCopyPodReceived(id, {
+          courier: courierName.trim(),
+          awbNumber: awbNumber.trim(),
+          comment,
+        });
+        if (recorded.error && logged.error) {
+          firstError = firstError ?? recorded.error.message;
+          continue;
+        }
+        saved.push(id);
+        if (recorded.alreadyReceived && logged.alreadyReceived) already += 1;
+      }
       setSaving(false);
-      if (recorded.error && logged.error) {
-        Alert.alert("Hard Copy POD", recorded.error.message);
+      if (saved.length === 0) {
+        Alert.alert("Hard Copy POD", firstError ?? "Couldn't save the courier POD.");
         return;
       }
-      if (recorded.error && !logged.error) {
-        await invalidate();
-        onClose();
-        return;
-      }
-      if (recorded.alreadyReceived && logged.alreadyReceived) {
+      await invalidate(saved);
+      if (firstError) {
         Alert.alert(
           "Hard Copy POD",
-          "This trip's hard-copy POD was already marked received.",
+          `Saved ${saved.length} of ${targets.length} trips. ${firstError}`,
+        );
+      } else if (stayedPartial > 0) {
+        Alert.alert(
+          "Hard Copy POD",
+          stayedPartial === saved.length
+            ? "Recorded the received LRs. This trip stays in Partial Received POD until every LR is received."
+            : "Recorded the received LRs. Trips that still have a pending LR stay in Partial Received POD.",
+        );
+      } else if (already === saved.length) {
+        Alert.alert(
+          "Hard Copy POD",
+          "These trips' hard-copy PODs were already marked received.",
         );
       }
+      onClose();
+      return;
     }
     await invalidate();
     onClose();
@@ -293,14 +579,20 @@ export function LogHardCopyPodModal({
     courierName,
     dispatchDate,
     expectedDeliveryDate,
+    ibondOn,
     invalidate,
+    lrChoices,
     method,
     onClose,
+    podState,
+    queryClient,
     receivedBy,
     receivedDate,
     receivedTime,
     remarks,
     saving,
+    selectedLrKeys,
+    storedReceivedLrs,
     tripId,
     validateCreate,
   ]);
@@ -367,59 +659,96 @@ export function LogHardCopyPodModal({
   const readOnly = mode === "view";
   const showCreateForm = mode === "create";
   const showMarkReceived = mode === "mark_received";
+  const compact = inline;
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType={isNarrow ? "slide" : "fade"}
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+  const panel = (
         <View
           style={[
             styles.panel,
-            {
-              width: isNarrow ? "100%" : panelWidth,
-              maxWidth: isNarrow ? "100%" : 480,
-              paddingTop: isNarrow ? insets.top + 12 : 20,
-              paddingBottom: Math.max(insets.bottom, 16),
-              alignSelf: isNarrow ? "stretch" : "flex-end",
-              height: isNarrow ? "100%" : "100%",
-              borderTopLeftRadius: isNarrow ? 0 : 16,
-              borderBottomLeftRadius: isNarrow ? 0 : 16,
-            },
+            inline
+              ? styles.panelInline
+              : {
+                  width: isNarrow ? "100%" : panelWidth,
+                  maxWidth: isNarrow ? "100%" : 480,
+                  paddingTop: isNarrow ? insets.top + 12 : 20,
+                  paddingBottom: Math.max(insets.bottom, 16),
+                  alignSelf: isNarrow ? "stretch" : "flex-end",
+                  height: isNarrow ? "100%" : "100%",
+                  borderTopLeftRadius: isNarrow ? 0 : 16,
+                  borderBottomLeftRadius: isNarrow ? 0 : 16,
+                },
+            compact && styles.panelSplit,
+            compact && isNarrow && styles.panelSplitStacked,
           ]}
         >
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.title}>{title}</Text>
-              <Text style={styles.subtitle}>{subtitle}</Text>
+          <View
+            style={[
+              compact ? styles.splitForm : styles.splitFill,
+              compact && isNarrow && styles.splitFormStacked,
+            ]}
+          >
+          <View style={[styles.headerRow, compact && styles.headerRowCompact]}>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+              <Text style={[styles.subtitle, compact && styles.subtitleCompact]} numberOfLines={2}>
+                {subtitle}
+              </Text>
             </View>
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              style={styles.closeBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Close hard copy POD"
-            >
-              <Feather name="x" size={18} color={Theme.textMuted} />
-            </Pressable>
+            {showCreateForm && canManage && podState?.status !== "RECEIVED" ? (
+              <Pressable
+                style={[styles.ibondRow, styles.ibondRowHeader, compact && styles.ibondRowCompact]}
+                onPress={toggleIbond}
+                disabled={saving}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: ibondOn, disabled: saving }}
+                accessibilityLabel="IBond"
+              >
+                <View style={[styles.ibondBox, ibondOn && styles.ibondBoxOn]}>
+                  {ibondOn ? <Feather name="check" size={12} color={Theme.cardWhite} /> : null}
+                </View>
+                <Text style={styles.ibondLabel}>IBond</Text>
+              </Pressable>
+            ) : null}
+            {inline ? null : (
+              <Pressable
+                onPress={onClose}
+                hitSlop={10}
+                style={styles.closeBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close hard copy POD"
+              >
+                <Feather name="x" size={18} color={Theme.textMuted} />
+              </Pressable>
+            )}
           </View>
 
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={styles.scrollBody}
+            contentContainerStyle={[styles.scrollBody, compact && styles.scrollBodyCompact]}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.summaryCard}>
+            <View style={[styles.summaryCard, compact && styles.summaryCardCompact]}>
               <SummaryRow label="Manifest ID" value={summary.manifestId} />
+              <SummaryRow label="LR Number" value={cardLrNumber} />
+              {openedLrReceipt.received.length + openedLrReceipt.pending.length > 0 ? (
+                <>
+                  <SummaryRow
+                    label="Received LRs"
+                    value={openedLrReceipt.received.join(", ") || "—"}
+                  />
+                  <SummaryRow
+                    label="Pending LRs"
+                    value={openedLrReceipt.pending.join(", ") || "—"}
+                  />
+                </>
+              ) : null}
               <SummaryRow label="Client" value={summary.clientName} />
               <SummaryRow label="Pickup" value={summary.pickup} />
               <SummaryRow label="Delivery" value={summary.delivery} />
               <SummaryRow label="Driver" value={summary.driverName} />
               <SummaryRow label="Vehicle" value={summary.vehicleLabel} />
+              <SummaryRow label="Vehicle Type" value={summary.vehicleType?.trim() || "—"} />
+              <SummaryRow label="Vendor Name" value={summary.vendorName?.trim() || "—"} />
             </View>
 
             {loadingState ? (
@@ -464,6 +793,16 @@ export function LogHardCopyPodModal({
                 />
                 {podState.receiptMethod === "courier" ? (
                   <>
+                    <CourierLrMap
+                      rows={
+                        lrChoices.filter((option) => option.tripId === tripId).length > 0
+                          ? lrChoices.filter((option) => option.tripId === tripId)
+                          : [{ lrNumber, tripId, tripDisplayId }]
+                      }
+                      docket={podState.awbNumber ?? "—"}
+                      dispatchDate={formatDisplayDate(podState.dispatchDate)}
+                      receivedDate={formatDisplayDate(podState.expectedDeliveryDate)}
+                    />
                     <DetailRow label="Courier" value={podState.courier ?? "—"} />
                     <DetailRow label="Tracking / AWB" value={podState.awbNumber ?? "—"} emphasize />
                     <DetailRow
@@ -496,7 +835,9 @@ export function LogHardCopyPodModal({
                   <DetailRow label="Remarks" value={podState.remarks} />
                 ) : null}
 
-                <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                {compact ? null : (
+                  <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                )}
 
                 {canManage && podState.status === "IN_TRANSIT" ? (
                   <Pressable
@@ -533,8 +874,8 @@ export function LogHardCopyPodModal({
             ) : null}
 
             {showCreateForm ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
+              <View style={[styles.section, compact && styles.sectionCompact]}>
+                <Text style={[styles.sectionTitle, compact && styles.sectionTitleCompact]}>
                   How was the hard copy POD received?
                 </Text>
                 {errors.method ? (
@@ -544,9 +885,13 @@ export function LogHardCopyPodModal({
                   <Pressable
                     style={[
                       styles.segmentCard,
+                      compact && styles.segmentCardCompact,
                       method === "person" && styles.segmentCardActive,
+                      ibondOn && styles.segmentCardDisabled,
                     ]}
+                    disabled={ibondOn}
                     onPress={() => {
+                      if (ibondOn) return;
                       setMethod("person");
                       setErrors((e) => {
                         const { method: _m, ...rest } = e;
@@ -554,7 +899,7 @@ export function LogHardCopyPodModal({
                       });
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: method === "person" }}
+                    accessibilityState={{ selected: method === "person", disabled: ibondOn }}
                   >
                     <View
                       style={[
@@ -568,20 +913,27 @@ export function LogHardCopyPodModal({
                       <Text
                         style={[
                           styles.segmentTitle,
+                          compact && styles.segmentTitleCompact,
                           method === "person" && styles.segmentTitleActive,
                         ]}
                       >
                         Received by Person
                       </Text>
-                      <Text style={styles.segmentHint}>Handed over in person</Text>
+                      <Text style={[styles.segmentHint, compact && styles.segmentHintCompact]}>
+                        Handed over in person
+                      </Text>
                     </View>
                   </Pressable>
                   <Pressable
                     style={[
                       styles.segmentCard,
+                      compact && styles.segmentCardCompact,
                       method === "courier" && styles.segmentCardActive,
+                      ibondOn && styles.segmentCardDisabled,
                     ]}
+                    disabled={ibondOn}
                     onPress={() => {
+                      if (ibondOn) return;
                       setMethod("courier");
                       setErrors((e) => {
                         const { method: _m, ...rest } = e;
@@ -589,7 +941,7 @@ export function LogHardCopyPodModal({
                       });
                     }}
                     accessibilityRole="radio"
-                    accessibilityState={{ selected: method === "courier" }}
+                    accessibilityState={{ selected: method === "courier", disabled: ibondOn }}
                   >
                     <View
                       style={[
@@ -603,18 +955,21 @@ export function LogHardCopyPodModal({
                       <Text
                         style={[
                           styles.segmentTitle,
+                          compact && styles.segmentTitleCompact,
                           method === "courier" && styles.segmentTitleActive,
                         ]}
                       >
                         Received by Courier
                       </Text>
-                      <Text style={styles.segmentHint}>Dispatched via courier</Text>
+                      <Text style={[styles.segmentHint, compact && styles.segmentHintCompact]}>
+                        Dispatched via courier
+                      </Text>
                     </View>
                   </Pressable>
                 </View>
 
                 {method === "person" ? (
-                  <View style={styles.fields}>
+                  <View style={[styles.fields, compact && styles.fieldsCompact]}>
                     <Field
                       label="Received by"
                       required
@@ -652,15 +1007,46 @@ export function LogHardCopyPodModal({
                           multiline
                         />
                       </View>
-                      <View style={styles.dateTimeCol}>
-                        <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                      </View>
+                      {compact ? null : (
+                        <View style={styles.dateTimeCol}>
+                          <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                        </View>
+                      )}
                     </View>
                   </View>
                 ) : null}
 
                 {method === "courier" ? (
-                  <View style={styles.fields}>
+                  <View style={[styles.fields, compact && styles.fieldsCompact]}>
+                    <CourierLrPicker
+                      options={lrChoices}
+                      selectedKeys={selectedLrKeys}
+                      receivedKeys={receivedLrKeys}
+                      query={lrQuery}
+                      onQueryChange={setLrQuery}
+                      error={errors.lrSelection}
+                      onToggle={(key) => {
+                        setSelectedLrKeys((current) =>
+                          current.includes(key)
+                            ? current.filter((item) => item !== key)
+                            : [...current, key],
+                        );
+                        setErrors((current) => {
+                          if (!current.lrSelection) return current;
+                          const { lrSelection: _removed, ...rest } = current;
+                          return rest;
+                        });
+                      }}
+                    />
+                    <CourierLrMap
+                      rows={selectedLrRows}
+                      docket={awbNumber.trim() || "—"}
+                      dispatchDate={formatDisplayDate(dispatchDate)}
+                      receivedDate={formatDisplayDate(expectedDeliveryDate)}
+                    />
+                    <Text style={styles.sharedDocketHint}>
+                      Docket number, dispatch date, and received date stay the same for every selected LR.
+                    </Text>
                     <CourierNameField
                       value={courierName}
                       error={errors.courierName}
@@ -685,7 +1071,6 @@ export function LogHardCopyPodModal({
                       <View style={styles.dateTimeCol}>
                         <HardCopyPodDateField
                           label="Dispatch Date"
-                          required
                           value={dispatchDate}
                           onChange={setDispatchDate}
                           error={errors.dispatchDate}
@@ -718,9 +1103,11 @@ export function LogHardCopyPodModal({
                           multiline
                         />
                       </View>
-                      <View style={styles.dateTimeCol}>
-                        <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                      </View>
+                      {compact ? null : (
+                        <View style={styles.dateTimeCol}>
+                          <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                        </View>
+                      )}
                     </View>
                   </View>
                 ) : null}
@@ -730,7 +1117,7 @@ export function LogHardCopyPodModal({
             {showMarkReceived ? (
               <View style={styles.section}>
                 {podState?.courier || podState?.awbNumber ? (
-                  <View style={styles.summaryCard}>
+                  <View style={[styles.summaryCard, compact && styles.summaryCardCompact]}>
                     <SummaryRow label="Courier" value={podState.courier ?? "—"} />
                     <SummaryRow
                       label="Tracking"
@@ -738,7 +1125,7 @@ export function LogHardCopyPodModal({
                     />
                   </View>
                 ) : null}
-                <View style={styles.fields}>
+                <View style={[styles.fields, compact && styles.fieldsCompact]}>
                   <HardCopyPodDateField
                     label="Received Date"
                     required
@@ -764,29 +1151,36 @@ export function LogHardCopyPodModal({
                         multiline
                       />
                     </View>
-                    <View style={styles.dateTimeCol}>
-                      <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
-                    </View>
+                    {compact ? null : (
+                      <View style={styles.dateTimeCol}>
+                        <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} />
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
             ) : null}
           </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, compact && styles.footerCompact]}>
             {showCreateForm && canManage ? (
               <>
-                <Pressable style={styles.secondaryBtn} onPress={onClose} disabled={saving}>
+                <Pressable
+                  style={[styles.secondaryBtn, compact && styles.btnCompact]}
+                  onPress={onClose}
+                  disabled={saving}
+                >
                   <Text style={styles.secondaryBtnText}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   style={[
                     styles.primaryBtn,
                     styles.footerPrimary,
-                    (!method || saving) && styles.btnDisabled,
+                    compact && styles.btnCompact,
+                    (!(ibondOn || method) || saving) && styles.btnDisabled,
                   ]}
                   onPress={() => void handleSaveCreate()}
-                  disabled={!method || saving}
+                  disabled={!(ibondOn || method) || saving}
                   accessibilityRole="button"
                   accessibilityLabel="Save hard copy POD"
                 >
@@ -801,7 +1195,7 @@ export function LogHardCopyPodModal({
             {showMarkReceived && canManage ? (
               <>
                 <Pressable
-                  style={styles.secondaryBtn}
+                  style={[styles.secondaryBtn, compact && styles.btnCompact]}
                   onPress={() => setMode("view")}
                   disabled={saving}
                 >
@@ -811,6 +1205,7 @@ export function LogHardCopyPodModal({
                   style={[
                     styles.primaryBtn,
                     styles.footerPrimary,
+                    compact && styles.btnCompact,
                     saving && styles.btnDisabled,
                   ]}
                   onPress={() => void handleConfirmReceived()}
@@ -832,10 +1227,60 @@ export function LogHardCopyPodModal({
               </Pressable>
             ) : null}
           </View>
+          </View>
+          {compact ? (
+            <View style={[styles.splitPreview, isNarrow && styles.splitPreviewStacked]}>
+              <HardCopyPodPhotoUpload tripId={tripId} canEdit={canManage} variant="pane" />
+            </View>
+          ) : null}
         </View>
+  );
+
+  if (inline) return panel;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType={isNarrow ? "slide" : "fade"}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close" />
+        {panel}
       </View>
     </Modal>
   );
+}
+
+function ibondReceivedState(
+  previous: TripHardCopyPodState | null | undefined,
+  saved?: {
+    receivedAt: string | null;
+    deductibleCost: number | null;
+    vendorCostBefore: number | null;
+    vendorCostAfter: number | null;
+  },
+): TripHardCopyPodState {
+  return {
+    status: "RECEIVED",
+    receiptMethod: null,
+    receivedAt: saved?.receivedAt ?? (previous?.status === "RECEIVED" ? previous.receivedAt : new Date().toISOString()),
+    receivedBy: previous?.receivedBy ?? null,
+    courier: previous?.courier ?? null,
+    awbNumber: previous?.awbNumber ?? null,
+    dispatchDate: previous?.dispatchDate ?? null,
+    expectedDeliveryDate: previous?.expectedDeliveryDate ?? null,
+    courierContact: previous?.courierContact ?? null,
+    remarks: previous?.remarks ?? null,
+    receivedDate: previous?.receivedDate ?? null,
+    receivedTime: previous?.receivedTime ?? null,
+    actorId: previous?.actorId ?? null,
+    ibond: true,
+    ibondDeductibleCost: saved?.deductibleCost ?? previous?.ibondDeductibleCost ?? null,
+    ibondVendorCostBefore: saved?.vendorCostBefore ?? previous?.ibondVendorCostBefore ?? null,
+    ibondVendorCostAfter: saved?.vendorCostAfter ?? previous?.ibondVendorCostAfter ?? null,
+  };
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
@@ -994,6 +1439,148 @@ function CourierNameField({
   );
 }
 
+function CourierLrPicker({
+  options,
+  selectedKeys,
+  receivedKeys,
+  query,
+  onQueryChange,
+  onToggle,
+  error,
+}: {
+  options: HardCopyPodLrOption[];
+  selectedKeys: string[];
+  receivedKeys: ReadonlySet<string>;
+  query: string;
+  onQueryChange: (value: string) => void;
+  onToggle: (key: string) => void;
+  error?: string;
+}) {
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? options.filter((option) => {
+        const haystack = `${option.lrNumber} ${option.tripDisplayId}`.toLowerCase();
+        return haystack.includes(needle);
+      })
+    : options;
+
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>
+        LR Numbers
+        <Text style={styles.req}> *</Text>
+      </Text>
+      <Text style={styles.lrPickerHint}>
+        Select every LR on this docket. Each trip ID is taken from its LR.
+      </Text>
+      {options.length > 6 ? (
+        <TextInput
+          style={styles.input}
+          value={query}
+          onChangeText={onQueryChange}
+          placeholder="Search LR or trip ID"
+          placeholderTextColor={Theme.textMuted}
+          accessibilityLabel="Search LR numbers"
+        />
+      ) : null}
+      <ScrollView
+        style={styles.lrPickerList}
+        contentContainerStyle={styles.lrPickerListContent}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+      >
+        {options.length === 0 ? (
+          <Text style={styles.lrPickerEmpty}>No LR numbers are available for this queue.</Text>
+        ) : visible.length === 0 ? (
+          <Text style={styles.lrPickerEmpty}>No LR numbers match that search.</Text>
+        ) : (
+          visible.map((option) => {
+            const key = hardCopyPodLrKey(option);
+            const received = receivedKeys.has(key);
+            const selected = received || selectedKeys.includes(key);
+            return (
+              <Pressable
+                key={key}
+                onPress={received ? undefined : () => onToggle(key)}
+                disabled={received}
+                style={[styles.lrPickerRow, selected && styles.lrPickerRowSelected]}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: selected, disabled: received }}
+                accessibilityLabel={`${option.lrNumber}, trip ${option.tripDisplayId}, ${received ? "received" : "pending"}`}
+              >
+                <View style={[styles.lrCheck, selected && styles.lrCheckSelected]}>
+                  {selected ? <Feather name="check" size={12} color={Theme.buttonDarkText} /> : null}
+                </View>
+                <View style={styles.lrPickerCopy}>
+                  <Text style={styles.lrPickerLr} numberOfLines={1}>
+                    {option.lrNumber}
+                  </Text>
+                  <Text style={styles.lrPickerTrip} numberOfLines={1}>
+                    {option.tripDisplayId}
+                  </Text>
+                </View>
+                <Text style={received ? styles.lrStatusReceived : styles.lrStatusPending}>
+                  {received ? "Received" : "Pending"}
+                </Text>
+              </Pressable>
+            );
+          })
+        )}
+      </ScrollView>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>
+  );
+}
+
+function CourierLrMap({
+  rows,
+  docket,
+  dispatchDate,
+  receivedDate,
+}: {
+  rows: HardCopyPodLrOption[];
+  docket: string;
+  dispatchDate: string;
+  receivedDate: string;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <View style={styles.lrMap}>
+      <Text style={styles.fieldLabel}>Selected LR numbers</Text>
+      {rows.map((row) => (
+        <View key={hardCopyPodLrKey(row)} style={styles.lrMapCard}>
+          <View style={styles.lrMapPair}>
+            <Text style={styles.lrMapLabel}>LR Number</Text>
+            <Text style={styles.lrMapValue} selectable>
+              {row.lrNumber}
+            </Text>
+          </View>
+          <View style={styles.lrMapPair}>
+            <Text style={styles.lrMapLabel}>Trip ID</Text>
+            <Text style={styles.lrMapValue} selectable>
+              {row.tripDisplayId}
+            </Text>
+          </View>
+          <View style={styles.lrMapPair}>
+            <Text style={styles.lrMapLabel}>Docket No.</Text>
+            <Text style={styles.lrMapValue} selectable>
+              {docket || "—"}
+            </Text>
+          </View>
+          <View style={styles.lrMapPair}>
+            <Text style={styles.lrMapLabel}>Dispatch Date</Text>
+            <Text style={styles.lrMapValue}>{dispatchDate || "—"}</Text>
+          </View>
+          <View style={styles.lrMapPair}>
+            <Text style={styles.lrMapLabel}>Received Date</Text>
+            <Text style={styles.lrMapValue}>{receivedDate || "—"}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function Field({
   label,
   value,
@@ -1065,6 +1652,51 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  panelSplit: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  panelSplitStacked: { flexDirection: "column" },
+  splitFill: { flex: 1, minWidth: 0, minHeight: 0 },
+  splitForm: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: "46%",
+    minHeight: 0,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.complianceTripCardBg,
+    overflow: "hidden",
+  },
+  splitFormStacked: { maxWidth: "100%" },
+  splitPreview: {
+    flex: 1.2,
+    minWidth: 0,
+    minHeight: 0,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.complianceTripCardBorder,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    padding: 8,
+  },
+  splitPreviewStacked: { flex: 1, maxWidth: "100%", minWidth: 0, minHeight: 220 },
+  panelInline: {
+    flex: 1,
+    minHeight: 0,
+    width: "100%",
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderRadius: 12,
+    borderLeftWidth: 0,
+    ...Platform.select({
+      web: { boxShadow: "none" } as object,
+      default: { shadowOpacity: 0, elevation: 0 },
+    }),
+  },
   headerRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -1072,17 +1704,66 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 8,
   },
+  headerRowCompact: { paddingHorizontal: 10, marginBottom: 4, alignItems: "center" },
+  headerCopy: { flex: 1, minWidth: 0, overflow: "hidden" },
   title: {
     fontSize: 18,
     fontWeight: "800",
     color: Theme.analyticsHeroBg,
     letterSpacing: 0.2,
   },
+  titleCompact: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textPrimaryDark,
+  },
   subtitle: {
     marginTop: 4,
     fontSize: 13,
     color: Theme.textSecondary,
     lineHeight: 18,
+  },
+  subtitleCompact: { marginTop: 2, fontSize: 10, lineHeight: 13 },
+  ibondBox: {
+    width: 18,
+    height: 18,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderColor: Theme.analyticsHeroBg,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ibondBoxOn: { backgroundColor: Theme.analyticsHeroBg },
+  ibondLabel: { fontSize: 13, fontWeight: "700", color: Theme.analyticsHeroBg },
+  ibondRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    gap: 8,
+    minHeight: 44,
+    marginRight: 20,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Theme.analyticsHeroBg,
+    borderRadius: 8,
+    backgroundColor: Theme.cardWhite,
+    ...Platform.select({ web: { cursor: "pointer" } as object, default: {} }),
+  },
+  ibondRowHeader: {
+    alignSelf: "center",
+    marginRight: 0,
+    marginBottom: 0,
+    flexShrink: 0,
+  },
+  ibondRowCompact: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderColor: Theme.complianceTripCardBorder,
   },
   closeBtn: {
     width: 36,
@@ -1097,6 +1778,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     gap: 16,
   },
+  scrollBodyCompact: { paddingHorizontal: 10, paddingBottom: 8, gap: 8 },
   summaryCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -1105,6 +1787,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
+  summaryCardCompact: { padding: 8, gap: 4, borderRadius: 10 },
   summaryRow: {
     flexDirection: "row",
     gap: 12,
@@ -1127,6 +1810,7 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   section: { gap: 12 },
+  sectionCompact: { gap: 8 },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "800",
@@ -1134,6 +1818,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
+  sectionTitleCompact: { fontSize: 11, fontWeight: "600" },
   statusPillRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1162,10 +1847,12 @@ const styles = StyleSheet.create({
     padding: 14,
     minHeight: Layout.minTouchTargetSize,
   },
+  segmentCardCompact: { padding: 8, minHeight: 40, borderRadius: 10, gap: 8 },
   segmentCardActive: {
     borderColor: Theme.analyticsHeroBg,
     backgroundColor: "rgba(43,49,113,0.06)",
   },
+  segmentCardDisabled: { opacity: 0.45 },
   radioOuter: {
     width: 20,
     height: 20,
@@ -1187,6 +1874,8 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Theme.textPrimaryDark,
   },
+  segmentTitleCompact: { fontSize: 12 },
+  segmentHintCompact: { fontSize: 10, marginTop: 1 },
   segmentTitleActive: { color: Theme.analyticsHeroBg },
   segmentHint: {
     marginTop: 2,
@@ -1194,6 +1883,7 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   fields: { gap: 12 },
+  fieldsCompact: { gap: 8 },
   dateTimeRow: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -1202,6 +1892,110 @@ const styles = StyleSheet.create({
   dateTimeCol: {
     flex: 1,
     minWidth: 0,
+  },
+  sharedDocketHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textMuted,
+  },
+  lrPickerHint: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textSecondary,
+  },
+  lrPickerList: {
+    maxHeight: 220,
+  },
+  lrPickerListContent: {
+    gap: 6,
+  },
+  lrPickerEmpty: {
+    fontSize: 12,
+    color: Theme.textMuted,
+  },
+  lrPickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+  },
+  lrPickerRowSelected: {
+    borderColor: Theme.analyticsHeroBg,
+    backgroundColor: Theme.surface,
+  },
+  lrCheck: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: Theme.borderMedium,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+  },
+  lrCheckSelected: {
+    borderColor: Theme.buttonDark,
+    backgroundColor: Theme.buttonDark,
+  },
+  lrPickerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  lrPickerLr: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  lrPickerTrip: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+  },
+  lrStatusReceived: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.complianceStageSuccessFg,
+  },
+  lrStatusPending: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.complianceStagePendingFg,
+  },
+  lrMap: { gap: 8 },
+  lrMapCard: {
+    gap: 6,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.surface,
+  },
+  lrMapPair: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  lrMapLabel: {
+    width: 108,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    color: Theme.textMuted,
+  },
+  lrMapValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textPrimaryDark,
   },
   field: { gap: 6 },
   fieldLabel: {
@@ -1319,6 +2113,8 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Theme.borderLight,
   },
+  footerCompact: { gap: 8, paddingHorizontal: 10, paddingTop: 8 },
+  btnCompact: { minHeight: 36 },
   primaryBtn: {
     minHeight: Layout.minTouchTargetSize,
     borderRadius: Theme.buttonPrimaryRadius,

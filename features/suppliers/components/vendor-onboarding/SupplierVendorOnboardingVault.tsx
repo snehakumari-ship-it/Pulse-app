@@ -29,6 +29,7 @@ import {
   updateVendorIdentityNumbers,
   upsertSupplierTdsRate,
   type SupplierBankAccount,
+  type SupplierBankAccountInput,
   type SupplierTdsRate,
   type VendorOnboardingProfile,
 } from "@/features/suppliers/services/supplierVendorOnboarding.service";
@@ -43,6 +44,8 @@ import {
   openSupplierKycDocument,
   pickAndUploadSupplierKycDocument,
 } from "@/features/suppliers/utils/supplierKycUpload.util";
+import { isWellFormedIfsc, lookupIfsc } from "@/features/suppliers/utils/ifscDirectory.util";
+import { emitSupplierBankChanged } from "@/features/suppliers/utils/supplierBankEvents.util";
 import {
   BANK_PROOF_OPTIONS,
   REGISTRATION_NUMBER_FIELD,
@@ -55,7 +58,6 @@ import {
   latestDocOfType,
   latestDocOfTypes,
   maskAadhaar,
-  maskAccountNumber,
   parsePercentage,
   validateVendorNumber,
   validateVendorStatusChange,
@@ -84,6 +86,35 @@ const REGISTRATION_PLACEHOLDERS: Record<RegistrationKind, string> = {
 
 /** Doc types that count toward the "documents verified" summary. */
 const SUMMARY_DOC_TYPES: SupplierKycDocType[] = ["pan", "aadhaar_front", "aadhaar_back"];
+
+const EMPTY_BANK_FORM: SupplierBankAccountInput = {
+  account_number: "",
+  ifsc_code: "",
+  bank_name: "",
+  beneficiary_name: "",
+  branch_name: "",
+};
+
+function bankFormFrom(account: SupplierBankAccount | null): SupplierBankAccountInput {
+  if (!account) return EMPTY_BANK_FORM;
+  return {
+    account_number: account.account_number?.trim() ?? "",
+    ifsc_code: (account.ifsc_code ?? "").trim().toUpperCase(),
+    bank_name: account.bank_name?.trim() ?? "",
+    beneficiary_name: account.beneficiary_name?.trim() ?? "",
+    branch_name: account.branch_name?.trim() ?? "",
+  };
+}
+
+function bankFormKey(form: SupplierBankAccountInput): string {
+  return [
+    form.account_number.replace(/\s+/g, ""),
+    form.ifsc_code.trim().toUpperCase(),
+    form.bank_name.trim(),
+    form.beneficiary_name.replace(/\s+/g, " ").trim(),
+    form.branch_name.replace(/\s+/g, " ").trim(),
+  ].join("|");
+}
 
 function sectionOf(id: VendorVaultSection["id"]): VendorVaultSection {
   const s = VENDOR_VAULT_SECTIONS.find((x) => x.id === id);
@@ -118,7 +149,10 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
   const [aadhaarInput, setAadhaarInput] = useState("");
   const [regKind, setRegKind] = useState<RegistrationKind>("gstin");
   const [regInput, setRegInput] = useState("");
-  const [bankForm, setBankForm] = useState({ account_number: "", ifsc_code: "", bank_name: "" });
+  const [bankForm, setBankForm] = useState<SupplierBankAccountInput>(EMPTY_BANK_FORM);
+  /** Branch currently holds the IFSC-directory value (safe to overwrite on IFSC change). */
+  const [branchAutoFilled, setBranchAutoFilled] = useState(false);
+  const [ifscLookup, setIfscLookup] = useState<"idle" | "looking" | "found" | "unknown">("idle");
   const [bankProofType, setBankProofType] = useState<SupplierKycDocType>("cancelled_cheque");
   const [otherName, setOtherName] = useState("");
   const [statusDraft, setStatusDraft] = useState<SupplierVendorStatus>("active");
@@ -128,6 +162,11 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
   const currentFy = useMemo(() => financialYearOf(new Date()), []);
   const [tdsYear, setTdsYear] = useState(currentFy);
   const [tdsInput, setTdsInput] = useState("");
+
+  useEffect(() => {
+    const existing = tdsRates.find((r) => r.financial_year === tdsYear);
+    setTdsInput(existing != null ? String(existing.rate_percent) : "");
+  }, [tdsYear, tdsRates]);
 
   const reload = useCallback(async () => {
     const [kyc, prof, tds, acct] = await Promise.all([
@@ -168,6 +207,47 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const savedBankForm = useMemo(() => bankFormFrom(bank), [bank]);
+  const savedBankKey = bankFormKey(savedBankForm);
+  useEffect(() => {
+    setBankForm(savedBankForm);
+    setBranchAutoFilled(false);
+    setIfscLookup("idle");
+    // Re-seed only when the stored account actually changes, not on unrelated reloads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedBankKey]);
+  const bankDirty = bankFormKey(bankForm) !== savedBankKey;
+
+  const ifscDraft = bankForm.ifsc_code.trim().toUpperCase();
+  useEffect(() => {
+    if (!isWellFormedIfsc(ifscDraft)) {
+      setIfscLookup("idle");
+      return;
+    }
+    if (ifscDraft === savedBankForm.ifsc_code && savedBankForm.branch_name) return;
+    let cancelled = false;
+    setIfscLookup("looking");
+    const timer = setTimeout(() => {
+      void lookupIfsc(ifscDraft).then((entry) => {
+        if (cancelled) return;
+        setIfscLookup(entry ? "found" : "unknown");
+        if (!entry) return;
+        setBankForm((f) => ({
+          ...f,
+          bank_name: f.bank_name.trim() ? f.bank_name : entry.bank,
+          branch_name: !f.branch_name.trim() || branchAutoFilled ? entry.branch : f.branch_name,
+        }));
+        if (entry.branch) setBranchAutoFilled(true);
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // branchAutoFilled is read at resolve time only; re-running on it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ifscDraft, savedBankForm.ifsc_code, savedBankForm.branch_name]);
 
   /** Runs one write, shows its error, then refreshes everything. */
   const run = useCallback(
@@ -424,7 +504,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
           <Field
             label="Advance % (of partner rate)"
             value={advanceInput}
-            onChangeText={setAdvanceInput}
+            onChangeText={(text) => setAdvanceInput(text.replace(/%/g, ""))}
             placeholder="e.g. 30"
             keyboardType="decimal-pad"
             editable={canEdit}
@@ -441,7 +521,7 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
               onPress={() => {
                 const pct = advanceTrimmed ? parsePercentage(advanceTrimmed) : null;
                 if (advanceTrimmed && pct == null) {
-                  setError("Advance % must be a number from 0 to 100.");
+                  fail("Check the advance %", "Advance % must be a number from 0 to 100 (do not include letters).");
                   return;
                 }
                 void run("advance", () => updateVendorAdvancePercentage(organizationId, supplierId, pct));
@@ -459,8 +539,17 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
               <Choice items={fyOptions.map((fy) => ({ key: fy, label: `FY ${fy}` }))} value={tdsYear} onChange={setTdsYear} />
             </ScrollView>
             <FieldRow>
-              <Field label="TDS rate %" value={tdsInput} onChangeText={setTdsInput} placeholder="e.g. 1 or 2" keyboardType="decimal-pad" />
+              <Field
+                label="TDS rate %"
+                value={tdsInput}
+                onChangeText={(text) => setTdsInput(text.replace(/%/g, ""))}
+                placeholder="e.g. 1 or 2"
+                keyboardType="decimal-pad"
+              />
             </FieldRow>
+            {!tdsInput.trim() ? (
+              <Text style={styles.empty}>Enter a TDS rate % to enable Save for FY {tdsYear}.</Text>
+            ) : null}
             <FormActions>
               <PulsePillButton
                 label={tdsRates.some((r) => r.financial_year === tdsYear) ? `Update FY ${tdsYear}` : `Save FY ${tdsYear}`}
@@ -471,12 +560,12 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                 onPress={() => {
                   const pct = parsePercentage(tdsInput);
                   if (pct == null) {
-                    setError("TDS rate must be a number from 0 to 100.");
+                    fail("Check the TDS rate", "TDS rate must be a number from 0 to 100 (do not include letters).");
                     return;
                   }
                   void run("tds", async () => {
                     const res = await upsertSupplierTdsRate(organizationId, supplierId, tdsYear, pct);
-                    if (!res.error) setTdsInput("");
+                    // Keep the saved rate visible for this FY (do not clear the field).
                     return res;
                   });
                 }}
@@ -645,8 +734,9 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
           title="Bank account"
           trailing={
             bank?.account_number ? (
-              <Text style={styles.cardMeta}>
-                On file · {maskAccountNumber(bank.account_number)} · {bank.ifsc_code ?? "—"}
+              <Text style={[styles.cardMeta, styles.bankOnFileMeta]} numberOfLines={2}>
+                On file · {bank.account_number} · {bank.ifsc_code ?? "—"}
+                {bank.beneficiary_name?.trim() ? ` · ${bank.beneficiary_name.trim()}` : ""}
               </Text>
             ) : null
           }
@@ -655,33 +745,73 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
           <>
             <FieldRow>
               <Field
+                label="Beneficiary name"
+                value={bankForm.beneficiary_name}
+                onChangeText={(v) => setBankForm((f) => ({ ...f, beneficiary_name: v }))}
+                placeholder="Account holder, as on cheque / passbook"
+                autoCapitalize="words"
+              />
+              <Field
                 label="Account number"
                 value={bankForm.account_number}
                 onChangeText={(v) => setBankForm((f) => ({ ...f, account_number: v }))}
                 placeholder="9–18 digits"
                 keyboardType="number-pad"
               />
+            </FieldRow>
+            <FieldRow>
               <Field
                 label="IFSC"
                 value={bankForm.ifsc_code}
-                onChangeText={(v) => setBankForm((f) => ({ ...f, ifsc_code: v }))}
+                onChangeText={(v) => setBankForm((f) => ({ ...f, ifsc_code: v.toUpperCase() }))}
                 placeholder="HDFC0001234"
                 autoCapitalize="characters"
+                hint={
+                  ifscLookup === "looking"
+                    ? "Looking up branch…"
+                    : ifscLookup === "unknown"
+                      ? "IFSC not found in the directory — check the code"
+                      : null
+                }
+                hintTone={ifscLookup === "unknown" ? "warn" : "muted"}
               />
               <Field
                 label="Bank name"
                 value={bankForm.bank_name}
                 onChangeText={(v) => setBankForm((f) => ({ ...f, bank_name: v }))}
-                placeholder={bank?.bank_name ?? "e.g. HDFC Bank"}
+                placeholder="e.g. HDFC Bank"
+              />
+              <Field
+                label="Branch name"
+                value={bankForm.branch_name}
+                onChangeText={(v) => {
+                  setBranchAutoFilled(false);
+                  setBankForm((f) => ({ ...f, branch_name: v }));
+                }}
+                placeholder="Filled from IFSC"
+                autoCapitalize="words"
+                hint={branchAutoFilled && bankForm.branch_name ? "Auto-filled from IFSC · editable" : null}
               />
             </FieldRow>
             <FormActions>
+              {bankDirty && bank ? (
+                <PulsePillButton
+                  label="Discard"
+                  size="compact"
+                  variant="outline"
+                  disabled={busyKey === "bank"}
+                  onPress={() => {
+                    setBankForm(savedBankForm);
+                    setBranchAutoFilled(false);
+                  }}
+                />
+              ) : null}
               <PulsePillButton
-                label="Save bank details"
+                label={bank ? "Save bank details" : "Add bank account"}
                 size="compact"
                 variant="dark"
                 loading={busyKey === "bank"}
-                disabled={!bankForm.account_number.trim() || !bankForm.ifsc_code.trim()}
+                disabled={!bankDirty || !bankForm.account_number.trim() || !bankForm.ifsc_code.trim()}
                 onPress={() => {
                   const msg =
                     validateVendorNumber("account", bankForm.account_number) ??
@@ -692,7 +822,15 @@ export function SupplierVendorOnboardingVault({ organizationId, supplierId, canE
                   }
                   void run("bank", async () => {
                     const res = await saveSupplierBankAccount(organizationId, supplierId, bank?.id ?? null, bankForm);
-                    if (!res.error) setBankForm({ account_number: "", ifsc_code: "", bank_name: "" });
+                    if (!res.error) {
+                      emitSupplierBankChanged(supplierId);
+                      if (res.extrasPending) {
+                        notifySupplierKycUser(
+                          "Bank account saved",
+                          "Beneficiary and branch will be stored once the latest database update is applied.",
+                        );
+                      }
+                    }
                     return res;
                   });
                 }}
@@ -875,21 +1013,31 @@ function Field({
   autoCapitalize,
   multiline,
   editable = true,
+  hint,
+  hintTone = "muted",
 }: {
   label: string;
   value: string;
   onChangeText: (v: string) => void;
   placeholder?: string;
   keyboardType?: "default" | "number-pad" | "decimal-pad";
-  autoCapitalize?: "none" | "characters";
+  autoCapitalize?: "none" | "characters" | "words";
   multiline?: boolean;
   editable?: boolean;
+  /** Small line under the input (auto-fill / lookup status). */
+  hint?: string | null;
+  hintTone?: "muted" | "warn";
 }) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        style={[styles.input, multiline && styles.inputMultiline, !editable && styles.inputReadOnly]}
+        style={[
+          styles.input,
+          multiline && styles.inputMultiline,
+          !editable && styles.inputReadOnly,
+          hint ? styles.inputWithHint : null,
+        ]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -901,6 +1049,11 @@ function Field({
         editable={editable}
         accessibilityLabel={label}
       />
+      {hint ? (
+        <Text style={[styles.fieldHint, hintTone === "warn" && styles.fieldHintWarn]} numberOfLines={1}>
+          {hint}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -989,6 +1142,11 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 12, fontWeight: "800", color: Theme.textPrimaryDark },
   cardMeta: { fontSize: 10, fontWeight: "600", color: Theme.textMuted },
+  bankOnFileMeta: {
+    maxWidth: 280,
+    textAlign: "right",
+    lineHeight: 14,
+  },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: Theme.borderInput, marginVertical: space[3] },
 
   // Fields (fieldLabel + fieldInputLarge)
@@ -1016,6 +1174,9 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   inputMultiline: { minHeight: 72, textAlignVertical: "top" },
+  inputWithHint: { marginBottom: 4 },
+  fieldHint: { fontSize: 10, fontWeight: "600", color: Theme.textMuted, marginBottom: space[3] },
+  fieldHintWarn: { color: Theme.negative },
   inputReadOnly: { opacity: 0.6 },
   note: { fontSize: 10, fontWeight: "600", color: Theme.textMuted, marginTop: -space[1], marginBottom: space[3] },
   reason: { fontSize: 11, fontWeight: "700", color: Theme.negative, marginBottom: space[3] },

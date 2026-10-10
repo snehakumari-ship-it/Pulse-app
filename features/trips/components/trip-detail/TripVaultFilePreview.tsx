@@ -18,6 +18,8 @@ type Props = {
   sizing?: "original" | "fit";
   /** 1-based PDF page. Ignored for images. */
   page?: number;
+  /** Pass-through to PdfViewer — false when a parent owns drag-pan. */
+  interactive?: boolean;
 };
 
 /** Renders an uploaded vault file: PDF via PdfViewer, images via Image. */
@@ -30,11 +32,19 @@ export function TripVaultFilePreview({
   zoom = 1,
   sizing = "fit",
   page,
+  interactive = true,
 }: Props) {
   if (isPdf) {
     return (
       <View style={style as StyleProp<ViewStyle>}>
-        <PdfViewer pdfUri={uri} showToolbar={showToolbar} zoom={zoom} sizing={sizing} page={page} />
+        <PdfViewer
+          pdfUri={uri}
+          showToolbar={showToolbar}
+          zoom={zoom}
+          sizing={sizing}
+          page={page}
+          interactive={interactive}
+        />
       </View>
     );
   }

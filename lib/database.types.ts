@@ -17301,6 +17301,14 @@ export type Database = {
           trip_id: string
         }[]
       }
+      get_trip_documents_lr_pod_batch: {
+        Args: { p_trip_ids: string[] }
+        Returns: {
+          document_number: string
+          document_type: string
+          trip_id: string
+        }[]
+      }
       get_trip_detail_bundle: {
         Args: { p_trip_id: string; p_viewer_org_id: string }
         Returns: Json

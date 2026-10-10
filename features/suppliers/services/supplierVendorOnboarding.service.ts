@@ -35,6 +35,9 @@ export type SupplierBankAccount = {
   bank_name: string | null;
   account_number: string | null;
   ifsc_code: string | null;
+  beneficiary_name?: string | null;
+  branch_name?: string | null;
+  cancelled_cheque_url?: string | null;
 };
 
 const PROFILE_COLUMNS =
@@ -243,46 +246,80 @@ export async function getSupplierBankAccount(
   orgId: string,
   supplierId: string,
 ): Promise<{ error: Error | null; account: SupplierBankAccount | null }> {
-  const { data, error } = await supabase()
-    .from("entity_bank_accounts")
-    .select("id, bank_name, account_number, ifsc_code")
-    .eq("organization_id", orgId)
-    .eq("entity_type", "supplier")
-    .eq("entity_id", supplierId)
-    .is("deleted_at", null)
-    .order("is_primary", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (error) return { error: new Error(error.message), account: null };
-  return { error: null, account: ((data ?? [])[0] as SupplierBankAccount | undefined) ?? null };
+  // Older schemas may lack beneficiary/branch (20261005080754) or cancelled_cheque_url.
+  let lastError: string | null = null;
+  for (const columns of SUPPLIER_BANK_SELECTS) {
+    const { data, error } = await supabase()
+      .from("entity_bank_accounts")
+      .select(columns)
+      .eq("organization_id", orgId)
+      .eq("entity_type", "supplier")
+      .eq("entity_id", supplierId)
+      .is("deleted_at", null)
+      .order("is_primary", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (!error) {
+      return { error: null, account: ((data ?? [])[0] as unknown as SupplierBankAccount | undefined) ?? null };
+    }
+    lastError = error.message;
+  }
+  return { error: new Error(lastError ?? "Could not load bank account"), account: null };
 }
 
+const SUPPLIER_BANK_SELECTS = [
+  "id, bank_name, account_number, ifsc_code, beneficiary_name, branch_name, cancelled_cheque_url",
+  "id, bank_name, account_number, ifsc_code, cancelled_cheque_url",
+  "id, bank_name, account_number, ifsc_code",
+] as const;
+
+export type SupplierBankAccountInput = {
+  bank_name: string;
+  account_number: string;
+  ifsc_code: string;
+  beneficiary_name: string;
+  branch_name: string;
+};
+
+function isMissingBankDetailColumn(message: string | undefined) {
+  return /beneficiary_name|branch_name/i.test(message ?? "");
+}
+
+/**
+ * `extrasPending` is true when the DB does not have the beneficiary/branch
+ * columns yet: the core account is saved, the two extra fields are not.
+ */
 export async function saveSupplierBankAccount(
   orgId: string,
   supplierId: string,
   existingId: string | null,
-  input: { bank_name: string; account_number: string; ifsc_code: string },
-): Promise<{ error: Error | null }> {
-  const values = {
+  input: SupplierBankAccountInput,
+): Promise<{ error: Error | null; extrasPending?: boolean }> {
+  const core = {
     bank_name: input.bank_name.trim() || null,
     account_number: normalizeIdNumber(input.account_number) || null,
     ifsc_code: normalizeIdNumber(input.ifsc_code) || null,
   };
-  if (existingId) {
-    const { error } = await supabase()
-      .from("entity_bank_accounts")
-      .update(values)
-      .eq("id", existingId);
-    return { error: error ? new Error(error.message) : null };
+  const full = {
+    ...core,
+    beneficiary_name: input.beneficiary_name.replace(/\s+/g, " ").trim() || null,
+    branch_name: input.branch_name.replace(/\s+/g, " ").trim() || null,
+  };
+  const write = (values: typeof core | typeof full) =>
+    existingId
+      ? supabase().from("entity_bank_accounts").update(values).eq("id", existingId)
+      : supabase().from("entity_bank_accounts").insert({
+          organization_id: orgId,
+          entity_type: "supplier",
+          entity_id: supplierId,
+          is_primary: true,
+          ...values,
+        });
+
+  const { error } = await write(full);
+  if (error && isMissingBankDetailColumn(error.message)) {
+    const retry = await write(core);
+    return { error: retry.error ? new Error(retry.error.message) : null, extrasPending: !retry.error };
   }
-  const { error } = await supabase()
-    .from("entity_bank_accounts")
-    .insert({
-      organization_id: orgId,
-      entity_type: "supplier",
-      entity_id: supplierId,
-      is_primary: true,
-      ...values,
-    });
   return { error: error ? new Error(error.message) : null };
 }

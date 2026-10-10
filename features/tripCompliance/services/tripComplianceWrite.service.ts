@@ -1,9 +1,27 @@
 import { supabase } from "@/lib/supabase";
 import { createLedgerEntry, updateLedgerEntry, type CreateLedgerEntryData } from "@/features/finance/services/finance.service";
-import { buildLedgerSyncDescriptionLine } from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  buildLedgerSyncDescriptionLine,
+  interpretLedgerRowStructured,
+} from "@/features/finance/ledger/ledgerEntryModel";
+import {
+  isCashPaymentMode,
+  normalizeComplianceRequestId,
+  normalizeComplianceUtr,
+  validateComplianceRequestId,
+  validateComplianceUtr,
+  withLedgerDescriptionRequestId,
+  withLedgerDescriptionUtr,
+} from "@/features/tripCompliance/utils/compliancePaymentReference.util";
+import {
+  normalizeComplianceTransactionDate,
+  validateComplianceTransactionDate,
+  withLedgerDescriptionTxnDateConfirmed,
+} from "@/features/tripCompliance/utils/compliancePaymentDate.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { evaluateCompliancePaymentGuard, type ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
-import { fetchComplianceTransactions, isMissingColumnOrRelation } from "@/features/tripCompliance/services/tripComplianceRead.service";
+import { recordAdvanceDocumentCostSnapshot } from "@/features/debit-control/services/debitControlPod.service";
+import { fetchComplianceTransactions } from "@/features/tripCompliance/services/tripComplianceRead.service";
 import {
   COMPLIANCE_DECLINE_REASON_MAX,
   COMPLIANCE_DECLINE_REASON_MIN,
@@ -132,6 +150,60 @@ export async function declineTripCompliance(params: {
   }
 }
 
+function formatRejectComplianceError(error: { message?: string; code?: string } | null): string {
+  const raw = (error?.message ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (
+    error?.code === "PGRST202" ||
+    error?.code === "42883" ||
+    lower.includes("could not find the function") ||
+    lower.includes("function does not exist")
+  ) {
+    return "Reject isn't available yet — database update pending.";
+  }
+  if (lower.includes("not authorized to reject")) {
+    return "You don't have permission to reject compliance for this trip.";
+  }
+  if (lower.includes("not verified") || lower.includes("use decline instead")) {
+    return "This trip isn't verified yet. Use Decline instead.";
+  }
+  if (lower.includes("reject reason between") || lower.includes("decline reason between")) {
+    return `Please enter a reason between ${COMPLIANCE_DECLINE_REASON_MIN} and ${COMPLIANCE_DECLINE_REASON_MAX} characters.`;
+  }
+  if (lower.includes("compliance decline fields can only be changed")) {
+    return raw;
+  }
+  return raw || "Couldn't reject compliance.";
+}
+
+/**
+ * Reject a *verified* Compliance trip with a remark. Keeps
+ * `compliance_verified_at` so the trip stays under Verified with a red
+ * Rejected visual. Writes via `reject_trip_compliance` (migration
+ * 20270930124500).
+ */
+export async function rejectTripCompliance(params: {
+  tripId: string;
+  reason: string;
+  idempotencyKey?: string;
+}): Promise<void> {
+  const reason = params.reason.trim();
+  const length = complianceDeclineReasonLength(reason);
+  if (length < COMPLIANCE_DECLINE_REASON_MIN || length > COMPLIANCE_DECLINE_REASON_MAX) {
+    throw new Error(
+      `Please enter a reason between ${COMPLIANCE_DECLINE_REASON_MIN} and ${COMPLIANCE_DECLINE_REASON_MAX} characters.`,
+    );
+  }
+  const { error } = await supabase().rpc("reject_trip_compliance", {
+    p_trip_id: params.tripId,
+    p_reason: reason,
+    p_idempotency_key: params.idempotencyKey ?? undefined,
+  });
+  if (error) {
+    throw new Error(formatRejectComplianceError(error));
+  }
+}
+
 export type { ComplianceLedgerCategory } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
 export { evaluateCompliancePaymentGuard } from "@/features/tripCompliance/utils/compliancePaymentGuard.util";
 
@@ -215,93 +287,18 @@ function checkComplianceLedgerPrerequisite(
 type ComplianceLedgerFlags = Pick<TripRow, "compliance_verified_at" | "pod_received_at">;
 
 /**
- * Three distinct outcomes a live-flags read can have, so `postCompliancePayment`
- * can tell "feature not deployed here yet" apart from "could not confirm
- * current state" — the two used to collapse into the same cached fallback
- * (2026-10-06 review), which let a stale cached `params.trip` authorize a
- * payment whenever the live read failed for ANY reason, not just the
- * intentionally-tolerated pre-migration one.
- *
- * - "live": the authoritative row was read successfully — use its flags.
- * - "compat_fallback": the compliance columns don't exist on this environment
- *   yet (migration 20260915162440 not applied) — the one legitimate,
- *   accepted degradation; cached `params.trip` fields are used exactly as
- *   before.
- * - "unavailable": anything else — a genuine error (network, timeout, RLS,
- *   5xx) or a healthy query finding no row for a trip the caller already has
- *   loaded. Never falls back to cached state.
+ * Callers pass a cached trip (list summary, bulk validation map) that can be
+ * minutes old, so the prerequisite reads the live flags. A failed read falls
+ * back to the cached trip; RLS still rejects the insert either way.
  */
-type ComplianceLedgerFlagsResult =
-  | { status: "live"; flags: ComplianceLedgerFlags }
-  | { status: "compat_fallback"; flags: ComplianceLedgerFlags }
-  | { status: "unavailable" };
-
-/**
- * Live `compliance_verified_at` / `pod_received_at` for one trip, read
- * immediately before evaluating payment prerequisites. `params.trip` passed
- * into `postCompliancePayment` can be stale — a cached list row, or an
- * instant-verify UI patch that hasn't round-tripped — so trusting it
- * directly can give a stale "blocked" or "allowed" verdict.
- *
- * Queries `trips` directly (rather than going through
- * `fetchComplianceTripFlags`) because that function collapses "columns
- * don't exist yet" and "no row for this id" into the same empty result,
- * which is exactly the ambiguity this function exists to resolve — and only
- * `compliance_verified_at`/`pod_received_at` are needed here, not the
- * decline columns `fetchComplianceTripFlags` also fetches.
- */
-async function readComplianceLedgerFlags(
-  trip: Pick<TripRow, "id" | "compliance_verified_at" | "pod_received_at">,
-): Promise<ComplianceLedgerFlagsResult> {
-  try {
-    const { data, error } = await supabase()
-      .from("trips")
-      .select("compliance_verified_at, pod_received_at")
-      .eq("id", trip.id)
-      .maybeSingle();
-
-    if (error) {
-      if (isMissingColumnOrRelation(error)) {
-        return {
-          status: "compat_fallback",
-          flags: {
-            compliance_verified_at: trip.compliance_verified_at ?? null,
-            pod_received_at: trip.pod_received_at ?? null,
-          },
-        };
-      }
-      return { status: "unavailable" };
-    }
-
-    if (!data) {
-      // The caller already holds a loaded TripRow for this id — a healthy
-      // query finding no row means authoritative state could not be
-      // established, not that the feature isn't deployed here.
-      return { status: "unavailable" };
-    }
-
-    const row = data as { compliance_verified_at?: string | null; pod_received_at?: string | null };
-    return {
-      status: "live",
-      flags: {
-        compliance_verified_at: row.compliance_verified_at ?? null,
-        pod_received_at: row.pod_received_at ?? null,
-      },
-    };
-  } catch (e) {
-    // A genuine thrown exception (network failure, timeout, connection
-    // error) is never the pre-migration compatibility case — fail closed.
-    if (isMissingColumnOrRelation(e as { code?: string; message?: string })) {
-      return {
-        status: "compat_fallback",
-        flags: {
-          compliance_verified_at: trip.compliance_verified_at ?? null,
-          pod_received_at: trip.pod_received_at ?? null,
-        },
-      };
-    }
-    return { status: "unavailable" };
-  }
+async function readComplianceLedgerFlags(trip: TripRow): Promise<ComplianceLedgerFlags> {
+  const { data, error } = await supabase()
+    .from("trips")
+    .select("compliance_verified_at, pod_received_at")
+    .eq("id", trip.id)
+    .maybeSingle();
+  if (error || !data) return trip;
+  return data as ComplianceLedgerFlags;
 }
 
 /**
@@ -325,11 +322,7 @@ export async function postCompliancePayment(params: {
   const guard = await checkCompliancePaymentAllowed({ tripId: params.trip.id, category: params.category });
   if (!guard.ok) return { error: new Error(guard.reason) };
 
-  const flagsResult = await readComplianceLedgerFlags(params.trip);
-  if (flagsResult.status === "unavailable") {
-    return { error: new Error("Couldn't confirm compliance status — please retry.") };
-  }
-  const prerequisite = checkComplianceLedgerPrerequisite(params.category, flagsResult.flags);
+  const prerequisite = checkComplianceLedgerPrerequisite(params.category, await readComplianceLedgerFlags(params.trip));
   if (!prerequisite.ok) return { error: new Error(prerequisite.reason) };
 
   const amountCheck = validateCompliancePaymentAmount({ amount: params.amount, trip: params.trip });
@@ -379,7 +372,121 @@ export async function postCompliancePayment(params: {
       ),
     };
   }
+  if (!error && params.category === "compliance_advance") {
+    try {
+      await recordAdvanceDocumentCostSnapshot(params.trip.id, {
+        organizationId: params.trip.organization_id || params.organizationId,
+        supplierRate: params.trip.supplier_rate,
+        supplierRateBasis:
+          (params.trip as { supplier_rate_basis?: string | null }).supplier_rate_basis ?? null,
+        loadTons: params.trip.load_tons ?? null,
+      });
+    } catch {
+      // The ledger row is already posted. POD validation still resolves the slab.
+    }
+  }
   return { error };
+}
+
+type CompliancePaymentRowTarget = {
+  tripId: string;
+  transactionId: string;
+  /** `finance_receipt` = a client receipt posted in Finance (feeds `trips.amount_paid`). */
+  category: ComplianceLedgerCategory | "finance_receipt";
+};
+
+/**
+ * Reads the payment row and confirms it is this trip's advance / receipt. Not
+ * org-filtered: receipts on a shared trip may belong to the partner org; the
+ * trip match plus RLS decide what this user may edit.
+ */
+async function readCompliancePaymentRow(
+  target: CompliancePaymentRowTarget,
+): Promise<{ row: { description: string | null } | null; error: Error | null }> {
+  const notFound = { row: null, error: new Error("Payment not found. Refresh and try again.") };
+  if (target.transactionId.startsWith("amount-paid:")) return notFound;
+  const { data: row, error } = await supabase()
+    .from("transactions")
+    .select("id, trip_id, description, ledger_category, amount_in")
+    .eq("id", target.transactionId)
+    .maybeSingle();
+  if (error) return { row: null, error: new Error(error.message) };
+  const isComplianceRow =
+    row?.ledger_category === "compliance_advance" || row?.ledger_category === "compliance_balance";
+  const matches =
+    row != null &&
+    row.trip_id === target.tripId &&
+    (target.category === "finance_receipt"
+      ? !isComplianceRow && Number(row.amount_in ?? 0) > 0
+      : row.ledger_category === target.category);
+  return matches ? { row, error: null } : notFound;
+}
+
+async function writeCompliancePaymentRow(
+  transactionId: string,
+  payload: Record<string, unknown>,
+  fallbackPayload?: Record<string, unknown>,
+): Promise<{ error: Error | null }> {
+  const update = (body: Record<string, unknown>) =>
+    supabase().from("transactions").update(body).eq("id", transactionId).select("id").maybeSingle();
+  let { data, error } = await update(payload);
+  if (error && fallbackPayload && /payment_reference/i.test(error.message)) {
+    ({ data, error } = await update(fallbackPayload));
+  }
+  if (error) return { error: new Error(error.message) };
+  if (!data) return { error: new Error("You don't have permission to edit this payment.") };
+  return { error: null };
+}
+
+/** Edit only the transaction date (Paid at / Txn Date) of a posted payment. */
+export async function updateCompliancePaymentTransactionDate(
+  params: CompliancePaymentRowTarget & { transactionDate: string },
+): Promise<{ error: Error | null }> {
+  const normalized = normalizeComplianceTransactionDate(params.transactionDate);
+  const invalid = validateComplianceTransactionDate(normalized);
+  if (invalid) return { error: new Error(invalid) };
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  return writeCompliancePaymentRow(params.transactionId, {
+    transaction_date: normalized,
+    description: withLedgerDescriptionTxnDateConfirmed(row.description),
+  });
+}
+
+/**
+ * Edit only the UTR of a posted compliance payment. Amount, mode, date, party and
+ * notes are left untouched, so the ledger's double entry does not change.
+ * `updateLedgerEntry` is not used because it truncates `transaction_date` to a
+ * day (moving "Paid at") and rebuilds the description without notes.
+ */
+export async function updateCompliancePaymentReference(
+  params: CompliancePaymentRowTarget & { utr: string },
+): Promise<{ error: Error | null }> {
+  const invalid = validateComplianceUtr(params.utr);
+  if (invalid) return { error: new Error(invalid) };
+  const utr = normalizeComplianceUtr(params.utr);
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  const mode = interpretLedgerRowStructured({ description: row.description }).payment_mode;
+  if (isCashPaymentMode(mode)) {
+    return { error: new Error("Cash payments don't carry a UTR.") };
+  }
+  const description = withLedgerDescriptionUtr(row.description, utr);
+  return writeCompliancePaymentRow(params.transactionId, { description, payment_reference: utr }, { description });
+}
+
+/** Edit only the Request ID of a posted compliance payment (stored on its description). */
+export async function updateCompliancePaymentRequestId(
+  params: CompliancePaymentRowTarget & { requestId: string },
+): Promise<{ error: Error | null }> {
+  const invalid = validateComplianceRequestId(params.requestId);
+  if (invalid) return { error: new Error(invalid) };
+  const requestId = normalizeComplianceRequestId(params.requestId);
+  const { row, error } = await readCompliancePaymentRow(params);
+  if (!row) return { error };
+  return writeCompliancePaymentRow(params.transactionId, {
+    description: withLedgerDescriptionRequestId(row.description, requestId),
+  });
 }
 
 /**

@@ -47,7 +47,8 @@ function isMissingTripDocumentsColumn(err: { message?: string; code?: string } |
   const message = String(err.message ?? "").toLowerCase();
   return message.includes("source_entity_document_id") && (message.includes("does not exist") || message.includes("schema cache"));
 }
-export const MAX_TRIP_DOC_BYTES = 10 * 1024 * 1024;
+/** Practical ceiling for large phone scans / multi-page PDFs (storage-friendly). */
+export const MAX_TRIP_DOC_BYTES = 100 * 1024 * 1024;
 const MAX_TRIP_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Max simultaneous Storage `list()` calls across a trip's document-type subfolders. */
 const SUBFOLDER_LIST_CONCURRENCY = 3;
@@ -113,6 +114,7 @@ export type TripDocumentType =
   | 'invoice'
   | 'memo'
   | 'other'
+  | 'bank_docs'
   | 'eway_bill'
   | 'loading_slip'
   | 'odometer_start_photo'
@@ -365,6 +367,7 @@ export async function getDocumentsByTripId(
     'invoice',
     'memo',
     'other',
+    'bank_docs',
     'eway_bill',
     'loading_slip',
     'odometer_start_photo',
@@ -452,39 +455,42 @@ function publishPodUploadedEvent(
   doc: TripDocumentRow,
   organizationId?: string | null,
 ): void {
-  const knownOrgId = organizationId?.trim() || null;
-  const workspace = knownOrgId
-    ? Promise.resolve({
-        data: { organization_id: knownOrgId },
-        error: null,
-      })
-    : Promise.resolve(
-        supabase().from("trips").select("organization_id").eq("id", tripId).maybeSingle(),
-      );
-  void workspace
+  const publish = (workspaceId: string) => {
+    void recordTripWorkflowEvent({
+      tripId,
+      orgId: workspaceId,
+      eventType: "pod.uploaded",
+    }).catch((err) => {
+      if (__DEV__) console.warn("[tripDocuments] recordTripWorkflowEvent(pod.uploaded) failed:", err);
+    });
+    return getPlatformEventBus().publish({
+      name: "PODUploaded",
+      workspaceId,
+      correlationId: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      payload: {
+        tripId,
+        documentId: doc.id,
+        storagePath: doc.storage_path,
+        fileName: doc.file_name,
+        uploadedBy: doc.uploaded_by ?? null,
+      },
+    });
+  };
+  const knownOrgId = organizationId?.trim() ?? "";
+  if (knownOrgId) {
+    void Promise.resolve(publish(knownOrgId)).catch((err: unknown) => {
+      if (__DEV__) console.warn("[tripDocuments] PODUploaded publish failed:", err);
+    });
+    return;
+  }
+  void Promise.resolve(
+    supabase().from("trips").select("organization_id").eq("id", tripId).maybeSingle(),
+  )
     .then(({ data, error }) => {
       const workspaceId = !error && data ? (data as { organization_id?: string | null }).organization_id : null;
       if (!workspaceId) return;
-      void recordTripWorkflowEvent({
-        tripId,
-        orgId: workspaceId,
-        eventType: "pod.uploaded",
-      }).catch((err) => {
-        if (__DEV__) console.warn("[tripDocuments] recordTripWorkflowEvent(pod.uploaded) failed:", err);
-      });
-      return getPlatformEventBus().publish({
-        name: "PODUploaded",
-        workspaceId,
-        correlationId: randomUUID(),
-        occurredAt: new Date().toISOString(),
-        payload: {
-          tripId,
-          documentId: doc.id,
-          storagePath: doc.storage_path,
-          fileName: doc.file_name,
-          uploadedBy: doc.uploaded_by ?? null,
-        },
-      });
+      return publish(workspaceId);
     })
     .catch((err: unknown) => {
       if (__DEV__) console.warn("[tripDocuments] PODUploaded publish failed:", err);
@@ -572,7 +578,7 @@ async function recordTripDocumentReplacedAudit(params: {
 export async function uploadTripDocument(
   tripId: string,
   uploadedBy: string,
-  file: { arrayBuffer: ArrayBuffer; fileName: string; mimeType: string },
+  file: { arrayBuffer?: ArrayBuffer; blob?: Blob; fileName: string; mimeType: string },
   documentType: TripDocumentType = 'pod',
   documentNumber?: string,
   options?: {
@@ -581,14 +587,16 @@ export async function uploadTripDocument(
     organizationId?: string | null;
   },
 ): Promise<UploadTripDocumentResult> {
-  if (!file.arrayBuffer?.byteLength) {
+  const byteLength = file.blob?.size ?? file.arrayBuffer?.byteLength ?? 0;
+  const body = file.blob ?? file.arrayBuffer;
+  if (!body || byteLength <= 0) {
     return { doc: null, error: new Error("File is empty") };
   }
-  if (file.arrayBuffer.byteLength > MAX_TRIP_DOC_BYTES) {
+  if (byteLength > MAX_TRIP_DOC_BYTES) {
     return {
       doc: null,
       error: new Error(
-        `File too large (${formatMb(file.arrayBuffer.byteLength)}). Maximum is ${formatMb(MAX_TRIP_DOC_BYTES)}.`,
+        `File too large (${formatMb(byteLength)}). Maximum is ${formatMb(MAX_TRIP_DOC_BYTES)}.`,
       ),
     };
   }
@@ -609,7 +617,7 @@ export async function uploadTripDocument(
 
   const { error: uploadError } = await supabase()
     .storage.from(BUCKET)
-    .upload(path, file.arrayBuffer, {
+    .upload(path, body, {
       contentType: file.mimeType || "image/jpeg",
       upsert: false,
     });
@@ -630,7 +638,7 @@ export async function uploadTripDocument(
     file_name: file.fileName,
     storage_path: path,
     mime_type: file.mimeType || null,
-    size_bytes: file.arrayBuffer.byteLength,
+    size_bytes: byteLength,
     uploaded_by: uploadedBy,
     document_type: documentType,
     document_number: trimmedDocumentNumber,
@@ -658,7 +666,7 @@ export async function uploadTripDocument(
           file_name: file.fileName,
           storage_path: path,
           mime_type: file.mimeType || null,
-          size_bytes: file.arrayBuffer.byteLength,
+          size_bytes: byteLength,
           uploaded_by: uploadedBy,
           document_number: trimmedDocumentNumber,
           status: "pending",
@@ -713,7 +721,7 @@ export async function uploadTripDocument(
         file_name: file.fileName,
         storage_path: path,
         mime_type: file.mimeType || null,
-        size_bytes: file.arrayBuffer.byteLength,
+        size_bytes: file.arrayBuffer?.byteLength ?? byteLength,
         uploaded_at: now,
         uploaded_by: uploadedBy,
         document_type: documentType,
