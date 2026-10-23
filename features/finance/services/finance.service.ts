@@ -1036,6 +1036,23 @@ export async function getAllTransactionsByOrganizationForTotals(
   return { error: null, transactions };
 }
 
+/** Ledger rows for one trip in the viewer's org (settlement summary without loading the whole book). */
+export async function getTripTransactionsForOrg(
+  orgId: string,
+  tripId: string,
+): Promise<{ error: Error | null; transactions: LedgerRow[] }> {
+  type Row = Parameters<typeof toLedgerRow>[0];
+  const { data, error } = await supabase()
+    .from("transactions")
+    .select(LEDGER_TX_COLUMNS)
+    .eq("organization_id", orgId)
+    .eq("trip_id", tripId)
+    .order("transaction_date", { ascending: false });
+  if (error) return { error: new Error(error.message), transactions: [] };
+  const transactions: LedgerRow[] = ((data ?? []) as unknown as Row[]).map(toLedgerRow);
+  return { error: null, transactions };
+}
+
 export async function getTransactionsDelta(
   orgId: string,
   since: { updatedAt: string; tieBreakerId?: string | null },

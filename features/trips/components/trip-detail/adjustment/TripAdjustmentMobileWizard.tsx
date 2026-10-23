@@ -45,10 +45,9 @@ import { TripAdjustmentReviewTicket } from "@/features/trips/components/trip-det
 import { ProvisionCnDnImpactTag } from "@/features/trips/components/trip-detail/adjustment/ProvisionCnDnImpactTag";
 import {
   buildAdjustmentWizardSteps,
-  FINANCE_PROTOCOL_CHIPS,
-  protocolClientChipAdjustment,
-  protocolSupplierChipAdjustment,
+  provisionProtocolChips,
   resolveAdjustmentInitialStepIndex,
+  type ProvisionProtocolChip,
   type TripAdjustmentWizardStep,
 } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentFlow.util";
 import {
@@ -309,11 +308,8 @@ export const TripAdjustmentMobileWizard = memo(function TripAdjustmentMobileWiza
   ]);
 
   const applyProtocolChip = useCallback(
-    (chip: (typeof FINANCE_PROTOCOL_CHIPS)[number]) => {
-      const preset =
-        props.type === "revenue"
-          ? protocolClientChipAdjustment(chip)
-          : protocolSupplierChipAdjustment(chip);
+    (chip: ProvisionProtocolChip) => {
+      const preset = chip.preset;
       props.onTypeChange(preset.type);
       props.onImpactChange(preset.impact);
       const seed = preset.reasonSeed;
@@ -423,12 +419,12 @@ export const TripAdjustmentMobileWizard = memo(function TripAdjustmentMobileWiza
           </View>
         </View>
         <View style={styles.iconGrid}>
-          {FINANCE_PROTOCOL_CHIPS.map((chip) => {
-            const visual = reasonVisual(chip);
+          {provisionProtocolChips(props.type, props.impact).map((chip) => {
+            const visual = reasonVisual(chip.label);
             const Icon = visual.icon;
             return (
               <Pressable
-                key={chip}
+                key={chip.label}
                 style={styles.typeTile}
                 onPress={() => applyProtocolChip(chip)}
               >
@@ -436,7 +432,7 @@ export const TripAdjustmentMobileWizard = memo(function TripAdjustmentMobileWiza
                   <Icon size={22} color={visual.color} strokeWidth={2.2} />
                 </View>
                 <Text style={styles.typeTileLabel} numberOfLines={2}>
-                  {chip}
+                  {chip.label}
                 </Text>
               </Pressable>
             );

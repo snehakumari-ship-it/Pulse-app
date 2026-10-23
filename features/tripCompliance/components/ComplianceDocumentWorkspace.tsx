@@ -136,6 +136,7 @@ import {
 } from "@/features/trips/components/trip-detail/tripDocTypes";
 import { TripVaultFilePreview } from "@/features/trips/components/trip-detail/TripVaultFilePreview";
 import { getTripExecutionModel } from "@/features/trips/domain/tripExecutionModel";
+import { ComplianceTripAdjustmentsPane } from "@/features/tripCompliance/components/ComplianceTripAdjustmentsPane";
 import { getTripDisplayNumber } from "@/features/trips/services/trips.service";
 import { lrReceiptForTrip } from "@/features/trips/utils/lrReceiptStatus.util";
 import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
@@ -2375,6 +2376,8 @@ export function ComplianceDocumentWorkspace({
   defaultFinanceList = false,
   hideDocumentDecisions = false,
   hideDocumentPanes = false,
+  showAdjustmentsPane = false,
+  canAddAdjustment = false,
   selectedTripId = null,
   onSelectedTripChange,
   chargeFocusTripId = null,
@@ -2474,6 +2477,9 @@ export function ComplianceDocumentWorkspace({
   hideDocumentDecisions?: boolean;
   /** Hide the document checklist + preview (Debit control works POD only). */
   hideDocumentPanes?: boolean;
+  /** Debit control POD Verification: trip CN/DN panel (list 1 : panel 3). */
+  showAdjustmentsPane?: boolean;
+  canAddAdjustment?: boolean;
   /** Trip to show when opening the card view from the table. */
   selectedTripId?: string | null;
   /**
@@ -4070,7 +4076,8 @@ export function ComplianceDocumentWorkspace({
         style={[
           styles.listPane,
           stacked && styles.listPaneStacked,
-          hideDocumentPanes && !showValidationPane && styles.listPaneFull,
+          hideDocumentPanes && !showValidationPane && !showAdjustmentsPane && styles.listPaneFull,
+          hideDocumentPanes && showAdjustmentsPane && !stacked && styles.listPaneSplit,
         ]}
       >
         {listHeader}
@@ -4148,7 +4155,38 @@ export function ComplianceDocumentWorkspace({
         )}
       </View>
 
-      {showValidationPane ? (
+      {showAdjustmentsPane ? (
+        <View style={[styles.previewPane, styles.podLogPane, !stacked && styles.adjustmentsPaneSplit]}>
+          {summary ? (
+            <ComplianceTripAdjustmentsPane
+              key={summary.trip.id}
+              trip={summary.trip}
+              supplierName={
+                (supplierNameByTripId[summary.trip.id] ?? summary.trip.supplier_name)?.trim() || "Supplier"
+              }
+              canAddAdjustment={canAddAdjustment}
+              actorId={actorId}
+              onPodVerified={
+                canManagePod
+                  ? (tripId) => {
+                      void onChanged({ type: "podChargesSaved", tripId });
+                      void onChanged({ type: "tripFlags", tripId });
+                      onChargesSaved?.(tripId);
+                    }
+                  : undefined
+              }
+            />
+          ) : (
+            <View style={styles.emptyStage}>
+              <NoDocumentPreviewEmpty
+                compact={stacked}
+                title="No trip selected"
+                hint="Select a trip to add a credit or debit note."
+              />
+            </View>
+          )}
+        </View>
+      ) : showValidationPane ? (
         <View style={[styles.previewPane, styles.podLogPane]}>
           {summary ? (
             <PodClientValidationPanel
@@ -6722,6 +6760,9 @@ const styles = StyleSheet.create({
 
   /** Debit control: no checklist / preview, the trip list takes the row. */
   listPaneFull: { flex: 1, width: "auto", maxWidth: "100%", height: "100%", maxHeight: "100%" },
+  /** Debit control POD Verification: list 1 : CN/DN panel 3. */
+  listPaneSplit: { flex: 1, flexShrink: 1, width: "auto", minWidth: 0, maxWidth: "100%" },
+  adjustmentsPaneSplit: { flex: 3 },
   listEmpty: {
     flex: 1,
     minHeight: 0,

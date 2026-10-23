@@ -12,11 +12,10 @@ import { TripAdjustmentSuccessView } from "@/features/trips/components/trip-deta
 import {
   ASSET_DRIVER_DEDUCTION_PROTOCOL_CHIPS,
   ASSET_DRIVER_PAYMENT_PROTOCOL_CHIPS,
-  FINANCE_PROTOCOL_CHIPS,
   protocolAssetDriverDeductionAdjustment,
   protocolAssetDriverPaymentAdjustment,
-  protocolClientChipAdjustment,
-  protocolSupplierChipAdjustment,
+  provisionProtocolChips,
+  reasonAfterLaneImpactChange,
 } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentFlow.util";
 import {
   passThroughRecommendationAfterClientSave,
@@ -24,9 +23,7 @@ import {
 } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentPassThrough.util";
 import type { TripAdjustment } from "@/features/trips/services/tripAdjustments";
 import {
-  COST_REASON_OPTIONS,
   getAdjustmentReasonOptions,
-  REVENUE_REASON_OPTIONS,
   type TripAdjustmentImpact,
   type TripAdjustmentType,
 } from "@/features/trips/services/tripAdjustments";
@@ -115,7 +112,7 @@ function applyPreset(
   setType(lane);
   setImpact(preset?.impact ?? "plus");
   const seed = preset?.reasonSeed?.trim() ?? "";
-  const opts = lane === "revenue" ? REVENUE_REASON_OPTIONS : COST_REASON_OPTIONS;
+  const opts = getAdjustmentReasonOptions({ type: lane, impact: preset?.impact ?? "plus" });
   if (seed && (opts as readonly string[]).includes(seed)) {
     setReason(seed);
     setOther("");
@@ -244,6 +241,28 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
   const isClient = side === "client";
   const isAssetDriverCost = Boolean(props.isAssetExecution && side && !isClient);
 
+  /** CN↔DN or lane switch: drop a reason the new list no longer offers. */
+  const changeLaneImpact = useCallback(
+    (next: { type?: TripAdjustmentType; impact?: TripAdjustmentImpact }) => {
+      const nextType = next.type ?? type;
+      const nextImpact = next.impact ?? impact;
+      if (next.type) setType(next.type);
+      if (next.impact) setImpact(next.impact);
+      if (reason === "Other") return;
+      const kept = reasonAfterLaneImpactChange({
+        type: nextType,
+        impact: nextImpact,
+        reason,
+        isAssetDriverCost,
+      });
+      if (kept !== reason) {
+        setReason(kept);
+        setOtherReason("");
+      }
+    },
+    [impact, isAssetDriverCost, reason, type],
+  );
+
   const selectedReason = reason === "Other" ? otherReason.trim() || "Other" : reason;
   const amountNum = Math.round(parseFloat(amountStr.replace(/,/g, "")) || 0);
   const canSubmit =
@@ -362,10 +381,10 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
           entryContextLabel={entryContextLabel}
           tripCode={props.tripCode}
           type={type}
-          onTypeChange={setType}
+          onTypeChange={(next) => changeLaneImpact({ type: next })}
           laneLocked={laneLocked || Boolean(props.editTarget)}
           impact={impact}
-          onImpactChange={setImpact}
+          onImpactChange={(next) => changeLaneImpact({ impact: next })}
           impactLocked={impactLocked || Boolean(props.editTarget)}
           amountStr={amountStr}
           onAmountChange={setAmountStr}
@@ -550,23 +569,25 @@ export const ProvisionAdjustmentModal = memo(function ProvisionAdjustmentModal(
               </>
             ) : (
               <>
-                <Text style={styles.sectionEyebrow}>Quick protocol</Text>
-                <View style={styles.chipWrap}>
-                  {FINANCE_PROTOCOL_CHIPS.map((chip) => {
-                    const preset = isClient
-                      ? protocolClientChipAdjustment(chip)
-                      : protocolSupplierChipAdjustment(chip);
-                    return (
-                      <Pressable
-                        key={chip}
-                        style={styles.chip}
-                        onPress={() => beginWizard(preset)}
-                      >
-                        <Text style={styles.chipText}>{chip}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                {(["minus", "plus"] as const).map((chipImpact) => (
+                  <View key={chipImpact}>
+                    <Text style={styles.sectionEyebrow}>
+                      {chipImpact === "minus" ? "Credit (CN)" : "Debit (DN)"} · quick protocol
+                    </Text>
+                    <View style={styles.chipWrap}>
+                      {provisionProtocolChips(isClient ? "revenue" : "cost", chipImpact).map((chip) => (
+                        <Pressable
+                          key={chip.label}
+                          style={styles.chip}
+                          onPress={() => beginWizard(chip.preset)}
+                          accessibilityLabel={`${chipImpact === "minus" ? "Credit note" : "Debit note"}: ${chip.label}`}
+                        >
+                          <Text style={styles.chipText}>{chip.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ))}
               </>
             )}
 

@@ -1,7 +1,38 @@
-import type {
-  TripAdjustmentImpact,
-  TripAdjustmentType,
+import {
+  getAdjustmentReasonOptions,
+  type TripAdjustmentImpact,
+  type TripAdjustmentType,
 } from "@/features/trips/services/tripAdjustments";
+
+export type ProvisionProtocolChip = {
+  label: string;
+  preset: { type: TripAdjustmentType; impact: TripAdjustmentImpact; reasonSeed: string };
+};
+
+/** Quick protocol chips for one lane + CN/DN, from the same list as the reason step ("Other" stays manual). */
+export function provisionProtocolChips(
+  type: TripAdjustmentType,
+  impact: TripAdjustmentImpact,
+): ProvisionProtocolChip[] {
+  return getAdjustmentReasonOptions({ type, impact })
+    .filter((reason) => reason !== "Other")
+    .map((reason) => ({ label: reason, preset: { type, impact, reasonSeed: reason } }));
+}
+
+/** Keep the picked reason only if it is still offered after a lane / CN↔DN switch. */
+export function reasonAfterLaneImpactChange(input: {
+  type: TripAdjustmentType;
+  impact: TripAdjustmentImpact;
+  reason: string;
+  isAssetDriverCost?: boolean;
+}): string {
+  const options = getAdjustmentReasonOptions({
+    type: input.type,
+    impact: input.impact,
+    isAssetDriverCost: input.isAssetDriverCost,
+  });
+  return (options as readonly string[]).includes(input.reason) ? input.reason : "";
+}
 
 export const FINANCE_PROTOCOL_CHIPS = [
   "Loading",

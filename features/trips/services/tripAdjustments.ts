@@ -102,8 +102,29 @@ export function getAdjustmentReasonOptions(input: {
       "Other",
     ];
   }
+  // CN and DN get their own categories; no impact chosen yet → the full lane list.
+  if (input.impact) return LANE_IMPACT_REASON_OPTIONS[input.type][input.impact];
   return input.type === "revenue" ? REVENUE_REASON_OPTIONS : COST_REASON_OPTIONS;
 }
+
+/** Categories per lane and direction (plus = DN, minus = CN). Single source for wizard + protocol chips. */
+export const LANE_IMPACT_REASON_OPTIONS: Record<
+  TripAdjustmentType,
+  Record<TripAdjustmentImpact, readonly string[]>
+> = {
+  revenue: {
+    // DN — client pays more.
+    plus: ["Loading Charges", "Unloading Charges", "Detention", "Other"],
+    // CN — client pays less.
+    minus: ["Late Delivery", "Damages / Missing", "Other"],
+  },
+  cost: {
+    // DN — supplier is paid more.
+    plus: ["Fuel Escalation", "Detention", "Loading Charges", "Unloading Charges", "Pass Debit", "Other"],
+    // CN — deducted from the supplier.
+    minus: ["Late Delivery", "Damages / Missing", "POD Delay Submission", "Document Cost", "Other"],
+  },
+};
 
 function storageKey(tripId: string): string {
   return `${STORAGE_KEY_PREFIX}${tripId}`;

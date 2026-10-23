@@ -296,13 +296,8 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       return summaries.filter(isFinanceVerifiedQueue);
     }
     if (stage === "hard_copy_pod_received") {
-      // Awaiting POD tab: also lists paid trips that are still running (Advance Processed).
-      return summaries.filter(
-        (s) =>
-          tripAppearsInAwaitingPod(s) ||
-          tripStillInPodReceived(s) ||
-          s.stage === "advance_payment_processed",
-      );
+      // Awaiting POD tab: hard copy POD not received yet.
+      return summaries.filter(tripAppearsInAwaitingPod);
     }
     // Verified Reject keeps stage=compliance_verified but also lists under Verified All.
     if (stage === "pending_for_docs") {
@@ -356,20 +351,14 @@ export function useComplianceStageFilter(summaries: ComplianceTripSummary[] | un
       ) {
         next.compliance_verified += 1;
       }
-      if (
-        summary.stage !== "hard_copy_pod_received" &&
-        (tripAppearsInAwaitingPod(summary) || tripStillInPodReceived(summary))
-      ) {
-        next.hard_copy_pod_received += 1;
-      }
       if (summary.stage !== "balance_pending" && tripAppearsInBalancePending(summary)) {
         next.balance_pending += 1;
       }
     }
     // Same rule as the Finance Verified list, so the chip count always matches it.
     next.finance_verified = (summaries ?? []).filter(isFinanceVerifiedQueue).length;
-    // Awaiting POD also lists paid trips still running (their exclusive stage is Advance Processed).
-    next.hard_copy_pod_received += next.advance_payment_processed;
+    // Same rule as the Awaiting POD list (hard copy not received).
+    next.hard_copy_pod_received = (summaries ?? []).filter(tripAppearsInAwaitingPod).length;
     return next;
   }, [summaries]);
 
