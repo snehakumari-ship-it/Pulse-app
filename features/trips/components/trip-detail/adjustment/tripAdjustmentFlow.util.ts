@@ -34,43 +34,6 @@ export function reasonAfterLaneImpactChange(input: {
   return (options as readonly string[]).includes(input.reason) ? input.reason : "";
 }
 
-export const FINANCE_PROTOCOL_CHIPS = [
-  "Loading",
-  "Unloading",
-  "Detention",
-  "Damage",
-  "Toll",
-  "RTO",
-] as const;
-
-export type FinanceProtocolChip = (typeof FINANCE_PROTOCOL_CHIPS)[number];
-
-export function protocolSupplierChipAdjustment(chip: FinanceProtocolChip): {
-  type: TripAdjustmentType;
-  impact: TripAdjustmentImpact;
-  reasonSeed: string;
-} {
-  if (chip === "Loading")
-    return { type: "cost", impact: "plus", reasonSeed: "Loading Charges" };
-  if (chip === "Unloading")
-    return { type: "cost", impact: "plus", reasonSeed: "Unloading Charges" };
-  if (chip === "Detention")
-    return { type: "cost", impact: "plus", reasonSeed: "Detention" };
-  if (chip === "Damage")
-    return { type: "cost", impact: "plus", reasonSeed: "Damages / Missing" };
-  if (chip === "Toll")
-    return { type: "cost", impact: "plus", reasonSeed: "Pass Debit" };
-  return { type: "cost", impact: "plus", reasonSeed: "Other" };
-}
-
-export function protocolClientChipAdjustment(chip: FinanceProtocolChip): {
-  type: TripAdjustmentType;
-  impact: TripAdjustmentImpact;
-  reasonSeed: string;
-} {
-  return { type: "revenue", impact: "plus", reasonSeed: chip };
-}
-
 /** Quick deduct-from-driver chips (asset cost lane, CN / impact minus). */
 export const ASSET_DRIVER_DEDUCTION_PROTOCOL_CHIPS = [
   { label: "Damage", reasonSeed: "Damage to cargo" },

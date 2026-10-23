@@ -1776,7 +1776,9 @@ export default function ComplianceScreen() {
           defaultFinanceList={stage === "compliance_verified"}
           hideDocumentDecisions={stage === "compliance_verified" || stage === "pending_for_docs"}
           hideDocumentPanes={debitControlOnly}
-          showAdjustmentsPane={debitControlOnly && stage === "pod_received" && !podPartialMode}
+          showAdjustmentsPane={
+            debitControlOnly && !hideCommercials && stage === "pod_received" && !podPartialMode
+          }
           canAddAdjustment={canManagePod || canSurface("finance.void_adjustments")}
           canManagePod={canManagePod}
           canEditTripFiles={canResubmit}

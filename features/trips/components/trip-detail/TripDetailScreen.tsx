@@ -152,10 +152,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-    COST_REASON_OPTIONS,
-    REVENUE_REASON_OPTIONS,
     adjustedCost,
     adjustedRevenue,
+    getAdjustmentReasonOptions,
     isAdjustmentVoided,
     type TripAdjustment,
     type TripAdjustmentImpact,
@@ -225,6 +224,7 @@ import {
   buildCostDeductionSaveParams,
   type ClientPassThroughRecommendation,
 } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentPassThrough.util";
+import { provisionProtocolChips } from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentFlow.util";
 import { TripOdometerPreviewCard } from "@/features/trips/components/trip-detail/TripOdometerPreviewCard";
 const TripAdjustmentModal = lazy(() =>
   import("./TripAdjustmentModal").then((m) => ({ default: m.TripAdjustmentModal })),
@@ -327,11 +327,8 @@ import { useTripDetailUi } from "./hooks/useTripDetailUi";
 import {
   adjustmentsCountingAsIncome,
   adjustmentsCountingAsDeductions,
-  FINANCE_PROTOCOL_CHIPS,
-  getInlineReasonOptions,
   haversineKmBetween,
   inferCoordsFromLocationName,
-  protocolSupplierChipAdjustment,
   provisionLineMetaLabel,
   resolveTripSupplierDisplayName,
   splitLocationPrimarySecondary,
@@ -3150,10 +3147,10 @@ export default function TripDetailScreen({
     const url = `https://www.google.com/maps/dir/${o.latitude},${o.longitude}/${d.latitude},${d.longitude}`;
     void Linking.openURL(url);
   };
-  const inlineReasonOptions = getInlineReasonOptions(
-    inlineAdjType,
-    inlineAdjImpact,
-  );
+  const inlineReasonOptions = getAdjustmentReasonOptions({
+    type: inlineAdjType,
+    impact: inlineAdjImpact,
+  });
   const inlineFinalReason =
     inlineAdjReason === "Other"
       ? inlineAdjOtherReason.trim() || "Other"
@@ -3174,10 +3171,10 @@ export default function TripDetailScreen({
       setInlineAdjType(preset.type);
       setInlineAdjImpact(preset.impact);
       const seed = (preset.reasonSeed ?? "").trim();
-      const opts =
-        preset.type === "revenue"
-          ? REVENUE_REASON_OPTIONS
-          : COST_REASON_OPTIONS;
+      const opts = getAdjustmentReasonOptions({
+        type: preset.type,
+        impact: preset.impact,
+      });
       if (seed && (opts as readonly string[]).includes(seed)) {
         setInlineAdjReason(seed);
         setInlineAdjOtherReason("");
@@ -3204,8 +3201,10 @@ export default function TripDetailScreen({
     setInlineAdjType(adj.type);
     setInlineAdjImpact(adj.impact);
     setInlineAdjAmount(adj.amount > 0 ? String(adj.amount) : "");
-    const opts =
-      adj.type === "revenue" ? REVENUE_REASON_OPTIONS : COST_REASON_OPTIONS;
+    const opts = getAdjustmentReasonOptions({
+      type: adj.type,
+      impact: adj.impact,
+    });
     const r = (adj.reason ?? "").trim();
     if (r && (opts as readonly string[]).includes(r)) {
       setInlineAdjReason(r);
@@ -6441,30 +6440,25 @@ export default function TripDetailScreen({
                                 <Feather name="x" size={18} color="#fff" />
                               </TouchableOpacity>
                             </View>
-                            <View style={neoStyles.provisionChips}>
-                              {FINANCE_PROTOCOL_CHIPS.map((chip) => (
-                                <TouchableOpacity
-                                  key={chip}
-                                  style={neoStyles.provisionChip}
-                                  onPress={() =>
-                                    openInlineAdjustmentForm(
-                                      showFinanceProvisionPanel === "supplier"
-                                        ? protocolSupplierChipAdjustment(chip)
-                                        : {
-                                            type: "revenue",
-                                            impact: "plus",
-                                            reasonSeed: chip,
-                                          },
-                                    )
-                                  }
-                                  activeOpacity={0.86}
-                                >
-                                  <Text style={neoStyles.provisionChipText}>
-                                    {chip}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </View>
+                            {(["minus", "plus"] as const).map((chipImpact) => (
+                              <View key={chipImpact} style={neoStyles.provisionChips}>
+                                {provisionProtocolChips(
+                                  showFinanceProvisionPanel === "supplier" ? "cost" : "revenue",
+                                  chipImpact,
+                                ).map((chip) => (
+                                  <TouchableOpacity
+                                    key={`${chipImpact}-${chip.label}`}
+                                    style={neoStyles.provisionChip}
+                                    onPress={() => openInlineAdjustmentForm(chip.preset)}
+                                    activeOpacity={0.86}
+                                  >
+                                    <Text style={neoStyles.provisionChipText}>
+                                      {chip.label}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            ))}
                             {showInlineAdjustmentForm ? (
                               <View style={neoStyles.provisionForm}>
                                 <View style={neoStyles.provisionFormHead}>

@@ -4,11 +4,8 @@
  * change. Kept framework-free so they stay unit-testable and off the screen file.
  */
 import {
-  COST_REASON_OPTIONS,
   isAdjustmentVoided,
   type TripAdjustment,
-  type TripAdjustmentImpact,
-  type TripAdjustmentType,
 } from "../../services/tripAdjustments";
 
 /** Minimal ledger shape for supplier party-name fallback (Finance Hub payable label). */
@@ -100,57 +97,12 @@ export function adjustmentsCountingAsDeductions(
   );
 }
 
-export const FINANCE_PROTOCOL_CHIPS = [
-  "Loading",
-  "Unloading",
-  "Detention",
-  "Damage",
-  "Toll",
-  "RTO",
-] as const;
-
 /** Labels for embedded provision rows (aligned with adjustment registry copy). */
 export function provisionLineMetaLabel(adj: TripAdjustment): string {
   if (adj.type === "revenue") {
     return adj.impact === "plus" ? "SALE · ADD-ON" : "SALE · DEDUCTION";
   }
   return adj.impact === "plus" ? "COST · ADD-ON" : "COST · DEDUCTION";
-}
-
-export function protocolSupplierChipAdjustment(
-  chip: (typeof FINANCE_PROTOCOL_CHIPS)[number],
-): {
-  type: TripAdjustmentType;
-  impact: TripAdjustmentImpact;
-  reasonSeed: string;
-} {
-  if (chip === "Loading")
-    return { type: "cost", impact: "plus", reasonSeed: "Loading Charges" };
-  if (chip === "Unloading")
-    return { type: "cost", impact: "plus", reasonSeed: "Unloading Charges" };
-  if (chip === "Detention")
-    return { type: "cost", impact: "plus", reasonSeed: "Detention" };
-  if (chip === "Damage")
-    return { type: "cost", impact: "plus", reasonSeed: "Damages / Missing" };
-  if (chip === "Toll")
-    return { type: "cost", impact: "plus", reasonSeed: "Pass Debit" };
-  return { type: "cost", impact: "plus", reasonSeed: "Other" };
-}
-
-export function getInlineReasonOptions(
-  type: TripAdjustmentType,
-  impact: TripAdjustmentImpact,
-): readonly string[] {
-  if (type === "revenue" && impact === "plus") {
-    return ["Loading Charges", "Unloading Charges", "Other"];
-  }
-  if (type === "revenue" && impact === "minus") {
-    return ["Late Delivery", "Damages / Missing", "Other"];
-  }
-  if (type === "cost" && impact === "plus") {
-    return COST_REASON_OPTIONS;
-  }
-  return ["Damages / Missing", "Other"];
 }
 
 export function splitLocationPrimarySecondary(

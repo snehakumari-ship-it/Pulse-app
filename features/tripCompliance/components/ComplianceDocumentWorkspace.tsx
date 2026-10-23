@@ -4070,14 +4070,17 @@ export function ComplianceDocumentWorkspace({
     );
   };
 
+  // Ground Ops never see payable, receivable, or settlement amounts. The pane is debit-only.
+  const adjustmentsPaneOpen = showAdjustmentsPane && !hideCommercials;
+
   return (
     <View style={[styles.workspace, stacked && styles.workspaceStacked, style]}>
       <View
         style={[
           styles.listPane,
           stacked && styles.listPaneStacked,
-          hideDocumentPanes && !showValidationPane && !showAdjustmentsPane && styles.listPaneFull,
-          hideDocumentPanes && showAdjustmentsPane && !stacked && styles.listPaneSplit,
+          hideDocumentPanes && !showValidationPane && !adjustmentsPaneOpen && styles.listPaneFull,
+          hideDocumentPanes && adjustmentsPaneOpen && !stacked && styles.listPaneSplit,
         ]}
       >
         {listHeader}
@@ -4155,7 +4158,7 @@ export function ComplianceDocumentWorkspace({
         )}
       </View>
 
-      {showAdjustmentsPane ? (
+      {adjustmentsPaneOpen ? (
         <View style={[styles.previewPane, styles.podLogPane, !stacked && styles.adjustmentsPaneSplit]}>
           {summary ? (
             <ComplianceTripAdjustmentsPane

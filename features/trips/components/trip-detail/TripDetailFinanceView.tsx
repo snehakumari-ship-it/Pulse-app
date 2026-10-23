@@ -4,6 +4,10 @@
  * Supplier Sync bar, Associated Handshakes.
  */
 import { ProvisionCnDnImpactTag } from "@/features/trips/components/trip-detail/adjustment/ProvisionCnDnImpactTag";
+import {
+  provisionProtocolChips,
+  reasonAfterLaneImpactChange,
+} from "@/features/trips/components/trip-detail/adjustment/tripAdjustmentFlow.util";
 import { TripFinancialCard } from "@/components/TripFinancialCard";
 import Theme from "@/constants/Theme";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -22,9 +26,8 @@ import type {
 import {
     adjustedCost,
     adjustedRevenue,
-    COST_REASON_OPTIONS,
+    getAdjustmentReasonOptions,
     isAdjustmentVoided,
-    REVENUE_REASON_OPTIONS,
 } from "@/features/trips/services/tripAdjustments";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { formatTrackingDateTime } from "@/features/trips/utils/formatTrackingTimestamp.util";
@@ -73,35 +76,6 @@ function toTitleCase(value: string | null | undefined): string {
     .split(/\s+/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-}
-
-const FINANCE_PROTOCOL_CHIPS = [
-  "Loading",
-  "Unloading",
-  "Detention",
-  "Damage",
-  "Toll",
-  "RTO",
-] as const;
-
-function protocolSupplierChipAdjustment(
-  chip: (typeof FINANCE_PROTOCOL_CHIPS)[number],
-): {
-  type: TripAdjustmentType;
-  impact: TripAdjustmentImpact;
-  reasonSeed: string;
-} {
-  if (chip === "Loading")
-    return { type: "cost", impact: "plus", reasonSeed: "Loading Charges" };
-  if (chip === "Unloading")
-    return { type: "cost", impact: "plus", reasonSeed: "Unloading Charges" };
-  if (chip === "Detention")
-    return { type: "cost", impact: "plus", reasonSeed: "Detention" };
-  if (chip === "Damage")
-    return { type: "cost", impact: "plus", reasonSeed: "Damages / Missing" };
-  if (chip === "Toll")
-    return { type: "cost", impact: "plus", reasonSeed: "Pass Debit" };
-  return { type: "cost", impact: "plus", reasonSeed: "Other" };
 }
 
 /**
@@ -359,8 +333,20 @@ export function TripDetailFinanceView({
   const showAssignmentsSection = !tabsEnabled || activeTab === "tracking";
   const routeStr =
     `${trip.pickup_area ?? "—"} → ${trip.drop_location ?? "—"}`.trim() || "—";
-  const reasonOptions =
-    draftType === "revenue" ? REVENUE_REASON_OPTIONS : COST_REASON_OPTIONS;
+  const reasonOptions = getAdjustmentReasonOptions({
+    type: draftType,
+    impact: draftImpact,
+  });
+  const selectDraftImpact = (impact: TripAdjustmentImpact) => {
+    const nextReason = reasonAfterLaneImpactChange({
+      type: draftType,
+      impact,
+      reason: draftReason,
+    });
+    setDraftImpact(impact);
+    setDraftReason(nextReason);
+    if (nextReason !== "Other") setDraftOtherReason("");
+  };
   const selectedInlineReason =
     draftReason === "Other"
       ? draftOtherReason.trim() || "Other"
@@ -383,10 +369,10 @@ export function TripDetailFinanceView({
         setDraftType(preset.type);
         setDraftImpact(preset.impact);
         const seed = (preset.reasonSeed ?? "").trim();
-        const options =
-          preset.type === "revenue"
-            ? REVENUE_REASON_OPTIONS
-            : COST_REASON_OPTIONS;
+        const options = getAdjustmentReasonOptions({
+          type: preset.type,
+          impact: preset.impact,
+        });
         if (seed && (options as readonly string[]).includes(seed)) {
           setDraftReason(seed);
           setDraftOtherReason("");
@@ -1137,29 +1123,32 @@ export function TripDetailFinanceView({
                       </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.provisionChipsLbl}>
-                      Quick protocol tabs
-                    </Text>
-                    <View style={styles.provisionChipWrap}>
-                      {FINANCE_PROTOCOL_CHIPS.map((chip) => (
-                        <TouchableOpacity
-                          key={chip}
-                          style={styles.provisionChip}
-                          onPress={() => {
-                            const preset = protocolSupplierChipAdjustment(chip);
-                            if (onOpenAdjustment) {
-                              onOpenAdjustment(preset);
-                            } else {
-                              openInlineAdjustment(preset);
-                            }
-                            setShowFinanceProvisionPanel(false);
-                          }}
-                          activeOpacity={0.82}
-                        >
-                          <Text style={styles.provisionChipTxt}>{chip}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                    {(["minus", "plus"] as const).map((chipImpact) => (
+                      <View key={chipImpact}>
+                        <Text style={styles.provisionChipsLbl}>
+                          {chipImpact === "minus" ? "Credit (CN)" : "Debit (DN)"} · quick protocol
+                        </Text>
+                        <View style={styles.provisionChipWrap}>
+                          {provisionProtocolChips("cost", chipImpact).map((chip) => (
+                            <TouchableOpacity
+                              key={chip.label}
+                              style={styles.provisionChip}
+                              onPress={() => {
+                                if (onOpenAdjustment) {
+                                  onOpenAdjustment(chip.preset);
+                                } else {
+                                  openInlineAdjustment(chip.preset);
+                                }
+                                setShowFinanceProvisionPanel(false);
+                              }}
+                              activeOpacity={0.82}
+                            >
+                              <Text style={styles.provisionChipTxt}>{chip.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    ))}
 
                     <View style={styles.provisionFoot}>
                       <View>
@@ -1261,7 +1250,7 @@ export function TripDetailFinanceView({
                       styles.inlineImpactPlus,
                       draftImpact === "plus" && styles.inlineImpactPlusActive,
                     ]}
-                    onPress={() => setDraftImpact("plus")}
+                    onPress={() => selectDraftImpact("plus")}
                     activeOpacity={0.85}
                   >
                     <Text
@@ -1280,7 +1269,7 @@ export function TripDetailFinanceView({
                       styles.inlineImpactMinus,
                       draftImpact === "minus" && styles.inlineImpactMinusActive,
                     ]}
-                    onPress={() => setDraftImpact("minus")}
+                    onPress={() => selectDraftImpact("minus")}
                     activeOpacity={0.85}
                   >
                     <Text
