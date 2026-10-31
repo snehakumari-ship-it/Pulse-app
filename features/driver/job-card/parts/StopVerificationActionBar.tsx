@@ -43,7 +43,7 @@ export function StopVerificationActionBar({
         style={({ pressed }) => [
           styles.cta,
           {
-            backgroundColor: colors.emerald,
+            backgroundColor: colors.primary,
             opacity: busy || disabled ? 0.55 : pressed ? 0.88 : 1,
           },
         ]}
@@ -64,13 +64,13 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   cta: {
-    minHeight: 44,
-    borderRadius: 10,
+    minHeight: 48,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

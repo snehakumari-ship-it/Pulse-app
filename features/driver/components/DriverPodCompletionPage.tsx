@@ -991,7 +991,7 @@ const styles = StyleSheet.create({
   fileIconBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Theme.driverEmeraldMuted,

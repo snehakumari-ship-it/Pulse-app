@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { DeliverySuccessMotion } from '@/components/driver/DeliverySuccessMotion';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
@@ -217,6 +218,10 @@ export function RouteTimeline({ colors, stops, onOpenStop, onViewAll }: Props) {
           </View>
         );
       })}
+
+      <View style={styles.motionCorner} pointerEvents="none">
+        <DeliverySuccessMotion />
+      </View>
     </View>
   );
 }
@@ -226,16 +231,24 @@ const MARKER = 16;
 const styles = StyleSheet.create({
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    paddingHorizontal: 14,
-    paddingTop: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverSecondaryGrey,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 10,
+    overflow: 'hidden',
+  },
+  motionCorner: {
+    alignSelf: 'flex-end',
+    marginTop: 4,
+    marginRight: -4,
+    opacity: 0.96,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
-    paddingHorizontal: 2,
   },
   title: {
     fontSize: 13,

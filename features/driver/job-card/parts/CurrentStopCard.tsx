@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import { DriverMotionIcon } from '@/components/driver/DriverMotionIcon';
 import Layout from '@/constants/Layout';
+import Theme from '@/constants/Theme';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { formatStopAddress } from '@/features/driver/commerce-mission/driverCommerceMissionLabels';
 import type { DriverTripStopOrder } from '@/features/driver/commerce-mission/driverTripStopOrders.types';
@@ -48,12 +50,14 @@ function ActionButton({
   accessibilityLabel,
   icon,
   onPress,
+  iconDelay = 0,
 }: {
   colors: Colors;
   label: string;
   accessibilityLabel?: string;
   icon: ReactNode;
   onPress: (() => void) | null | undefined;
+  iconDelay?: number;
 }) {
   const disabled = !onPress;
   return (
@@ -66,7 +70,9 @@ function ActionButton({
       hitSlop={Layout.touchTargetHitSlop}
       style={({ pressed }) => [styles.action, { opacity: disabled ? 0.38 : pressed ? 0.7 : 1 }]}
     >
-      <View style={[styles.actionIcon, { backgroundColor: colors.emeraldMuted }]}>{icon}</View>
+      <View style={[styles.actionIcon, { backgroundColor: colors.emeraldMuted }]}>
+        <DriverMotionIcon delay={iconDelay}>{icon}</DriverMotionIcon>
+      </View>
       <Text style={[styles.actionLabel, { color: colors.text }]} numberOfLines={1}>
         {label}
       </Text>
@@ -120,7 +126,9 @@ export function CurrentStopCard({
         style={styles.summary}
       >
         <View style={[styles.tile, { backgroundColor: colors.emeraldMuted }]}>
-          <StopIcon size={18} color={colors.emerald} strokeWidth={2.2} />
+          <DriverMotionIcon>
+            <StopIcon size={18} color={colors.emerald} strokeWidth={2.2} />
+          </DriverMotionIcon>
         </View>
         <View style={styles.copy}>
           <View style={styles.metaRow}>
@@ -149,7 +157,7 @@ export function CurrentStopCard({
             <Text
               testID="multi-order-stop-orders"
               style={[styles.ordersLine, { color: colors.textMuted }]}
-              numberOfLines={1}
+              numberOfLines={2}
             >
               {ordersLine ?? (ordersLoading ? 'Loading orders…' : '')}
               {orderNumbers ? `  ${orderNumbers}` : ''}
@@ -159,6 +167,31 @@ export function CurrentStopCard({
         </View>
       </Pressable>
 
+      <View style={styles.stopTrack}>
+        <View style={[styles.stopTrackLine, { backgroundColor: colors.border }]} />
+        {(['Heading', 'At stop', 'Done'] as const).map((label, index) => {
+          const stage =
+            stop.status === 'completed' || stop.status === 'skipped' ? 2 : stop.status === 'arrived' ? 1 : 0;
+          const reached = index <= stage;
+          return (
+            <View key={label} style={styles.stopStep}>
+              <View
+                style={[
+                  styles.stopDot,
+                  {
+                    backgroundColor: reached ? colors.emerald : cardBackground(colors),
+                    borderColor: reached ? colors.emerald : colors.border,
+                  },
+                ]}
+              />
+              <Text style={[styles.stopStepLabel, { color: reached ? colors.text : colors.textMuted }]}>
+                {label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
       <View style={styles.actions}>
         <ActionButton
           colors={colors}
@@ -166,6 +199,7 @@ export function CurrentStopCard({
           accessibilityLabel={phone ? callLabel : `${callLabel} unavailable`}
           icon={<Phone size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={phone ? () => void Linking.openURL(`tel:${phone}`) : null}
+          iconDelay={120}
         />
         <ActionButton
           colors={colors}
@@ -173,6 +207,7 @@ export function CurrentStopCard({
           accessibilityLabel={`Navigate to ${place}`}
           icon={<Navigation size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={onNavigate}
+          iconDelay={280}
         />
         <ActionButton
           colors={colors}
@@ -180,6 +215,7 @@ export function CurrentStopCard({
           accessibilityLabel={delivery ? 'Proof of delivery' : 'Proof of pickup'}
           icon={<Camera size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={onProof}
+          iconDelay={440}
         />
         <ActionButton
           colors={colors}
@@ -187,6 +223,7 @@ export function CurrentStopCard({
           accessibilityLabel={`${role} order details`}
           icon={<FileText size={16} color={colors.emerald} strokeWidth={2.2} />}
           onPress={onOpenDetails}
+          iconDelay={600}
         />
       </View>
 
@@ -198,6 +235,8 @@ export function CurrentStopCard({
 const styles = StyleSheet.create({
   card: {
     borderRadius: JOB_CARD_RADIUS,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverSecondaryGrey,
     paddingHorizontal: 12,
     paddingVertical: 12,
     gap: 10,
@@ -208,9 +247,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   tile: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -233,10 +272,10 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   place: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: -0.15,
-    lineHeight: 18,
+    letterSpacing: -0.2,
+    lineHeight: 20,
   },
   customer: {
     fontSize: 12,
@@ -251,8 +290,30 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  stopTrack: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingTop: 4,
+  },
+  stopTrackLine: {
+    position: 'absolute',
+    left: 28,
+    right: 28,
+    top: 10,
+    height: 2,
+    borderRadius: 1,
+  },
+  stopStep: { flex: 1, alignItems: 'center', gap: 6 },
+  stopDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+  },
+  stopStepLabel: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   actions: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
   action: {
@@ -262,9 +323,9 @@ const styles = StyleSheet.create({
     minHeight: Layout.minTouchTargetSize,
   },
   actionIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

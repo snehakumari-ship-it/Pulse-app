@@ -50,7 +50,6 @@ import {
 } from '@/features/driver/job-card/parts/RouteTimeline';
 import type { StopOrderSummaryOrder } from '@/features/driver/job-card/parts/StopOrderSummary';
 import type { StatusTone } from '@/features/driver/job-card/parts/jobCardSurface';
-import type { RouteStopStats } from '@/features/driver/job-card/parts/RouteProgressHeader';
 import { StopActionButton } from '@/features/driver/job-card/parts/StopActionButton';
 import { completedStopCount } from '@/features/driver/job-card/attachOrdersToStop';
 import { allStopsFinished } from '@/features/driver/job-card/tripCompletionSummary';
@@ -221,18 +220,6 @@ export function DriverMultiOrderJobCard({
     });
   }, [commerce.stops, stops, mission, currentId]);
 
-  const stopStats = useMemo((): RouteStopStats | null => {
-    if (!sesReady) return null;
-    const stats: RouteStopStats = { pending: 0, arrived: 0, completed: 0, failed: 0 };
-    for (const stop of stops) {
-      if (stop.status === 'completed' || stop.status === 'skipped') stats.completed += 1;
-      else if (stop.status === 'arrived') stats.arrived += 1;
-      else if (stop.status === 'failed') stats.failed += 1;
-      else stats.pending += 1;
-    }
-    return stats;
-  }, [sesReady, stops]);
-
   const focusKind = currentStop
     ? (routePlanKind(String(currentStop.stopType)) === 'drop' ? 'drop' : 'pickup')
     : 'pickup';
@@ -289,6 +276,15 @@ export function DriverMultiOrderJobCard({
             ? `Pickup ${pickupN}`
             : `Stop ${stop.sequence}`;
       const orders = model?.orders ?? [];
+      const raw = String(stop.status ?? '').toLowerCase();
+      const status =
+        raw === 'completed' || raw === 'skipped'
+          ? 'completed' as const
+          : raw === 'arrived'
+            ? 'arrived' as const
+            : raw === 'failed'
+              ? 'failed' as const
+              : 'pending' as const;
       return {
         id: stop.stopId,
         caption,
@@ -296,6 +292,7 @@ export function DriverMultiOrderJobCard({
         address: [stop.addressLine, stop.city, stop.state].filter((part) => part?.trim()).join(', ') || null,
         kind,
         isCurrent: stop.stopId === currentId,
+        status,
         orders: orders.map((order) => ({
           id: order.id,
           orderNumber: order.orderNumber,
@@ -565,7 +562,6 @@ export function DriverMultiOrderJobCard({
         onViewTripPlan={() => setPlanOpen(true)}
         kicker="Commerce Delivery"
         summary={commerceSummary}
-        stats={stopStats}
       />
 
       <RouteTimeline
@@ -657,9 +653,9 @@ const styles = StyleSheet.create({
   },
   pageBody: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 8,
-    paddingBottom: 12,
-    gap: 10,
+    paddingTop: 4,
+    paddingBottom: 16,
+    gap: 12,
   },
   actionDock: {
     paddingHorizontal: Layout.screenPaddingHorizontal,

@@ -310,10 +310,10 @@ export const Theme = {
   tabBarPillActiveBg: "#F4F4F4",
   tabBarActiveIconBorder: "#E82127",
 
-  // ---- Driver app (reference: Qu Neural Link) ----
-  /** CTAs / filled pills — emerald-600 (deeper than legacy neon green) */
-  driverPrimary: "#059669",
-  driverSuccess: "#15803D",
+  // ---- Driver app (AgriFlow-inspired green/white system) ----
+  /** Primary CTA / accents — AgriFlow green */
+  driverPrimary: "#026705",
+  driverSuccess: "#026705",
   driverBackground: "#000000",
   driverSurface: "#0A0A0A",
   /** Slightly elevated surface on dark (e.g. chat bubbles) */
@@ -329,9 +329,13 @@ export const Theme = {
   driverTextMuted: "#9ca3af",
   /** Placeholder text on dark inputs */
   driverPlaceholder: "#52525b",
-  /** Accents, amounts, dots — emerald-700/800 (modern / restrained) */
-  driverEmerald: "#047857",
-  driverEmeraldDark: "#065f46",
+  /** Accents, amounts, dots — same family as primary */
+  driverEmerald: "#026705",
+  driverEmeraldDark: "#014403",
+  /** Secondary grey for borders / inactive chrome (AgriFlow) */
+  driverSecondaryGrey: "#D1D1D1",
+  /** Light-mode primary text (AgriFlow) */
+  driverText: "#000000",
   /** Updated reference: gold for ETA, rank */
   driverGold: "#F59E0B",
   /** Overlay on driver screens */
@@ -341,12 +345,12 @@ export const Theme = {
   /** Muted white surfaces on dark */
   driverWhiteMuted: "rgba(255,255,255,0.05)",
   driverWhiteMutedStrong: "rgba(255,255,255,0.1)",
-  /** Emerald tint borders/backgrounds on dark — based on #047857 */
-  driverEmeraldBorder: "rgba(4,120,87,0.38)",
-  driverEmeraldMuted: "rgba(4,120,87,0.12)",
-  driverEmeraldMutedText: "rgba(4,120,87,0.52)",
-  driverEmeraldMutedText2: "rgba(4,120,87,0.62)",
-  driverEmeraldBorderSoft: "rgba(4,120,87,0.28)",
+  /** Emerald tint borders/backgrounds — based on #026705 */
+  driverEmeraldBorder: "rgba(2,103,5,0.38)",
+  driverEmeraldMuted: "rgba(2,103,5,0.12)",
+  driverEmeraldMutedText: "rgba(2,103,5,0.55)",
+  driverEmeraldMutedText2: "rgba(2,103,5,0.65)",
+  driverEmeraldBorderSoft: "rgba(2,103,5,0.28)",
   /** Negative (red) muted background */
   negativeMuted: "rgba(220,38,38,0.15)",
   /** Positive (green) muted on dark */

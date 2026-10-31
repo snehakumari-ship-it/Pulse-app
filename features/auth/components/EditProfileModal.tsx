@@ -22,8 +22,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { LinearGradient } from 'expo-linear-gradient';
+import { DriverIconWell, driverIconSize } from '@/components/driver/DriverIconWell';
+import { DriverMotionIcon } from '@/components/driver/DriverMotionIcon';
 import { Check, ChevronLeft, Edit3, Mail, Phone, Sparkles } from 'lucide-react-native';
+import {
+  DRIVER_BTN_RADIUS,
+  DRIVER_CARD_RADIUS,
+  DRIVER_ROW_HEIGHT,
+  DRIVER_SECTION_GAP,
+  driverCardElevation,
+} from '@/constants/DriverUi';
 import Theme from '@/constants/Theme';
 import Layout from '@/constants/Layout';
 import Typography from '@/constants/Typography';
@@ -44,13 +52,26 @@ import * as authService from '../services/auth.service';
 
 const DEFAULT_AVATAR_SEED = DEFAULT_DRIVER_AVATAR_SEED;
 
-/** Driver edit screen — cool white page (reference: #FDFEFF). */
-const DRIVER_EDIT_PAGE_BG = '#F6FAFC';
-/** Accent for photo actions should match app primary theme. */
-const DRIVER_FOREST = Theme.primary;
+/** Driver edit screen — gray canvas so the white cards lift off the page. */
+const DRIVER_EDIT_PAGE_BG = Theme.surfaceGray;
+/** Accent for photo actions — AgriFlow driver green. */
+const DRIVER_FOREST = Theme.driverPrimary;
 const DRIVER_INPUT_BG = Theme.liquidPillBg;
-const DRIVER_AVATAR_SIZE = 144;
-const DRIVER_EDIT_FAB = 48;
+const DRIVER_AVATAR_SIZE = 80;
+const DRIVER_EDIT_FAB = 28;
+const DRIVER_CARD_ELEVATION = Platform.select({
+  ios: {
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+  },
+  android: { elevation: 4 },
+  web: {
+    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px rgba(15, 23, 42, 0.08)',
+  },
+  default: {},
+});
 
 export interface EditProfileModalProps {
   visible: boolean;
@@ -478,34 +499,37 @@ export function EditProfileModal({
               styles.driverHeaderBar,
               {
                 paddingTop: insets.top + 8,
-                paddingBottom: 14,
-                borderBottomColor: 'rgba(167,243,208,0.35)',
+                paddingBottom: 12,
               },
             ]}
           >
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.driverHeaderBackRound}
-              hitSlop={12}
-              accessibilityLabel="Go back"
-              disabled={saving}
-            >
-              <ChevronLeft size={24} color={Theme.textMuted} strokeWidth={2.4} />
-            </TouchableOpacity>
+            <View style={styles.driverHeaderSide}>
+              <TouchableOpacity
+                onPress={onClose}
+                style={styles.driverHeaderBackRound}
+                hitSlop={12}
+                accessibilityLabel="Go back"
+                disabled={saving}
+              >
+                <ChevronLeft size={22} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+              </TouchableOpacity>
+            </View>
             <Text style={styles.driverHeaderTitleCenter}>EDIT PROFILE</Text>
-            <TouchableOpacity
-              style={styles.driverHeaderSavePill}
-              onPress={handleSave}
-              disabled={saving}
-              hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-              accessibilityLabel="Save profile"
-            >
-              {saving ? (
-                <LoadingIndicator size="small" color={Theme.driverEmerald} />
-              ) : (
-                <Text style={styles.driverHeaderSavePillText}>Save</Text>
-              )}
-            </TouchableOpacity>
+            <View style={[styles.driverHeaderSide, styles.driverHeaderSideEnd]}>
+              <TouchableOpacity
+                style={styles.driverHeaderSavePill}
+                onPress={handleSave}
+                disabled={saving}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Save profile"
+              >
+                {saving ? (
+                  <LoadingIndicator size="small" color={Theme.driverEmerald} />
+                ) : (
+                  <Text style={styles.driverHeaderSavePillText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           <View
@@ -545,50 +569,63 @@ export function EditProfileModal({
         >
           {driverRefLayout ? (
             <>
-              <View style={styles.driverHeroBlock}>
-                <View style={styles.driverAvatarGlowWrap}>
-                  <LinearGradient
-                    colors={['rgba(52,211,153,0.35)', 'rgba(16,185,129,0.08)', 'transparent']}
-                    style={styles.driverAvatarGlowBlob}
-                  />
-                  <View style={styles.driverAvatarRelative}>
-                    <TouchableOpacity
-                      activeOpacity={0.92}
-                      onPress={openAvatarActions}
-                      disabled={saving || photoUploading}
-                      accessibilityLabel="Change profile photo"
-                      accessibilityRole="button"
-                    >
-                      <LinearGradient
-                        colors={[Theme.driverEmerald, Theme.driverPrimary]}
-                        style={styles.driverSquircleGradient}
-                      >
-                        <View style={styles.driverSquircleInner}>
-                          <Image source={avatarPreviewSource} style={styles.driverAvatarImageSq} resizeMode="cover" />
-                          {photoUploading ? (
-                            <View style={styles.driverAvatarLoading}>
-                              <LoadingIndicator color={Theme.textOnPrimary} size="large" />
-                            </View>
-                          ) : null}
-                        </View>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.driverEditFab, styles.driverEditFabElevated]}
-                      onPress={openAvatarActions}
-                      disabled={saving || photoUploading}
-                      activeOpacity={0.85}
-                      accessibilityLabel="Edit profile photo"
-                      accessibilityRole="button"
-                    >
-                      <Edit3 size={22} color={Theme.textOnPrimary} strokeWidth={2.5} />
-                    </TouchableOpacity>
-                  </View>
+              <View style={styles.driverHeroCard}>
+                <View style={styles.driverAvatarRelative}>
+                  <TouchableOpacity
+                    activeOpacity={0.92}
+                    onPress={openAvatarActions}
+                    disabled={saving || photoUploading}
+                    accessibilityLabel="Change profile photo"
+                    accessibilityRole="button"
+                  >
+                    <View style={styles.driverAvatarRing}>
+                      <View style={styles.driverSquircleInner}>
+                        <Image source={avatarPreviewSource} style={styles.driverAvatarImageSq} resizeMode="cover" />
+                        {photoUploading ? (
+                          <View style={styles.driverAvatarLoading}>
+                            <LoadingIndicator color={Theme.textOnPrimary} size="large" />
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.driverEditFab}
+                    onPress={openAvatarActions}
+                    disabled={saving || photoUploading}
+                    activeOpacity={0.85}
+                    accessibilityLabel="Edit profile photo"
+                    accessibilityRole="button"
+                  >
+                    <DriverMotionIcon>
+                      <Edit3 size={13} color={Theme.textOnPrimary} strokeWidth={2.5} />
+                    </DriverMotionIcon>
+                  </TouchableOpacity>
                 </View>
                 <Text style={styles.driverHeroNameNew} numberOfLines={2}>
                   {fullName.trim() || 'Your name'}
                 </Text>
-                <Text style={styles.driverHeroEyebrowSmall}>Driver profile · {heroRoleLine}</Text>
+                <View style={styles.driverStatusPill}>
+                  <Text style={styles.driverHeroEyebrowSmall}>Driver profile · {heroRoleLine}</Text>
+                </View>
+                <View style={styles.driverCardDivider} />
+                <View style={styles.driverHeroFields}>
+                  <Text style={styles.driverCardSectionTitle}>Personal information</Text>
+                  <Text style={styles.driverCardMicroLabel}>Full name</Text>
+                  <TextInput
+                    style={styles.driverCardTextInput}
+                    placeholder="Enter your name"
+                    placeholderTextColor={Theme.textMuted}
+                    value={fullName}
+                    onChangeText={setFullName}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    autoComplete="off"
+                    editable={!saving}
+                    underlineColorAndroid="transparent"
+                  />
+                </View>
               </View>
 
               {showAvatarDropdown ? (
@@ -620,39 +657,23 @@ export function EditProfileModal({
                 </TouchableOpacity>
               ) : null}
 
-              <Text style={styles.driverSectionLegendTop}>Personal information</Text>
-              <View style={styles.driverCardWhite}>
-                <Text style={styles.driverCardMicroLabel}>Full name</Text>
-                <TextInput
-                  style={styles.driverCardTextInput}
-                  placeholder="Enter your name"
-                  placeholderTextColor={Theme.textMuted}
-                  value={fullName}
-                  onChangeText={setFullName}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  spellCheck={false}
-                  autoComplete="off"
-                  editable={!saving}
-                  underlineColorAndroid="transparent"
-                />
-              </View>
-
-              <View style={styles.driverBioHeaderRow}>
-                <Text style={styles.driverSectionLegendInline}>Bio / status</Text>
-                <TouchableOpacity
-                  style={styles.driverGeneratePill}
-                  onPress={handleGenerateBioTap}
-                  activeOpacity={0.85}
-                  disabled={saving}
-                  accessibilityRole="button"
-                  accessibilityLabel="Generate bio"
-                >
-                  <Sparkles size={14} color={Theme.driverEmerald} strokeWidth={2.4} />
-                  <Text style={styles.driverGeneratePillText}>Generate</Text>
-                </TouchableOpacity>
-              </View>
               <View style={styles.driverCardWhiteBio}>
+                <View style={styles.driverBioHeaderRow}>
+                  <Text style={[styles.driverCardSectionTitle, styles.driverCardSectionTitleInline]}>Bio / status</Text>
+                  <TouchableOpacity
+                    style={styles.driverGeneratePill}
+                    onPress={handleGenerateBioTap}
+                    activeOpacity={0.85}
+                    disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityLabel="Generate bio"
+                  >
+                    <DriverMotionIcon>
+                      <Sparkles size={12} color={Theme.driverEmerald} strokeWidth={2.4} />
+                    </DriverMotionIcon>
+                    <Text style={styles.driverGeneratePillText}>Generate</Text>
+                  </TouchableOpacity>
+                </View>
                 <TextInput
                   style={styles.driverBioTextarea}
                   placeholder="e.g. Trust your feelings, be a good human being"
@@ -672,10 +693,8 @@ export function EditProfileModal({
                 </Text>
               </View>
 
-              <Text style={[styles.driverSectionLegendTop, styles.driverSectionAfterBio]}>
-                Contact details
-              </Text>
               <View style={styles.driverContactCard}>
+                <Text style={styles.driverCardSectionTitle}>Contact details</Text>
                 <TouchableOpacity
                   style={[styles.driverContactRow, styles.driverContactRowBorder]}
                   onPress={showEmailOnboardingHint}
@@ -684,9 +703,9 @@ export function EditProfileModal({
                   accessibilityRole="button"
                   accessibilityLabel={hasEmail ? 'Email address (read-only)' : 'Add email'}
                 >
-                  <View style={styles.driverContactIconBg}>
-                    <Mail size={22} color={Theme.driverEmerald} strokeWidth={2.2} />
-                  </View>
+                  <DriverIconWell backgroundColor={Theme.driverEmeraldMuted} borderColor={Theme.driverEmeraldBorderSoft} motionDelay={0}>
+                    <Mail size={driverIconSize} color={Theme.driverEmerald} strokeWidth={2.2} />
+                  </DriverIconWell>
                   <View style={styles.driverContactMid}>
                     <Text style={styles.driverContactEyebrow}>Email address</Text>
                     <Text style={styles.driverContactValue} numberOfLines={2}>
@@ -701,9 +720,13 @@ export function EditProfileModal({
                 </TouchableOpacity>
 
                 <View style={styles.driverContactRow}>
-                  <View style={styles.driverContactIconBgBlue}>
-                    <Phone size={22} color="#2563eb" strokeWidth={2.2} />
-                  </View>
+                  <DriverIconWell
+                    backgroundColor={Theme.brandBlueSoft}
+                    borderColor={Theme.brandBlueRing}
+                    motionDelay={120}
+                  >
+                    <Phone size={driverIconSize} color={Theme.assignmentVehicleAccent} strokeWidth={2.2} />
+                  </DriverIconWell>
                   <View style={styles.driverContactMid}>
                     <Text style={styles.driverContactEyebrow}>Mobile number</Text>
                     <TextInput
@@ -722,17 +745,17 @@ export function EditProfileModal({
                   </View>
                   {phoneVerified ? (
                     <View style={styles.driverVerifiedChip}>
-                      <Check size={12} color={Theme.driverEmerald} strokeWidth={3} />
+                      <DriverMotionIcon>
+                        <Check size={12} color={Theme.driverEmerald} strokeWidth={3} />
+                      </DriverMotionIcon>
                       <Text style={styles.driverVerifiedChipText}>Verified</Text>
                     </View>
                   ) : null}
                 </View>
               </View>
 
-              <Text style={[styles.driverSectionLegendTop, styles.driverSectionAfterBio]}>
-                Fleet / account
-              </Text>
               <View style={styles.driverCardWhite}>
+                <Text style={styles.driverCardSectionTitle}>Fleet / account</Text>
                 <Text style={styles.driverCardMicroLabel}>Registered company name</Text>
                 <TextInput
                   style={styles.driverCardTextInput}
@@ -1001,77 +1024,100 @@ const styles = StyleSheet.create({
   driverHeaderBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Layout.screenPaddingHorizontal - 4,
-    backgroundColor: 'rgba(253,254,255,0.92)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    backgroundColor: DRIVER_EDIT_PAGE_BG,
+  },
+  driverHeaderSide: {
+    width: 88,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  driverHeaderSideEnd: {
+    alignItems: 'flex-end',
   },
   driverHeaderBackRound: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    ...DRIVER_CARD_ELEVATION,
   },
   driverHeaderTitleCenter: {
-    position: 'absolute',
-    left: 72,
-    right: 72,
+    flex: 1,
     textAlign: 'center',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.2,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.1,
     color: Theme.textPrimaryDark,
   },
   driverHeaderSavePill: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorderSoft,
     minWidth: 72,
+    minHeight: 36,
     alignItems: 'center',
     justifyContent: 'center',
+    ...DRIVER_CARD_ELEVATION,
   },
   driverHeaderSavePillText: {
     fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
     color: Theme.driverEmerald,
     textTransform: 'uppercase',
   },
-  driverHeroBlock: {
+  driverHeroCard: {
     alignItems: 'center',
-    marginBottom: Layout.sectionSpacing + 6,
-    marginTop: 8,
-  },
-  driverAvatarGlowWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-    width: DRIVER_AVATAR_SIZE + 48,
-    height: DRIVER_AVATAR_SIZE + 48,
-  },
-  driverAvatarGlowBlob: {
-    position: 'absolute',
-    width: DRIVER_AVATAR_SIZE + 36,
-    height: DRIVER_AVATAR_SIZE + 36,
-    opacity: 0.85,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    paddingTop: 16,
+    paddingBottom: 14,
+    paddingHorizontal: 14,
+    marginBottom: DRIVER_SECTION_GAP,
+    ...driverCardElevation,
   },
   driverAvatarRelative: {
     position: 'relative',
+    width: DRIVER_AVATAR_SIZE + 12,
+    height: DRIVER_AVATAR_SIZE + 12,
+    borderRadius: (DRIVER_AVATAR_SIZE + 12) / 2,
+    backgroundColor: Theme.driverEmeraldMuted,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 10,
   },
-  driverSquircleGradient: {
-    width: DRIVER_AVATAR_SIZE + 10,
-    height: DRIVER_AVATAR_SIZE + 10,
-    padding: 5,
-    overflow: 'hidden',
-  },
-  driverSquircleInner: {
+  driverAvatarRing: {
     width: DRIVER_AVATAR_SIZE,
     height: DRIVER_AVATAR_SIZE,
+    borderRadius: DRIVER_AVATAR_SIZE / 2,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 3,
+    borderColor: Theme.cardWhite,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 10,
+      },
+      android: { elevation: 3 },
+    }),
+  },
+  driverSquircleInner: {
+    flex: 1,
+    borderRadius: DRIVER_AVATAR_SIZE / 2,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: Theme.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1080,201 +1126,203 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   driverHeroNameNew: {
-    fontSize: 22,
-    fontWeight: '900',
+    fontSize: 20,
+    fontWeight: '800',
     color: Theme.textPrimaryDark,
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
     textAlign: 'center',
     maxWidth: '100%',
-    paddingHorizontal: 12,
+  },
+  driverStatusPill: {
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Theme.driverEmeraldMuted,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorderSoft,
+    maxWidth: '100%',
   },
   driverHeroEyebrowSmall: {
-    marginTop: 8,
     fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
-    color: Theme.textMuted,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    color: Theme.driverEmerald,
     textTransform: 'uppercase',
     textAlign: 'center',
   },
-  driverSectionLegendTop: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
-    color: Theme.textMuted,
+  driverCardDivider: {
+    alignSelf: 'stretch',
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.borderLight,
+    marginTop: 12,
     marginBottom: 12,
-    marginLeft: 6,
-    textTransform: 'uppercase',
   },
-  driverSectionAfterBio: {
-    marginTop: 22,
+  driverHeroFields: {
+    alignSelf: 'stretch',
+  },
+  driverCardSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    color: Theme.textPrimaryDark,
+    marginBottom: 8,
+  },
+  driverCardSectionTitleInline: {
+    flex: 1,
+    marginBottom: 0,
   },
   driverCardWhite: {
-    backgroundColor: Theme.screenBackground,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    marginBottom: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
-      },
-      android: { elevation: 2 },
-    }),
+    backgroundColor: Theme.cardWhite,
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: DRIVER_SECTION_GAP,
+    ...driverCardElevation,
   },
   driverCardMicroLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
-    color: Theme.textMuted,
-    textTransform: 'uppercase',
-    marginBottom: 8,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.15,
+    color: Theme.textRouteCard,
+    marginBottom: 6,
   },
   driverCardTextInput: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     color: Theme.textPrimaryDark,
-    paddingVertical: 2,
-    paddingHorizontal: 0,
+    backgroundColor: Theme.surface,
+    borderRadius: DRIVER_BTN_RADIUS,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    minHeight: DRIVER_ROW_HEIGHT - 4,
   },
   driverBioHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 6,
-    marginTop: 18,
-  },
-  driverSectionLegendInline: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
-    color: Theme.textMuted,
-    textTransform: 'uppercase',
+    gap: 10,
+    marginBottom: 8,
   },
   driverGeneratePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Theme.driverEmeraldMuted,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
   driverGeneratePillText: {
     fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
     color: Theme.driverEmerald,
     textTransform: 'uppercase',
   },
   driverCardWhiteBio: {
-    backgroundColor: Theme.screenBackground,
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 16,
-    marginBottom: 4,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
-      },
-      android: { elevation: 2 },
-    }),
+    backgroundColor: Theme.cardWhite,
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    marginBottom: DRIVER_SECTION_GAP,
+    ...driverCardElevation,
   },
   driverBioTextarea: {
     fontSize: 14,
     fontWeight: '500',
-    color: Theme.textSecondary,
-    minHeight: 120,
-    lineHeight: 22,
-    paddingVertical: 0,
+    color: Theme.textPrimary,
+    backgroundColor: Theme.surface,
+    borderRadius: DRIVER_BTN_RADIUS,
+    borderWidth: 1,
+    borderColor: Theme.borderLight,
+    minHeight: 72,
+    lineHeight: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   driverBioHintItalic: {
-    fontSize: 9,
+    fontSize: 11,
     fontStyle: 'italic',
-    fontWeight: '700',
+    fontWeight: '500',
     color: Theme.textMuted,
-    marginTop: 14,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.borderLight,
   },
   driverContactCard: {
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    borderColor: Theme.driverSecondaryGrey,
     overflow: 'hidden',
-    marginBottom: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
-        shadowRadius: 12,
-      },
-      android: { elevation: 2 },
-    }),
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+    marginBottom: DRIVER_SECTION_GAP,
+    ...driverCardElevation,
   },
   driverContactRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    gap: 14,
+    paddingVertical: 10,
+    gap: 12,
+    minHeight: DRIVER_ROW_HEIGHT + 4,
   },
   driverContactRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(167,243,208,0.45)',
-  },
-  driverContactIconBg: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(167,243,208,0.35)',
-  },
-  driverContactIconBgBlue: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(219,234,254,0.9)',
+    borderBottomColor: Theme.borderLight,
   },
   driverContactMid: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
   },
   driverContactEyebrow: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
-    color: Theme.textMuted,
-    textTransform: 'uppercase',
-    marginBottom: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    color: Theme.textRouteCard,
+    marginBottom: 2,
   },
   driverContactValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: Theme.textPrimaryDark,
   },
   driverContactPhoneInput: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: Theme.textPrimaryDark,
     paddingVertical: 0,
     paddingHorizontal: 0,
+    minHeight: 22,
   },
   driverVerifiedChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    borderRadius: 999,
+    backgroundColor: Theme.driverEmeraldMuted,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
   driverVerifiedChipText: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
     color: Theme.driverEmerald,
     textTransform: 'uppercase',
   },
@@ -1290,6 +1338,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: DRIVER_EDIT_FAB,
     height: DRIVER_EDIT_FAB,
+    borderRadius: DRIVER_EDIT_FAB / 2,
+    borderWidth: 2,
+    borderColor: Theme.cardWhite,
     backgroundColor: DRIVER_FOREST,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1304,8 +1355,8 @@ const styles = StyleSheet.create({
     }),
   },
   driverEditFabElevated: {
-    right: -6,
-    bottom: -6,
+    right: 0,
+    bottom: 0,
   },
   driverSectionLegend: {
     ...Typography.headerTitle,
@@ -1493,12 +1544,13 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   driverSaveChangesBtn: {
-    marginTop: 12,
-    backgroundColor: Theme.driverEmerald,
-    paddingVertical: 20,
+    marginTop: 4,
+    backgroundColor: Theme.driverPrimary,
+    borderRadius: DRIVER_BTN_RADIUS,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 56,
+    minHeight: DRIVER_ROW_HEIGHT + 4,
     ...Platform.select({
       ios: {
         shadowColor: DRIVER_FOREST,
@@ -1549,7 +1601,7 @@ const styles = StyleSheet.create({
   },
   scrollContentDriver: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 24,
+    paddingTop: 12,
   },
   actionSheetOverlay: {
     ...StyleSheet.absoluteFillObject,

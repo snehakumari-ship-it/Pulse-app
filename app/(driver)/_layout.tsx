@@ -20,18 +20,19 @@ import {
   hydrateDriverSignupSuccessFlag,
 } from '@/lib/onboarding/businessSignupBranding.util';
 import {
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold,
-  PlusJakartaSans_800ExtraBold,
-  useFonts as usePlusJakartaFonts,
-} from '@expo-google-fonts/plus-jakarta-sans';
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+  Poppins_800ExtraBold,
+  useFonts as usePoppinsFonts,
+} from '@expo-google-fonts/poppins';
 import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, Tabs } from 'expo-router';
 import { DEFAULT_DISPATCHER_ROUTE } from '@/lib/routes';
+import { DriverFontFamily } from '@/constants/DriverTypography';
 import { useEffect, useRef } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, Text } from 'react-native';
 
 function DriverTabsNavigator() {
   return (
@@ -89,12 +90,12 @@ function DriverTabsNavigator() {
 
 export default function DriverAppLayout() {
   // Web uses FontFaceObserver (expo-font) with a timeout; on failure we still mount so the app is usable with system fonts.
-  const [fontsLoaded, fontError] = usePlusJakartaFonts({
-    PlusJakartaSans_400Regular,
-    PlusJakartaSans_500Medium,
-    PlusJakartaSans_600SemiBold,
-    PlusJakartaSans_700Bold,
-    PlusJakartaSans_800ExtraBold,
+  const [fontsLoaded, fontError] = usePoppinsFonts({
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+    Poppins_700Bold,
+    Poppins_800ExtraBold,
   });
   const fontsReady = fontsLoaded || fontError != null;
 
@@ -115,11 +116,23 @@ export default function DriverAppLayout() {
   useEffect(() => {
     if (fontError && __DEV__ && Platform.OS === 'web') {
       console.warn(
-        '[DriverAppLayout] Plus Jakarta font load failed; using system fallbacks.',
+        '[DriverAppLayout] Poppins font load failed; using system fallbacks.',
         fontError,
       );
     }
   }, [fontError]);
+
+  useEffect(() => {
+    if (!fontsLoaded) return;
+    const prev = (Text as { defaultProps?: { style?: unknown } }).defaultProps;
+    (Text as { defaultProps?: { style?: unknown } }).defaultProps = {
+      ...(prev ?? {}),
+      style: [{ fontFamily: DriverFontFamily.regular }, prev?.style],
+    };
+    return () => {
+      (Text as { defaultProps?: { style?: unknown } }).defaultProps = prev;
+    };
+  }, [fontsLoaded]);
 
   // A resolved non-driver has no business in this group — never gate on it.
   // Gating would render the splash with no exit (this layout has no redirect of

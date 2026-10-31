@@ -1,11 +1,13 @@
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { DeliverySuccessMotion } from '@/components/driver/DeliverySuccessMotion';
 import Layout from '@/constants/Layout';
+import Theme from '@/constants/Theme';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
-import type { RouteTimelineStop } from '@/features/driver/job-card/parts/RouteTimeline';
+import type { RouteTimelineProgress, RouteTimelineStop } from '@/features/driver/job-card/parts/RouteTimeline';
 import { StatusPill } from '@/features/driver/job-card/parts/StatusPill';
-import { cardBackground } from '@/features/driver/job-card/parts/jobCardSurface';
+import { cardBackground, JOB_CARD_RADIUS, softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
 
 type Colors = ReturnType<typeof getDriverThemeColors>;
 
@@ -19,6 +21,7 @@ type Props = {
 };
 
 const VISIBLE_LINES = 2;
+const MARKER = 18;
 
 function orderBrief(stop: RouteTimelineStop): string | null {
   if (stop.orders.length === 0) return null;
@@ -27,9 +30,55 @@ function orderBrief(stop: RouteTimelineStop): string | null {
     .join(', ');
 }
 
+function PlanMarker({
+  colors,
+  progress,
+}: {
+  colors: Colors;
+  progress: RouteTimelineProgress;
+}) {
+  if (progress === 'done') {
+    return (
+      <View
+        style={[styles.marker, { backgroundColor: colors.emerald, borderColor: colors.emerald }]}
+      >
+        <Check size={10} color={colors.textOnPrimary} strokeWidth={3} />
+      </View>
+    );
+  }
+  if (progress === 'current') {
+    return (
+      <View
+        style={[
+          styles.marker,
+          { borderColor: colors.emerald, backgroundColor: colors.surface },
+        ]}
+      >
+        <View style={[styles.markerDot, { backgroundColor: colors.emerald }]} />
+      </View>
+    );
+  }
+  return (
+    <View
+      style={[
+        styles.marker,
+        {
+          borderColor: progress === 'failed' ? Theme.negative : colors.borderLight,
+          backgroundColor: colors.surfaceElevated,
+        },
+      ]}
+    />
+  );
+}
+
 export function TripPlanPage({ visible, colors, stops, summary, onClose, onOpenStop }: Props) {
   const insets = useSafeAreaInsets();
   const fill = cardBackground(colors);
+  const currentStop = stops.find((s) => s.isCurrent) ?? null;
+  const routeLine =
+    stops.length >= 2
+      ? `${stops[0]!.location}  →  ${stops[stops.length - 1]!.location}`
+      : summary;
 
   return (
     <Modal
@@ -42,7 +91,7 @@ export function TripPlanPage({ visible, colors, stops, summary, onClose, onOpenS
         testID="trip-plan-page"
         style={[styles.page, { backgroundColor: colors.background, paddingTop: insets.top }]}
       >
-        <View style={styles.header}>
+        <View style={styles.headerBar}>
           <Pressable
             onPress={onClose}
             accessibilityRole="button"
@@ -55,26 +104,42 @@ export function TripPlanPage({ visible, colors, stops, summary, onClose, onOpenS
           >
             <ArrowLeft size={16} color={colors.text} strokeWidth={2.4} />
           </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={[styles.title, { color: colors.text }]}>Trip plan</Text>
-            <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>
-              {summary ?? `${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}`}
-            </Text>
-          </View>
-          <View style={styles.backSpacer} />
         </View>
 
         <ScrollView
           style={styles.fill}
           contentContainerStyle={[
             styles.scroll,
-            { paddingBottom: Math.max(insets.bottom, 12) + 16 },
+            { paddingBottom: Math.max(insets.bottom, 12) + 24 },
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={[styles.list, { backgroundColor: fill }]}>
+          <View style={styles.hero}>
+            <View style={styles.heroCopy}>
+              <Text style={[styles.heroTitle, { color: colors.text }]}>Trip plan</Text>
+              <Text style={[styles.heroRoute, { color: colors.textMuted }]} numberOfLines={2}>
+                {routeLine ?? `${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}`}
+              </Text>
+              {summary ? (
+                <Text style={[styles.heroMeta, { color: colors.textMuted }]} numberOfLines={1}>
+                  {summary}
+                </Text>
+              ) : null}
+            </View>
+            {currentStop ? (
+              <StatusPill
+                colors={colors}
+                tone={currentStop.statusTone}
+                label={currentStop.statusLabel}
+              />
+            ) : null}
+          </View>
+
+          <View style={[styles.list, softElevation, { backgroundColor: fill }]}>
             {stops.length === 0 ? (
-              <Text style={[styles.empty, { color: colors.textMuted }]}>No stops on this plan yet.</Text>
+              <Text style={[styles.empty, { color: colors.textMuted }]}>
+                No stops on this plan yet.
+              </Text>
             ) : (
               stops.map((stop, index) => {
                 const last = index === stops.length - 1;
@@ -82,6 +147,8 @@ export function TripPlanPage({ visible, colors, stops, summary, onClose, onOpenS
                 const lines = stop.orders.flatMap((order) => order.lines);
                 const shown = lines.slice(0, VISIBLE_LINES);
                 const extra = lines.length - shown.length;
+                const muted = stop.progress === 'upcoming';
+                const railDone = stop.progress === 'done';
                 return (
                   <Pressable
                     key={stop.id}
@@ -90,70 +157,93 @@ export function TripPlanPage({ visible, colors, stops, summary, onClose, onOpenS
                     disabled={!onOpenStop}
                     accessibilityRole={onOpenStop ? 'button' : undefined}
                     accessibilityLabel={`${stop.sequence}. ${stop.typeLabel}, ${stop.location}`}
-                    style={[
-                      styles.row,
-                      !last ? { borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth } : null,
-                      stop.isCurrent ? { backgroundColor: colors.emeraldMuted } : null,
-                    ]}
+                    style={styles.row}
                   >
-                    <View
-                      style={[
-                        styles.seq,
-                        {
-                          backgroundColor: stop.isCurrent ? colors.emerald : colors.surfaceElevated,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.seqText,
-                          { color: stop.isCurrent ? colors.textOnPrimary : colors.text },
-                        ]}
-                      >
-                        {stop.sequence}
-                      </Text>
+                    <View style={styles.rail}>
+                      <PlanMarker colors={colors} progress={stop.progress} />
+                      {!last ? (
+                        <View
+                          style={[
+                            styles.connector,
+                            {
+                              backgroundColor: railDone ? colors.emerald : colors.border,
+                            },
+                          ]}
+                        />
+                      ) : null}
                     </View>
-                    <View style={styles.copy}>
+
+                    <View style={[styles.body, last ? null : styles.bodySpaced]}>
                       <View style={styles.titleRow}>
-                        <Text style={[styles.place, { color: colors.text }]} numberOfLines={1}>
+                        <Text
+                          style={[
+                            styles.place,
+                            stop.isCurrent ? styles.placeCurrent : null,
+                            { color: muted ? colors.textMuted : colors.text },
+                          ]}
+                          numberOfLines={1}
+                        >
                           {stop.location}
                         </Text>
+                        <Text
+                          style={[styles.typeRight, { color: colors.textMuted }]}
+                          numberOfLines={1}
+                        >
+                          {stop.typeLabel}
+                        </Text>
+                      </View>
+
+                      <View style={styles.metaRow}>
+                        <View style={styles.metaCopy}>
+                          {stop.timeLabel ? (
+                            <Text style={[styles.time, { color: colors.textMuted }]}>
+                              {stop.timeLabel}
+                            </Text>
+                          ) : (
+                            <Text style={[styles.time, { color: colors.textMuted }]}>
+                              {stop.statusLabel}
+                            </Text>
+                          )}
+                          <Text style={[styles.counts, { color: colors.textMuted }]} numberOfLines={1}>
+                            {`${stop.orderCount} ${stop.orderCount === 1 ? 'order' : 'orders'}`}
+                            {` · ${stop.productCount} ${stop.productCount === 1 ? 'product' : 'products'}`}
+                          </Text>
+                          {brief ? (
+                            <Text style={[styles.brief, { color: colors.text }]} numberOfLines={1}>
+                              {brief}
+                            </Text>
+                          ) : null}
+                          {shown.map((line, lineIndex) => {
+                            const name = line.name?.trim() || line.sku?.trim() || 'Product';
+                            const qty = line.quantity != null ? ` × ${line.quantity}` : '';
+                            return (
+                              <Text
+                                key={`${stop.id}-line-${lineIndex}`}
+                                style={[styles.line, { color: colors.textMuted }]}
+                                numberOfLines={1}
+                              >
+                                {name}
+                                {qty}
+                              </Text>
+                            );
+                          })}
+                          {extra > 0 ? (
+                            <Text style={[styles.line, { color: colors.textMuted }]}>
+                              {`+${extra} more`}
+                            </Text>
+                          ) : null}
+                        </View>
                         <StatusPill colors={colors} tone={stop.statusTone} label={stop.statusLabel} />
                       </View>
-                      <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>
-                        {stop.typeLabel}
-                        {` · ${stop.orderCount} ${stop.orderCount === 1 ? 'order' : 'orders'}`}
-                        {` · ${stop.productCount} ${stop.productCount === 1 ? 'product' : 'products'}`}
-                      </Text>
-                      {brief ? (
-                        <Text style={[styles.brief, { color: colors.text }]} numberOfLines={1}>
-                          {brief}
-                        </Text>
-                      ) : null}
-                      {shown.map((line, lineIndex) => {
-                        const name = line.name?.trim() || line.sku?.trim() || 'Product';
-                        const qty = line.quantity != null ? ` × ${line.quantity}` : '';
-                        return (
-                          <Text
-                            key={`${stop.id}-line-${lineIndex}`}
-                            style={[styles.line, { color: colors.textMuted }]}
-                            numberOfLines={1}
-                          >
-                            {name}
-                            {qty}
-                          </Text>
-                        );
-                      })}
-                      {extra > 0 ? (
-                        <Text style={[styles.line, { color: colors.textMuted }]}>
-                          {`+${extra} more`}
-                        </Text>
-                      ) : null}
                     </View>
                   </Pressable>
                 );
               })
             )}
+          </View>
+
+          <View style={styles.motionCorner} pointerEvents="none">
+            <DeliverySuccessMotion />
           </View>
         </ScrollView>
       </View>
@@ -170,14 +260,13 @@ const styles = StyleSheet.create({
   fill: {
     flex: 1,
   },
-  header: {
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 6,
-    paddingBottom: 8,
-    gap: 10,
-    minHeight: 48,
+    paddingBottom: 4,
+    minHeight: 44,
   },
   back: {
     width: 36,
@@ -186,84 +275,143 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backSpacer: {
-    width: 36,
-  },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  subtitle: {
-    marginTop: 1,
-    fontSize: 11,
-    fontWeight: '600',
-  },
   scroll: {
     flexGrow: 1,
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 4,
   },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 16,
+    paddingTop: 4,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  heroRoute: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+    lineHeight: 18,
+  },
+  heroMeta: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   list: {
-    borderRadius: 12,
-    overflow: 'hidden',
+    borderRadius: JOB_CARD_RADIUS,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverSecondaryGrey,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   empty: {
     fontSize: 12,
     fontWeight: '600',
-    padding: 16,
+    padding: 8,
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    alignItems: 'stretch',
+    gap: 12,
   },
-  seq: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  rail: {
+    width: MARKER,
+    alignItems: 'center',
+    paddingTop: 2,
+  },
+  marker: {
+    width: MARKER,
+    height: MARKER,
+    borderRadius: MARKER / 2,
+    borderWidth: 2.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
   },
-  seqText: {
-    fontSize: 11,
-    fontWeight: '700',
+  markerDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
-  copy: {
+  connector: {
+    flex: 1,
+    width: 2.5,
+    minHeight: 28,
+    marginVertical: 4,
+    borderRadius: 2,
+  },
+  body: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
+    paddingBottom: 4,
+  },
+  bodySpaced: {
+    marginBottom: 18,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    marginBottom: 4,
   },
   place: {
     flex: 1,
     minWidth: 0,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: -0.15,
+    letterSpacing: -0.2,
   },
-  meta: {
-    fontSize: 11,
+  placeCurrent: {
+    fontSize: 16,
+  },
+  typeRight: {
+    flexShrink: 0,
+    maxWidth: '38%',
+    fontSize: 12,
     fontWeight: '600',
+    textAlign: 'right',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  metaCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  time: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  counts: {
+    fontSize: 11,
+    fontWeight: '500',
   },
   brief: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+    marginTop: 2,
   },
   line: {
     fontSize: 11,
     fontWeight: '500',
+  },
+  motionCorner: {
+    alignSelf: 'flex-end',
+    marginTop: 20,
+    marginRight: -4,
   },
 });

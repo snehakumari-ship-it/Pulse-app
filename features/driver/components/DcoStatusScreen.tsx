@@ -9,13 +9,23 @@ import {
   DriverSubScreenHeader,
   driverDetailPageBackground,
 } from '@/components/driver/DriverSubScreenHeader';
+import { DriverIconWell, driverIconSizeSm } from '@/components/driver/DriverIconWell';
+import { TruckDriveMotion } from '@/components/driver/TruckDriveMotion';
+import {
+  DRIVER_BTN_RADIUS,
+  DRIVER_CARD_PAD,
+  DRIVER_CARD_RADIUS,
+  DRIVER_ROW_HEIGHT,
+  DRIVER_SECTION_GAP,
+  driverCardElevation,
+} from '@/constants/DriverUi';
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { requestDcoStatus } from '@/features/driver/services/dco.service';
+import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOperatingMode';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
-import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOperatingMode';
 import { ROUTES } from '@/lib/routes';
 import { useRouter } from 'expo-router';
 import {
@@ -36,6 +46,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const BENEFITS = [
@@ -77,6 +88,114 @@ export default function DcoStatusScreen() {
   }, [invalidate]);
 
   const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';
+  const hasStatus = !isLoading && status !== 'NONE';
+  const showRequestCta = !isLoading && (status === 'NONE' || status === 'REJECTED');
+  const showManageCta = !isLoading && status === 'APPROVED';
+  /** Approved drivers lead with status; new applicants see the pitch first. */
+  const statusFirst = hasStatus && status !== 'NONE';
+
+  const heroCard = (
+    <Animated.View
+      entering={FadeInDown.duration(280).springify().damping(18)}
+      style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+    >
+      <Text style={[styles.heroEyebrow, { color: colors.emerald }]}>DCO · DRIVER-CUM-OWNER</Text>
+      <Text style={[styles.heroTitle, { color: colors.text }]}>
+        {status === 'APPROVED'
+          ? 'You are an independent owner-operator'
+          : 'Operate as an independent owner-operator'}
+      </Text>
+      <Text style={[styles.heroBody, { color: colors.textMuted }]}>
+        {status === 'APPROVED'
+          ? 'Manage your vehicle and bid in the marketplace. DCO status is separate from fleet employment.'
+          : 'DCO status is reviewed and approved by Pulse admin. It is separate from employment — if you are currently an active driver in a business fleet, you are not eligible while that employment continues.'}
+      </Text>
+    </Animated.View>
+  );
+
+  const statusBlock = !isLoading ? (
+    <Animated.View entering={FadeInDown.delay(statusFirst ? 40 : 120).duration(280).springify().damping(18)}>
+      <StatusBlock
+        status={status}
+        operatingMode={operatingMode.mode}
+        reason={dcoProfile?.decisionReason ?? null}
+        isDark={isDark}
+        colors={colors}
+        cardBorder={cardBorder}
+      />
+    </Animated.View>
+  ) : (
+    <ActivityIndicator color={colors.emerald} style={{ marginTop: 8 }} />
+  );
+
+  const benefitsCard = (
+    <Animated.View
+      entering={FadeInDown.delay(statusFirst ? 80 : 50).duration(280).springify().damping(18)}
+      style={[styles.listCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+    >
+      {BENEFITS.map(({ icon: Icon, label }, index) => (
+        <View
+          key={label}
+          style={[
+            styles.benefitRow,
+            index < BENEFITS.length - 1 && {
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: cardBorder,
+            },
+          ]}
+        >
+          <DriverIconWell
+            size="sm"
+            backgroundColor={isDark ? colors.emeraldMuted : Theme.driverEmeraldMuted}
+            motionDelay={index * 100}
+          >
+            <Icon size={driverIconSizeSm} color={colors.emerald} strokeWidth={2.3} />
+          </DriverIconWell>
+          <Text style={[styles.benefitLabel, { color: colors.text }]}>{label}</Text>
+        </View>
+      ))}
+    </Animated.View>
+  );
+
+  const cta =
+    showRequestCta || showManageCta ? (
+      <Animated.View entering={FadeInDown.delay(statusFirst ? 60 : 160).duration(280).springify().damping(18)}>
+        <Pressable
+          onPress={() => {
+            if (showManageCta) {
+              router.push(ROUTES.driverMyFleet() as Parameters<typeof router.push>[0]);
+              return;
+            }
+            void handleRequest();
+          }}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.cta,
+            { backgroundColor: colors.emerald, opacity: pressed || busy ? 0.88 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={
+            showManageCta
+              ? 'Manage my vehicle'
+              : status === 'REJECTED'
+                ? 'Request DCO status again'
+                : 'Request DCO status'
+          }
+        >
+          {busy ? (
+            <ActivityIndicator color={Theme.textOnPrimary} />
+          ) : (
+            <Text style={styles.ctaText}>
+              {showManageCta
+                ? 'Manage my vehicle'
+                : status === 'REJECTED'
+                  ? 'Request again'
+                  : 'Request DCO status'}
+            </Text>
+          )}
+        </Pressable>
+      </Animated.View>
+    ) : null;
 
   return (
     <View style={[styles.root, { backgroundColor: pageBg }]}>
@@ -89,98 +208,43 @@ export default function DcoStatusScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
-          paddingBottom: Math.max(insets.bottom, 16) + 24,
-          paddingTop: 12,
-          gap: 14,
+          paddingBottom: Math.max(insets.bottom, 16) + 28,
+          paddingTop: 10,
+          gap: DRIVER_SECTION_GAP,
         }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Text style={[styles.heroEyebrow, { color: colors.emerald }]}>
-            DCO · DRIVER-CUM-OWNER
-          </Text>
-          <Text style={[styles.heroTitle, { color: colors.text }]}>
-            Operate as an independent owner-operator
-          </Text>
-          <Text style={[styles.heroBody, { color: colors.textMuted }]}>
-            DCO status is reviewed and approved by Pulse admin. It is separate from
-            employment — if you are currently an active driver in a business's fleet, you
-            are not eligible while that employment continues.
-          </Text>
-        </View>
-
-        <View style={[styles.listCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          {BENEFITS.map(({ icon: Icon, label }) => (
-            <View key={label} style={styles.benefitRow}>
-              <View
-                style={[
-                  styles.benefitIcon,
-                  { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.35)' },
-                ]}
-              >
-                <Icon size={16} color={colors.emerald} strokeWidth={2.3} />
-              </View>
-              <Text style={[styles.benefitLabel, { color: colors.text }]}>{label}</Text>
-            </View>
-          ))}
-        </View>
-
-        {isLoading ? (
-          <ActivityIndicator color={colors.emerald} style={{ marginTop: 8 }} />
+        {statusFirst ? (
+          <>
+            {statusBlock}
+            {cta}
+            {heroCard}
+            {benefitsCard}
+          </>
         ) : (
-          <StatusBlock
-            status={status}
-            operatingMode={operatingMode.mode}
-            reason={dcoProfile?.decisionReason ?? null}
-            isDark={isDark}
-            colors={colors}
-            cardBorder={cardBorder}
-          />
+          <>
+            {heroCard}
+            {benefitsCard}
+            {statusBlock}
+            {cta}
+          </>
         )}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        {!isLoading && (status === 'NONE' || status === 'REJECTED') ? (
-          <Pressable
-            onPress={() => void handleRequest()}
-            disabled={busy}
-            style={({ pressed }) => [
-              styles.cta,
-              { backgroundColor: colors.emerald, opacity: pressed || busy ? 0.88 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={status === 'REJECTED' ? 'Request DCO status again' : 'Request DCO status'}
-          >
-            {busy ? (
-              <ActivityIndicator color={Theme.textOnPrimary} />
-            ) : (
-              <Text style={styles.ctaText}>
-                {status === 'REJECTED' ? 'Request again' : 'Request DCO status'}
-              </Text>
-            )}
-          </Pressable>
-        ) : null}
-
-        {!isLoading && status === 'APPROVED' ? (
-          <Pressable
-            onPress={() =>
-              router.push(ROUTES.driverMyFleet() as Parameters<typeof router.push>[0])
-            }
-            style={({ pressed }) => [
-              styles.cta,
-              { backgroundColor: colors.emerald, opacity: pressed ? 0.88 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Manage my vehicle"
-          >
-            <Text style={styles.ctaText}>Manage my vehicle</Text>
-          </Pressable>
-        ) : null}
 
         <Text style={[styles.footnote, { color: colors.textMuted }]}>
           DCO trips settle to you directly, at your agreed bid amount — never as employee
           commission and never through a Business's supplier ledger.
         </Text>
+
+        {!isLoading ? (
+          <Animated.View
+            entering={FadeInDown.delay(200).duration(300).springify().damping(18)}
+            style={styles.motionSlot}
+          >
+            <TruckDriveMotion color={colors.emerald} size="lg" />
+          </Animated.View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -243,7 +307,9 @@ function StatusBlock({
 
   return (
     <View style={[styles.statusCard, { backgroundColor: cfg.bg, borderColor: cardBorder }]}>
-      <Icon size={22} color={cfg.tint} strokeWidth={2.4} />
+      <View style={styles.statusIconSlot}>
+        <Icon size={22} color={cfg.tint} strokeWidth={2.4} />
+      </View>
       <View style={styles.statusTextWrap}>
         <Text style={[styles.statusTitle, { color: colors.text }]}>{cfg.title}</Text>
         <Text style={[styles.statusBody, { color: colors.textMuted }]}>{cfg.body}</Text>
@@ -259,32 +325,67 @@ function StatusBlock({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  heroCard: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 8 },
-  heroEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 0.9 },
-  heroTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3, lineHeight: 26 },
-  heroBody: { fontSize: 13, lineHeight: 19 },
-  listCard: {
-    borderRadius: 16,
+  heroCard: {
+    borderRadius: DRIVER_CARD_RADIUS,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    padding: DRIVER_CARD_PAD,
+    gap: 6,
+    ...driverCardElevation,
   },
-  benefitRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, paddingVertical: 8 },
-  benefitIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  benefitLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
+  heroEyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
+  heroTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3, lineHeight: 24 },
+  heroBody: { fontSize: 12, lineHeight: 17 },
+  listCard: {
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    ...driverCardElevation,
+  },
+  benefitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: DRIVER_ROW_HEIGHT,
+    paddingVertical: 8,
+  },
+  benefitLabel: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   statusCard: {
     flexDirection: 'row',
     gap: 12,
-    borderRadius: 14,
+    borderRadius: DRIVER_CARD_RADIUS,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
+    padding: DRIVER_CARD_PAD,
     alignItems: 'flex-start',
+    ...driverCardElevation,
   },
-  statusTextWrap: { flex: 1, gap: 4, minWidth: 0 },
+  statusIconSlot: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  statusTextWrap: { flex: 1, gap: 3, minWidth: 0 },
   statusTitle: { fontSize: 15, fontWeight: '700' },
-  statusBody: { fontSize: 12, lineHeight: 17 },
+  statusBody: { fontSize: 12, lineHeight: 16 },
   errorText: { fontSize: 13, fontWeight: '600', color: Theme.negative },
-  cta: { minHeight: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  cta: {
+    minHeight: DRIVER_ROW_HEIGHT,
+    borderRadius: DRIVER_BTN_RADIUS,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
   ctaText: { fontSize: 15, fontWeight: '700', color: Theme.textOnPrimary },
   footnote: { fontSize: 11, lineHeight: 16, textAlign: 'center', paddingHorizontal: 8 },
+  motionSlot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    width: '100%',
+    paddingHorizontal: 4,
+    minHeight: 120,
+    marginTop: 4,
+  },
 });

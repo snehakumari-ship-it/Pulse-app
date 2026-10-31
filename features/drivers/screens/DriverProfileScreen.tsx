@@ -1,76 +1,81 @@
 /**
  * Driver Profile — hero, fleet vehicle, levels, KYC shortcut to documents (single upload hub).
  */
-import { useAvatar } from '@/lib/useAvatar';
+import { DriverIconWell, driverIconSize, driverIconSizeSm } from '@/components/driver/DriverIconWell';
+import { MapPinSearchMotion } from '@/components/driver/MapPinSearchMotion';
+import {
+  DRIVER_CARD_RADIUS,
+  DRIVER_ROW_HEIGHT,
+  DRIVER_SECTION_GAP,
+  driverCardElevation,
+} from '@/constants/DriverUi';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
-import { useLanguage } from '@/contexts/LanguageContext';
 import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { EditProfileModal } from '@/features/auth/components/EditProfileModal';
-import {
-  computeExperienceProgress,
-  countFiveStarRatings,
-  getMilestoneCount,
-  isMilestoneCompleted,
-  isMilestoneInProgress,
-  type ExperienceLevelConfig,
-  type MilestoneGuideActionKind,
-} from '@/features/experience/experienceProgress';
+import * as driversService from '@/features/drivers/services/drivers.service';
 import { MilestoneHowToModal } from '@/features/experience/components/MilestoneHowToModal';
 import {
-  averageScore,
-  getRatingsForDrivers,
+    computeExperienceProgress,
+    countFiveStarRatings,
+    getMilestoneCount,
+    isMilestoneCompleted,
+    isMilestoneInProgress,
+    type ExperienceLevelConfig,
+    type MilestoneGuideActionKind,
+} from '@/features/experience/experienceProgress';
+import {
+    averageScore,
+    getRatingsForDrivers,
 } from '@/features/ratings/services/ratings.service';
 import type { RatingRow } from '@/features/ratings/types';
-import { ROUTES } from '@/lib/routes';
-import { supabase } from '@/lib/supabase';
-import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
-import * as driversService from '@/features/drivers/services/drivers.service';
 import { getVehicleById } from '@/features/vehicles/services/vehicles.service';
 import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
+import { subscribeSharedPostgresChanges } from '@/lib/realtimeRegistry';
+import { ROUTES } from '@/lib/routes';
+import { supabase } from '@/lib/supabase';
+import { useAvatar } from '@/lib/useAvatar';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  Crown,
-  Dna,
-  Edit3,
-  Fuel,
-  Gavel,
-  Gauge,
-  Globe,
-  History,
-  LogOut,
-  Milestone,
-  Quote,
-  Share2,
-  Shield,
-  Star,
-  Thermometer,
-  Trophy,
-  Truck,
-  UserPlus,
-  Wrench
+    Camera,
+    ChevronLeft,
+    ChevronRight,
+    Crown,
+    Fuel,
+    Gauge,
+    Gavel,
+    Globe,
+    History,
+    LogOut,
+    Milestone,
+    Share2,
+    Shield,
+    Star,
+    Thermometer,
+    Trophy,
+    Truck,
+    UserPlus,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  type ViewStyle,
+    Image,
+    Platform,
+    Pressable,
+    ScrollView,
+    Share,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+    type ViewStyle,
 } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
 
 const SCREEN_PAD = Layout.screenPaddingHorizontal;
 
@@ -82,12 +87,12 @@ function driverTabBarScrollInset(bottomInset: number): number {
   const footerPadTop = 6;
   const dockHeight = Layout.tabBarHeight + 5;
   const footerPadBottom = Math.max(Math.round(bottomInset * 0.35), 10);
-  return footerPadTop + dockHeight + footerPadBottom + 24;
+  return footerPadTop + dockHeight + footerPadBottom + 56;
 }
 
 /** Reference palette — heroes stay slate-900 for brand match; page bg uses theme. */
 const SLATE_900 = '#0f172a';
-const SLATE_50 = '#f8fafc';
+const SLATE_50 = Theme.surfaceGray;
 const AMBER_400 = '#fbbf24';
 const AMBER_500 = '#f59e0b';
 
@@ -595,87 +600,170 @@ export default function DriverProfileScreen() {
     </View>
   );
 
-  const VehicleTechnicalView = () => (
-    <View style={styles.subPage}>
-      <View style={styles.subHeaderRow}>
-        <TouchableOpacity style={[styles.iconPill, { borderColor: cardBorder, backgroundColor: colors.surface }]} onPress={() => setProfileView('main')}>
-          <ChevronLeft size={20} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.subTitle, { color: colors.text }]}>FLEET VEHICLE</Text>
-      </View>
+  const VehicleTechnicalView = () => {
+    const hasPlate = Boolean(plateLabel);
+    const readings = [
+      { key: 'fuel', label: 'Fuel', value: vehicleDisplay.fuel, icon: Fuel, tint: Theme.driverEmeraldMuted, color: Theme.driverEmerald },
+      { key: 'km', label: 'Km', value: vehicleDisplay.odometer, icon: Gauge, tint: Theme.assignmentVehicleAccentSoft, color: Theme.assignmentVehicleAccent },
+      { key: 'temp', label: 'Temp', value: vehicleDisplay.engineTemp, icon: Thermometer, tint: 'rgba(244,63,94,0.1)', color: '#e11d48' },
+    ] as const;
+    const hasLiveReadings = readings.some((r) => r.value !== '—');
+    const specRows = vehicleDisplay.specs.filter((s) => s.label !== 'Plate');
+    const statusRows = [
+      { label: 'Assignment', value: hasPlate ? 'Linked' : 'Pending', ok: hasPlate },
+      { label: 'Status', value: primaryDriver ? 'Active' : '—', ok: Boolean(primaryDriver) },
+    ];
 
-      <View style={styles.heroDark}>
-        <View style={[styles.heroWatermark, { padding: 28 }]}>
-          <Truck size={120} color="rgba(255,255,255,0.1)" />
-        </View>
-        <View style={styles.vehicleHeroTop}>
-          <View style={styles.fleetBadge}>
-            <Text style={styles.fleetBadgeText}>{vehicleDisplay.fleetId}</Text>
-          </View>
-          <View style={styles.connectedRow}>
-            <View style={styles.pulseDot} />
-            <Text style={styles.connectedText}>Connected</Text>
-          </View>
-        </View>
-        <Text style={styles.vehicleModel}>{vehicleDisplay.model}</Text>
-        <Text style={styles.vehiclePlate}>{vehicleDisplay.plate}</Text>
-        <View style={styles.vehicleGrid2}>
-          <View style={styles.vehicleStatDark}>
-            <Text style={styles.vehicleStatLabel}>ASSIGNED ON</Text>
-            <Text style={styles.vehicleStatValue}>{vehicleDisplay.assignedOn}</Text>
-          </View>
-          <View style={styles.vehicleStatDark}>
-            <Text style={styles.vehicleStatLabel}>SUPERVISOR</Text>
-            <Text style={styles.vehicleStatValue}>{vehicleDisplay.supervisor}</Text>
+    return (
+      <View style={styles.vehiclePage}>
+        <View style={styles.vehicleHeader}>
+          <TouchableOpacity
+            style={[styles.vehicleBack, { borderColor: cardBorder, backgroundColor: colors.surface }]}
+            onPress={() => setProfileView('main')}
+            accessibilityRole="button"
+            accessibilityLabel="Back to profile"
+          >
+            <ChevronLeft size={18} color={colors.text} />
+          </TouchableOpacity>
+          <View style={styles.vehicleHeaderCopy}>
+            <Text style={[styles.vehicleHeaderTitle, { color: colors.text }]}>Fleet vehicle</Text>
+            <Text style={[styles.vehicleHeaderSub, { color: muted }]} numberOfLines={1}>
+              {vehicleDisplay.plate}
+            </Text>
           </View>
         </View>
-      </View>
 
-      <View style={styles.triGaugeRow}>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Fuel size={20} color={Theme.driverEmerald} />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.fuel}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>FUEL</Text>
-        </View>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Gauge size={20} color="#3b82f6" />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.odometer}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>KM</Text>
-        </View>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Thermometer size={20} color="#f43f5e" />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.engineTemp}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>TEMP</Text>
-        </View>
-      </View>
-
-      <View style={[styles.whiteCardLg, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-        <View style={styles.cardHeadRow}>
-          <Dna size={16} color={muted} />
-          <Text style={[styles.cardHeadTitle, { color: muted }]}>TECH SPECS</Text>
-        </View>
-        {vehicleDisplay.specs.map((spec, i) => (
-          <View key={spec.label} style={[styles.specRow, i < vehicleDisplay.specs.length - 1 && styles.specRowBorder]}>
-            <Text style={[styles.specLabel, { color: muted }]}>{spec.label}</Text>
-            <Text style={[styles.specValue, { color: colors.text }]}>{spec.value}</Text>
+        <Animated.View
+          entering={FadeInDown.duration(280).springify().damping(18)}
+          style={[styles.identityCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+        >
+          <View style={styles.identityTop}>
+            <DriverIconWell backgroundColor={Theme.driverEmeraldMuted} motionDelay={0}>
+              <Truck size={driverIconSize} color={Theme.driverEmerald} />
+            </DriverIconWell>
+            <View style={styles.identityText}>
+              <Text style={[styles.identityPlate, { color: colors.text }]} numberOfLines={1}>
+                {vehicleDisplay.plate}
+              </Text>
+              <Text style={[styles.identityModel, { color: muted }]} numberOfLines={1}>
+                {vehicleDisplay.model}
+              </Text>
+            </View>
           </View>
-        ))}
-      </View>
-
-      <View style={[styles.whiteCardLg, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-        <View style={styles.cardHeadRow}>
-          <Wrench size={16} color={muted} />
-          <Text style={[styles.cardHeadTitle, { color: muted }]}>HEALTH DIAGNOSTICS</Text>
-        </View>
-        {vehicleDisplay.health.map((h) => (
-          <View key={h.label} style={[styles.healthRow, { backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc' }]}>
-            <Text style={[styles.healthLabel, { color: colors.text }]}>{h.label}</Text>
-            <Text style={[styles.healthValue, { color: h.color }]}>{h.value}</Text>
+          <View style={[styles.identityMeta, { borderTopColor: cardBorder }]}>
+            <View style={styles.identityMetaCell}>
+              <Text style={[styles.identityMetaLabel, { color: muted }]}>Fleet</Text>
+              <Text style={[styles.identityMetaValue, { color: colors.text }]} numberOfLines={1}>
+                {vehicleDisplay.supervisor}
+              </Text>
+            </View>
+            <View style={[styles.identityMetaRule, { backgroundColor: cardBorder }]} />
+            <View style={styles.identityMetaCell}>
+              <Text style={[styles.identityMetaLabel, { color: muted }]}>Assigned</Text>
+              <Text style={[styles.identityMetaValue, { color: colors.text }]} numberOfLines={1}>
+                {vehicleDisplay.assignedOn}
+              </Text>
+            </View>
           </View>
-        ))}
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeInDown.delay(50).duration(280).springify().damping(18)}
+          style={[styles.readingCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+        >
+          {hasLiveReadings ? (
+            readings.map((reading, index) => {
+              const Icon = reading.icon;
+              const empty = reading.value === '—';
+              return (
+                <View
+                  key={reading.key}
+                  style={[
+                    styles.readingCell,
+                    index > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: cardBorder },
+                  ]}
+                >
+                  <DriverIconWell size="sm" backgroundColor={reading.tint} motionDelay={index * 120} animate={false}>
+                    <Icon size={driverIconSizeSm} color={reading.color} />
+                  </DriverIconWell>
+                  <Text style={[styles.readingValue, { color: empty ? muted : colors.text }]}>{reading.value}</Text>
+                  <Text style={[styles.readingLabel, { color: muted }]}>{reading.label}</Text>
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.readingEmpty}>
+              <Text style={[styles.readingEmptyTitle, { color: colors.text }]}>Live telemetry</Text>
+              <Text style={[styles.readingEmptyBody, { color: muted }]}>
+                Fuel, distance, and temperature will show here when the vehicle is online.
+              </Text>
+            </View>
+          )}
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeInDown.delay(100).duration(280).springify().damping(18)}
+          style={[styles.detailCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+        >
+          <Text style={[styles.detailGroup, { color: muted }]}>Specs</Text>
+          {specRows.map((row, index) => (
+            <View
+              key={row.label}
+              style={[
+                styles.detailRow,
+                index < specRows.length - 1 && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: cardBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.detailLabel, { color: muted }]}>{row.label}</Text>
+              <Text
+                style={[styles.detailValue, { color: row.value === '—' ? muted : colors.text }]}
+                numberOfLines={1}
+              >
+                {row.value}
+              </Text>
+            </View>
+          ))}
+          <Text style={[styles.detailGroup, styles.detailGroupNext, { color: muted, borderTopColor: cardBorder }]}>
+            Status
+          </Text>
+          {statusRows.map((row, index) => (
+            <View
+              key={row.label}
+              style={[
+                styles.detailRow,
+                index < statusRows.length - 1 && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: cardBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.detailLabel, { color: muted }]}>{row.label}</Text>
+              <Text
+                style={[
+                  styles.detailValue,
+                  { color: row.value === '—' ? muted : row.ok ? Theme.driverEmerald : colors.text },
+                ]}
+                numberOfLines={1}
+              >
+                {row.value}
+              </Text>
+            </View>
+          ))}
+        </Animated.View>
+
+        <Animated.View
+          entering={FadeInDown.delay(160).duration(300).springify().damping(18)}
+          style={styles.vehicleMotionSlot}
+        >
+          <MapPinSearchMotion size="md" />
+          <Text style={[styles.vehicleMotionCaption, { color: muted }]}>Location tracking ready</Text>
+        </Animated.View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={[styles.outer, { backgroundColor: pageBg }]}>
@@ -733,43 +821,40 @@ export default function DriverProfileScreen() {
       >
         <>
             {profileView === 'main' && (
-              <View style={{ gap: 14 }}>
-                <LinearGradient colors={['#0f172a', '#020617']} style={styles.profileHero}>
-                  <View style={styles.heroGlow} />
+              <View style={{ gap: DRIVER_SECTION_GAP }}>
+                <Animated.View
+                  entering={FadeInDown.duration(280).springify().damping(18)}
+                  style={[
+                    styles.profileHero,
+                    {
+                      backgroundColor: Theme.cardWhite,
+                      borderWidth: 1,
+                      borderColor: Theme.driverSecondaryGrey,
+                    },
+                  ]}
+                >
                   <TouchableOpacity style={styles.avatarCluster} onPress={() => setShowEditProfileModal(true)} activeOpacity={0.9}>
-                    <LinearGradient colors={[Theme.driverPrimary, Theme.driverEmeraldDark, '#0f766e']} style={styles.avatarRing}>
-                      <View style={styles.avatarInner}>
+                    <LinearGradient colors={[Theme.driverPrimary, Theme.driverEmeraldDark]} style={styles.avatarRing}>
+                      <View style={[styles.avatarInner, { backgroundColor: displayAvatarColor }]}>
                         {displayAvatarSource ? (
                           <Image source={displayAvatarSource} style={styles.avatarImg} resizeMode="cover" />
                         ) : (
-                          <View
-                            style={[
-                              styles.avatarImg,
-                              {
-                                backgroundColor: displayAvatarColor,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              },
-                            ]}
-                          >
-                            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 24 }}>
-                              {displayAvatarInitials}
-                            </Text>
-                          </View>
+                          <Text style={styles.identityInitials}>{displayAvatarInitials}</Text>
                         )}
                         <View style={styles.camOverlay} pointerEvents="none">
-                          <Camera size={18} color="#fff" />
+                          <Camera size={13} color="#fff" />
                         </View>
                       </View>
                     </LinearGradient>
                     <View style={styles.levelBadge}>
-                      <Trophy size={12} color="#fff" />
+                      <Trophy size={11} color="#fff" />
                       <Text style={styles.levelBadgeText}>Lvl {currentLevel}</Text>
                     </View>
                   </TouchableOpacity>
                   <Text style={styles.profileNameHero}>{displayName}</Text>
-                  <Text style={styles.tierSmall}>{currentLevelConfig.tier} rank · {currentLevelConfig.name}</Text>
-
+                  <Text style={styles.tierSmall}>
+                    {currentLevelConfig.tier} rank · {currentLevelConfig.name}
+                  </Text>
                   <TouchableOpacity style={styles.xpCard} onPress={() => setProfileView('levels')} activeOpacity={0.88}>
                     <View style={styles.xpTop}>
                       <Text style={styles.xpEyebrow}>EXPERIENCE PROGRESS</Text>
@@ -780,7 +865,7 @@ export default function DriverProfileScreen() {
                         colors={[Theme.driverEmerald, Theme.driverPrimary]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
-                        style={[styles.progressFillEm, { width: `${experiencePct}%` }]}
+                        style={[styles.progressFillEm, { width: `${Math.max(experiencePct, 0)}%` }]}
                       />
                     </View>
                     <View style={styles.xpFooter}>
@@ -790,51 +875,27 @@ export default function DriverProfileScreen() {
                       <Text style={styles.xpFooterTxt}>{nextLevelConfig?.name ?? 'Max'} next</Text>
                     </View>
                   </TouchableOpacity>
-                </LinearGradient>
+                </Animated.View>
 
-                <View style={[styles.bioStatementCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-                  <View style={styles.bioStatementHeader}>
-                    <View style={styles.bioStatementTitleRow}>
-                      <View style={[styles.quoteIconWrap, { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.38)' }]}>
-                        <Quote size={15} color={Theme.driverEmerald} strokeWidth={2.2} />
-                      </View>
-                      <Text style={[styles.bioStatementEyebrow, { color: muted }]}>Pilot statement</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={[styles.bioEditBtn, { backgroundColor: isDark ? colors.whiteMuted : '#f1f5f9' }]}
-                      onPress={() => setShowEditProfileModal(true)}
-                      hitSlop={12}
-                      accessibilityRole="button"
-                      accessibilityLabel="Edit bio"
-                    >
-                      <Edit3 size={16} color={muted} strokeWidth={2.2} />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={[styles.bioStatementBody, { color: colors.text }]}>
-                    {(profile?.status_text ?? '').trim().length > 0
-                      ? `"${(profile?.status_text ?? '').trim()}"`
-                      : 'Add a short bio — visible to passengers and fleet managers. Tap edit to update.'}
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
-                  onPress={() =>
-                    router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
-                  }
-                  activeOpacity={0.88}
-                  accessibilityRole="button"
-                  accessibilityLabel={dcoStatus === 'NONE' ? 'Become a DCO' : 'DCO status'}
+                <Animated.View
+                  entering={FadeInDown.delay(40).duration(280).springify().damping(18)}
+                  style={[styles.actionSheet, { backgroundColor: colors.surface, borderColor: cardBorder }]}
                 >
-                  <View style={styles.rowCardLeft}>
-                    <View style={[styles.blueIcon, { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.45)' }]}>
-                      <Gavel size={20} color={colors.emerald} />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>
-                        {dcoStatus === 'APPROVED' ? 'DCO' : 'INDEPENDENT OWNER-OPERATOR'}
-                      </Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>
+                  <TouchableOpacity
+                    style={styles.sheetRow}
+                    onPress={() => router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])}
+                    activeOpacity={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel={dcoStatus === 'NONE' ? 'Become a DCO' : 'DCO status'}
+                  >
+                    <DriverIconWell
+                      backgroundColor={isDark ? colors.emeraldMuted : Theme.driverEmeraldMuted}
+                      motionDelay={0}
+                    >
+                      <Gavel size={driverIconSize} color={Theme.driverEmerald} strokeWidth={2.25} />
+                    </DriverIconWell>
+                    <View style={styles.sheetRowText}>
+                      <Text style={[styles.tileTitle, { color: colors.text }]}>
                         {dcoStatus === 'NONE'
                           ? 'Become a DCO'
                           : dcoStatus === 'PENDING'
@@ -845,161 +906,106 @@ export default function DriverProfileScreen() {
                                 ? 'DCO — Request again'
                                 : 'DCO — Suspended'}
                       </Text>
-                      <Text style={[styles.rowSub, { color: muted }]} numberOfLines={2}>
+                      <Text style={[styles.tileSub, { color: muted }]}>
                         {dcoStatus === 'APPROVED'
                           ? 'Your vehicle · Marketplace bids & awards'
                           : 'Become an independent owner-operator'}
                       </Text>
                     </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </TouchableOpacity>
+                    <ChevronRight size={16} color={muted} />
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
-                  onPress={() =>
-                    router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
-                  }
-                  activeOpacity={0.88}
-                  accessibilityRole="button"
-                  accessibilityLabel="DCO status"
+                  <View style={[styles.sheetDivider, { backgroundColor: cardBorder }]} />
+
+                  <TouchableOpacity
+                    style={styles.sheetRow}
+                    onPress={() => setProfileView('vehicle')}
+                    activeOpacity={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel="Assigned vehicle"
+                  >
+                    <DriverIconWell backgroundColor={Theme.assignmentVehicleAccentSoft} motionDelay={120}>
+                      <Truck size={driverIconSize} color={Theme.assignmentVehicleAccent} strokeWidth={2.25} />
+                    </DriverIconWell>
+                    <View style={styles.sheetRowText}>
+                      <Text style={[styles.tileEyebrow, { color: muted }]}>FLEET ASSIGNED</Text>
+                      <Text style={[styles.tileTitle, { color: colors.text }]}>{vehicleDisplay.model}</Text>
+                    </View>
+                    <ChevronRight size={16} color={muted} />
+                  </TouchableOpacity>
+                </Animated.View>
+
+                <Animated.View
+                  entering={FadeInDown.delay(80).duration(280).springify().damping(18)}
+                  style={styles.pairRow}
                 >
-                  <View style={styles.rowCardLeft}>
-                    <View style={[styles.blueIcon, { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.45)' }]}>
-                      <Gavel size={20} color={colors.emerald} />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>
-                        {dcoStatus === 'APPROVED' ? 'DCO' : 'INDEPENDENT OWNER-OPERATOR'}
-                      </Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>
-                        {dcoStatus === 'NONE'
-                          ? 'Become a DCO'
-                          : dcoStatus === 'PENDING'
-                            ? 'DCO — Under review'
-                            : dcoStatus === 'APPROVED'
-                              ? 'DCO status'
-                              : dcoStatus === 'REJECTED'
-                                ? 'DCO — Request again'
-                                : 'DCO — Suspended'}
-                      </Text>
-                      <Text style={[styles.rowSub, { color: muted }]} numberOfLines={2}>
-                        {dcoStatus === 'APPROVED'
-                          ? 'Bid in the marketplace as an independent owner-operator'
-                          : 'Admin-approved independent owner-operator status'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </TouchableOpacity>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.pairCard,
+                      webPress,
+                      { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                    ]}
+                    onPress={() => router.push('/(driver)/documents')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Upload and verify documents"
+                  >
+                    <DriverIconWell backgroundColor={SLATE_900} motionDelay={200}>
+                      <Shield size={driverIconSizeSm} color="#fff" strokeWidth={2.25} />
+                    </DriverIconWell>
+                    <Text style={[styles.tileEyebrow, styles.pairEyebrow, { color: muted }]}>KYC & COMPLIANCE</Text>
+                    <Text style={[styles.pairTitle, { color: colors.text }]} numberOfLines={2}>
+                      {kycStatus?.isVerified ? 'Identity verified' : 'Upload & verify documents'}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.tileSub,
+                        { color: kycStatus?.reviewStatus === 'rejected' ? Theme.negative : muted },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {kycStatus?.isVerified
+                        ? `${kycStatus.verifiedDocs} document${kycStatus.verifiedDocs === 1 ? '' : 's'} verified by our team`
+                        : kycStatus?.reviewStatus === 'submitted'
+                          ? 'Awaiting verification — our team is reviewing'
+                          : kycStatus?.reviewStatus === 'rejected'
+                            ? 'Rejected — tap to see what needs fixing'
+                            : `${kycUploadedCount} uploaded · tap to add or submit`}
+                    </Text>
+                  </Pressable>
 
-                <TouchableOpacity style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]} onPress={() => setProfileView('vehicle')} activeOpacity={0.88}>
-                  <View style={styles.rowCardLeft}>
-                    <View style={styles.blueIcon}>
-                      <Truck size={20} color="#3b82f6" />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>FLEET ASSIGNED</Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>{vehicleDisplay.model}</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </TouchableOpacity>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.pairCard,
+                      webPress,
+                      { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                    ]}
+                    onPress={() =>
+                      router.push(
+                        ROUTES.MODALS.LANGUAGE_SETTINGS as Parameters<typeof router.push>[0],
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel="Language settings"
+                  >
+                    <DriverIconWell backgroundColor={Theme.brandBlueSoft} motionDelay={280}>
+                      <Globe size={driverIconSizeSm} color={Theme.primary} strokeWidth={2.25} />
+                    </DriverIconWell>
+                    <Text style={[styles.tileEyebrow, styles.pairEyebrow, { color: muted }]}>PREFERENCES</Text>
+                    <Text style={[styles.pairTitle, { color: colors.text }]}>Language</Text>
+                    <Text style={[styles.tileSub, { color: muted }]} numberOfLines={2}>
+                      {languageLabel}
+                    </Text>
+                  </Pressable>
+                </Animated.View>
 
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.rowCard,
-                    webPress,
-                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
-                  ]}
-                  onPress={() => router.push('/(driver)/documents')}
-                  accessibilityRole="button"
-                  accessibilityLabel="Upload and verify documents"
+                <Animated.View
+                  entering={FadeInDown.delay(120).duration(280).springify().damping(18)}
+                  style={styles.statsRow}
                 >
-                  <View style={styles.rowCardLeft}>
-                    <View style={styles.darkIcon}>
-                      <Shield size={18} color="#fff" />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>KYC & COMPLIANCE</Text>
-                      <View style={styles.rowTitleLine}>
-                        <Text style={[styles.rowTitle, { color: colors.text }]}>
-                          {kycStatus?.isVerified ? 'Identity verified' : 'Upload & verify documents'}
-                        </Text>
-                        {kycStatus?.isVerified ? (
-                          <View style={[styles.verifiedPill, { backgroundColor: colors.emeraldMuted }]}>
-                            <Text style={[styles.verifiedPillText, { color: colors.emerald }]}>
-                              VERIFIED
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Text
-                        style={[
-                          styles.rowSub,
-                          {
-                            color: kycStatus?.reviewStatus === 'rejected' ? Theme.negative : muted,
-                          },
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {kycStatus?.isVerified
-                          ? `${kycStatus.verifiedDocs} document${kycStatus.verifiedDocs === 1 ? '' : 's'} verified by our team`
-                          : kycStatus?.reviewStatus === 'submitted'
-                            ? 'Awaiting verification — our team is reviewing'
-                            : kycStatus?.reviewStatus === 'rejected'
-                              ? 'Rejected — tap to see what needs fixing'
-                              : `${kycUploadedCount} uploaded · tap to add or submit`}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </Pressable>
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.rowCard,
-                    webPress,
-                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
-                  ]}
-                  onPress={() =>
-                    router.push(
-                      ROUTES.MODALS.LANGUAGE_SETTINGS as Parameters<typeof router.push>[0],
-                    )
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Language settings"
-                >
-                  <View style={styles.rowCardLeft}>
-                    <View style={styles.violetIcon}>
-                      <Globe size={18} color={Theme.primary} />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>PREFERENCES</Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>Language</Text>
-                      <Text style={[styles.rowSub, { color: muted }]} numberOfLines={1}>
-                        {languageLabel}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </Pressable>
-
-                <View style={styles.statsRow}>
                   <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-                    <View style={styles.amberIcon}>
-                      <Star size={18} color="#d97706" fill="#d97706" />
-                    </View>
+                    <DriverIconWell backgroundColor="rgba(217,119,6,0.12)" motionDelay={360}>
+                      <Star size={driverIconSizeSm} color="#d97706" fill="#d97706" strokeWidth={2.25} />
+                    </DriverIconWell>
                     <Text style={[styles.statNum, { color: colors.text }]}>
                       {loadingDriverRatings && driverRatings.length === 0
                         ? '–'
@@ -1024,29 +1030,33 @@ export default function DriverProfileScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Open trip history"
                   >
-                    <View style={styles.blueIconSm}>
-                      <History size={18} color="#3b82f6" />
-                    </View>
+                    <DriverIconWell backgroundColor={Theme.assignmentVehicleAccentSoft} motionDelay={440}>
+                      <History size={driverIconSizeSm} color={Theme.assignmentVehicleAccent} strokeWidth={2.25} />
+                    </DriverIconWell>
                     <Text style={[styles.statNum, { color: colors.text }]}>
                       {!tripsLoaded && loadingTrips ? '–' : tripsCount}
                     </Text>
                     <Text style={[styles.statLbl, { color: muted }]}>TRIPS</Text>
                   </Pressable>
-                </View>
+                </Animated.View>
 
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.signOutCard,
-                    webPress,
-                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.85 : 1 },
-                  ]}
-                  onPress={handleSignOut}
-                  accessibilityRole="button"
-                  accessibilityLabel="Sign out"
-                >
-                  <LogOut size={18} color="#f43f5e" />
-                  <Text style={styles.signOutLbl}>Sign out</Text>
-                </Pressable>
+                <Animated.View entering={FadeInDown.delay(160).duration(280).springify().damping(18)}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.signOutCard,
+                      webPress,
+                      { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.85 : 1 },
+                    ]}
+                    onPress={handleSignOut}
+                    accessibilityRole="button"
+                    accessibilityLabel="Sign out"
+                  >
+                    <DriverIconWell backgroundColor="rgba(244,63,94,0.1)" motionDelay={520} animate={false}>
+                      <LogOut size={driverIconSize} color="#f43f5e" strokeWidth={2.25} />
+                    </DriverIconWell>
+                    <Text style={styles.signOutLbl}>Sign out</Text>
+                  </Pressable>
+                </Animated.View>
               </View>
             )}
             {profileView === 'levels' && <LevelView />}
@@ -1123,39 +1133,33 @@ const styles = StyleSheet.create({
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverEmerald },
   scroll: { flex: 1 },
 
-  profileHero: {
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
+  identityBlock: { alignItems: 'center', paddingTop: 8, paddingBottom: 4 },
+  identityAvatarBtn: { marginBottom: 12 },
+  identityAvatar: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
     overflow: 'hidden',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
   },
-  heroGlow: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(16,185,129,0.08)',
-  },
-  avatarCluster: { marginBottom: 12, alignItems: 'center' },
-  avatarRing: { padding: 3, borderRadius: 26 },
-  avatarInner: {
-    width: 84,
-    height: 84,
-    borderRadius: 22,
-    backgroundColor: '#1e293b',
-    overflow: 'hidden',
-    borderWidth: 3,
-    borderColor: SLATE_900,
-  },
-  avatarImg: { width: '100%', height: '100%' },
-  camOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+  identityInitials: { color: '#fff', fontWeight: '700', fontSize: 28 },
+  identityCam: {
+    position: 'absolute',
+    right: 6,
+    bottom: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15,23,42,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  levelBadge: {
+  identityLevel: {
     position: 'absolute',
-    right: -6,
-    bottom: -2,
+    right: -4,
+    bottom: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
@@ -1164,35 +1168,153 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 3,
+  },
+  identityName: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+  identityRank: { marginTop: 4, fontSize: 13, fontWeight: '600' },
+  actionSheet: {
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    ...driverCardElevation,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: DRIVER_ROW_HEIGHT + 4,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  sheetRowText: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  sheetDivider: { height: StyleSheet.hairlineWidth, marginLeft: 44 },
+  progressField: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 44,
+  },
+  progressFieldLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
+  progressFieldPct: { fontSize: 14, fontWeight: '800' },
+  progressFieldMeta: { fontSize: 12, fontWeight: '600' },
+  tileRow: { flexDirection: 'row', gap: 8 },
+  actionTile: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 132,
+    borderRadius: 18,
+    padding: 10,
+    alignItems: 'flex-start',
+  },
+  tileIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileEyebrow: { fontSize: 9, fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 },
+  tileTitle: { fontSize: 14, fontWeight: '700', lineHeight: 18 },
+  tileSub: { marginTop: 1, fontSize: 11, fontWeight: '500', lineHeight: 14 },
+  pairRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
+  pairCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    padding: 12,
+    alignItems: 'flex-start',
+    ...driverCardElevation,
+  },
+  pairEyebrow: { marginTop: 10 },
+  pairTitle: { fontSize: 14, fontWeight: '700', lineHeight: 18, marginTop: 1 },
+
+  profileHero: {
+    borderRadius: DRIVER_CARD_RADIUS,
+    paddingHorizontal: 14,
+    paddingTop: 16,
+    paddingBottom: 14,
+    overflow: 'hidden',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    width: '100%',
+    ...driverCardElevation,
+  },
+  heroGlow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(16,185,129,0.08)',
+  },
+  avatarCluster: { marginBottom: 14, alignItems: 'center', alignSelf: 'center' },
+  avatarRing: { padding: 3, borderRadius: 26 },
+  avatarInner: {
+    width: 84,
+    height: 84,
+    borderRadius: 12,
+    backgroundColor: '#1e293b',
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: SLATE_900,
+  },
+  avatarImg: { width: '100%', height: '100%' },
+  camOverlay: {
+    position: 'absolute',
+    left: 4,
+    bottom: 4,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(15,23,42,0.82)',
+    borderWidth: 2,
+    borderColor: Theme.cardWhite,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  levelBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Theme.driverEmeraldDark,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 3,
     borderColor: SLATE_900,
   },
   levelBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
-  profileNameHero: { fontSize: 18, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
-  tierSmall: { marginTop: 4, fontSize: 10, fontWeight: '700', color: Theme.driverPrimary, letterSpacing: 1 },
+  profileNameHero: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Theme.driverText,
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  tierSmall: { marginTop: 4, fontSize: 12, fontWeight: '600', color: Theme.driverPrimary, textAlign: 'center' },
   xpCard: {
-    marginTop: 14,
+    marginTop: 12,
     width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
+    backgroundColor: Theme.surfaceLight,
+    borderRadius: DRIVER_CARD_RADIUS - 2,
     padding: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: Theme.driverSecondaryGrey,
   },
-  xpTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  xpEyebrow: { fontSize: 9, fontWeight: '700', color: 'rgba(148,163,184,0.95)', letterSpacing: 1.2 },
-  xpPct: { fontSize: 10, fontWeight: '800', color: Theme.driverPrimary },
+  xpTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  xpEyebrow: { fontSize: 10, fontWeight: '700', color: Theme.textMuted, letterSpacing: 0.8 },
+  xpPct: { fontSize: 13, fontWeight: '700', color: Theme.driverPrimary },
   progressTrackDark: {
     height: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(15,23,42,0.9)',
+    backgroundColor: Theme.driverSecondaryGrey,
     overflow: 'hidden',
   },
   progressFillEm: { height: '100%', borderRadius: 999 },
-  xpFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  xpFooterTxt: { fontSize: 10, fontWeight: '600', color: 'rgba(148,163,184,0.9)' },
+  xpFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  xpFooterTxt: { fontSize: 11, fontWeight: '600', color: Theme.textMuted },
 
   bioStatementCard: {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 14,
@@ -1246,7 +1368,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     minHeight: 44,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     gap: 10,
   },
@@ -1261,18 +1383,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   darkIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 12,
     backgroundColor: SLATE_900,
     alignItems: 'center',
     justifyContent: 'center',
   },
   violetIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: 'rgba(79,70,229,0.12)',
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    backgroundColor: Theme.brandBlueSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1283,44 +1405,32 @@ const styles = StyleSheet.create({
   verifiedPillText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   rowSub: { marginTop: 4, fontSize: 11, fontWeight: '500', lineHeight: 15 },
   chevPill: { padding: 8, borderRadius: 12 },
-  statsRow: { flexDirection: 'row', gap: 10 },
+  statsRow: { flexDirection: 'row', alignItems: 'stretch', gap: 8 },
   statBox: {
     flex: 1,
-    padding: 14,
-    minHeight: 44,
-    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    minHeight: 96,
+    borderRadius: DRIVER_CARD_RADIUS,
     borderWidth: 1,
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    gap: 8,
+    ...driverCardElevation,
   },
-  amberIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: 'rgba(245,158,11,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  blueIconSm: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: 'rgba(59,130,246,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  statNum: { fontSize: 18, fontWeight: '800' },
-  statLbl: { marginTop: 4, fontSize: 9, fontWeight: '700', letterSpacing: 1.2 },
-  statHint: { marginTop: 3, fontSize: 10, fontWeight: '600' },
+  statNum: { fontSize: 18, fontWeight: '800', letterSpacing: -0.2 },
+  statLbl: { marginTop: 0, fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  statHint: { marginTop: 2, fontSize: 11, fontWeight: '500' },
   signOutCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    padding: 14,
-    minHeight: 44,
-    borderRadius: 16,
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    minHeight: DRIVER_ROW_HEIGHT,
+    borderRadius: DRIVER_CARD_RADIUS,
     borderWidth: 1,
+    ...driverCardElevation,
   },
   signOutLbl: { fontSize: 13, fontWeight: '700', color: '#f43f5e' },
 
@@ -1341,7 +1451,7 @@ const styles = StyleSheet.create({
   },
   heroWatermark: { position: 'absolute', top: 0, right: 0, padding: 16 },
   rankRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
-  crownBox: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  crownBox: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   heroEyebrowGold: { fontSize: 9, color: AMBER_400, fontWeight: '700', letterSpacing: 1.2 },
   heroRankTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
 
@@ -1384,57 +1494,98 @@ const styles = StyleSheet.create({
   metricLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 6 },
   metricValue: { fontSize: 14, fontWeight: '900' },
 
-  vehicleHeroTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 18 },
-  fleetBadge: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+  vehiclePage: { gap: DRIVER_SECTION_GAP, paddingBottom: 8 },
+  vehicleHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
+  vehicleBack: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  fleetBadgeText: { fontSize: 9, fontWeight: '700', color: '#fff', letterSpacing: 1.2 },
-  connectedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  pulseDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverEmerald },
-  connectedText: { fontSize: 10, fontWeight: '600', color: Theme.driverPrimary },
-  vehicleModel: { fontSize: 20, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
-  vehiclePlate: { marginTop: 4, fontSize: 11, fontWeight: '700', color: 'rgba(148,163,184,0.95)', letterSpacing: 2 },
-  vehicleGrid2: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  vehicleStatDark: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  vehicleStatLabel: { fontSize: 10, color: 'rgba(148,163,184,0.85)', fontWeight: '600', marginBottom: 4 },
-  vehicleStatValue: { fontSize: 12, fontWeight: '700', color: '#fff' },
-  triGaugeRow: { flexDirection: 'row', gap: 8 },
-  gaugeCard: {
-    flex: 1,
     alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 16,
+    justifyContent: 'center',
+  },
+  vehicleHeaderCopy: { flex: 1, minWidth: 0 },
+  vehicleHeaderTitle: { fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
+  vehicleHeaderSub: { marginTop: 1, fontSize: 12, fontWeight: '500' },
+  identityCard: {
+    borderRadius: DRIVER_CARD_RADIUS,
     borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    ...driverCardElevation,
+  },
+  identityTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  identityText: { flex: 1, minWidth: 0 },
+  identityPlate: { fontSize: 18, fontWeight: '700', letterSpacing: 0.3 },
+  identityModel: { marginTop: 2, fontSize: 13, fontWeight: '500' },
+  identityMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  identityMetaCell: { flex: 1, minWidth: 0, paddingVertical: 12 },
+  identityMetaRule: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', marginVertical: 10 },
+  identityMetaLabel: { fontSize: 11, fontWeight: '600' },
+  identityMetaValue: { marginTop: 2, fontSize: 13, fontWeight: '700' },
+  readingCard: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    overflow: 'hidden',
+    ...driverCardElevation,
+  },
+  readingCell: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    gap: 5,
+  },
+  readingEmpty: {
+    flex: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     gap: 4,
   },
-  gaugeVal: { fontSize: 16, fontWeight: '800' },
-  gaugeLbl: { fontSize: 8, fontWeight: '700', letterSpacing: 1.2 },
-  whiteCardLg: { borderRadius: 16, padding: 14, borderWidth: 1 },
-  cardHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  cardHeadTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
-  specRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
-  specRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(226,232,240,0.8)' },
-  specLabel: { fontSize: 12, fontWeight: '600' },
-  specValue: { fontSize: 12, fontWeight: '700' },
-  healthRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 14,
-    marginBottom: 8,
+  readingEmptyTitle: { fontSize: 14, fontWeight: '700' },
+  readingEmptyBody: { fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  readingValue: { fontSize: 15, fontWeight: '700' },
+  readingLabel: { fontSize: 11, fontWeight: '600' },
+  detailCard: {
+    borderRadius: DRIVER_CARD_RADIUS,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
+    ...driverCardElevation,
   },
-  healthLabel: { fontSize: 12, fontWeight: '600' },
-  healthValue: { fontSize: 10, fontWeight: '700' },
+  detailGroup: { fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 2 },
+  detailGroupNext: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    minHeight: DRIVER_ROW_HEIGHT - 4,
+  },
+  detailLabel: { fontSize: 13, fontWeight: '500' },
+  detailValue: { flex: 1, fontSize: 13, fontWeight: '600', textAlign: 'right' },
+  vehicleMotionSlot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    width: '100%',
+    marginTop: 4,
+    minHeight: 148,
+    gap: 6,
+  },
+  vehicleMotionCaption: { fontSize: 12, fontWeight: '600' },
 });

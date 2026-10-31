@@ -112,18 +112,28 @@ export function DriverHeader({
     <View
       style={[
         styles.header,
+        variant === 'assigned' && styles.headerOverMap,
         {
-          paddingTop: insets.top + Layout.driverHeaderTopOffset,
-          paddingBottom: Layout.driverHeaderBottomPadding,
-          paddingHorizontal: Layout.driverHeaderHorizontalPadding,
-          backgroundColor: colors.surface,
-          borderBottomWidth: 1,
+          paddingTop: insets.top + (variant === 'assigned' ? 8 : Layout.driverHeaderTopOffset),
+          paddingBottom: variant === 'assigned' ? 0 : Layout.driverHeaderBottomPadding,
+          paddingHorizontal: variant === 'assigned' ? 12 : Layout.driverHeaderHorizontalPadding,
+          backgroundColor: variant === 'assigned' ? 'transparent' : colors.surface,
+          borderBottomWidth: variant === 'assigned' ? 0 : 1,
           borderBottomColor: colors.border,
         },
         style,
       ]}
     >
-      <View style={styles.headerLeft}>
+      <View
+        style={[
+          styles.headerLeft,
+          variant === 'assigned' && styles.floatingIdentity,
+          variant === 'assigned' && {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+          },
+        ]}
+      >
         <TouchableOpacity
           onPress={() => router.push('/(driver)/profile')}
           style={styles.avatarBtn}
@@ -177,7 +187,11 @@ export function DriverHeader({
           }
           style={[
             styles.languageBtn,
-            { backgroundColor: colors.whiteMuted, borderColor: colors.border },
+            variant === 'assigned' && styles.floatingAction,
+            {
+              backgroundColor: variant === 'assigned' ? colors.surface : colors.whiteMuted,
+              borderColor: colors.border,
+            },
           ]}
           activeOpacity={0.8}
           accessibilityLabel="Language"
@@ -200,7 +214,7 @@ export function DriverHeader({
             showOdometer={showOdometerOps}
             onPressExpense={onPressExpense ?? (() => {})}
             onPressOdometer={onPressOdometer ?? (() => {})}
-            surfaceColor={colors.whiteMuted}
+            surfaceColor={variant === 'assigned' ? colors.surface : colors.whiteMuted}
             borderColor={colors.border}
             textColor={colors.text}
             accentColor={colors.emerald}
@@ -214,7 +228,11 @@ export function DriverHeader({
           onPress={onPressChat ?? (() => router.push('/(driver)/chat'))}
           style={[
             styles.notificationBtn,
-            { backgroundColor: colors.whiteMuted, borderColor: colors.border },
+            variant === 'assigned' && styles.floatingAction,
+            {
+              backgroundColor: variant === 'assigned' ? colors.surface : colors.whiteMuted,
+              borderColor: colors.border,
+            },
           ]}
           activeOpacity={0.8}
           accessibilityRole="button"
@@ -241,7 +259,11 @@ export function DriverHeader({
           onPress={onPressNotifications ?? (() => router.push('/(driver)/notifications'))}
           style={[
             styles.notificationBtn,
-            { backgroundColor: colors.whiteMuted, borderColor: colors.border },
+            variant === 'assigned' && styles.floatingAction,
+            {
+              backgroundColor: variant === 'assigned' ? colors.surface : colors.whiteMuted,
+              borderColor: colors.border,
+            },
           ]}
           activeOpacity={0.8}
           accessibilityLabel="Notifications"
@@ -273,12 +295,44 @@ const styles = StyleSheet.create({
         }
       : { elevation: 1 }),
   },
+  headerOverMap: {
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Layout.driverHeaderGap,
     flex: 1,
     minWidth: 0,
+  },
+  floatingIdentity: {
+    flex: 0,
+    flexShrink: 1,
+    maxWidth: '62%',
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 12,
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#0f172a',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
+        }
+      : { elevation: 4 }),
+  },
+  floatingAction: {
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#0f172a',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+        }
+      : { elevation: 3 }),
   },
   headerTextWrap: {
     flex: 1,

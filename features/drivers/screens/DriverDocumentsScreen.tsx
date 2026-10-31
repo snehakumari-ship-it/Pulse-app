@@ -1,4 +1,6 @@
 import { Alert, View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal } from 'react-native';
+import { DocumentSearchMotion } from '@/components/driver/DocumentSearchMotion';
+import { DriverMotionIcon } from '@/components/driver/DriverMotionIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useRouter } from 'expo-router';
@@ -6,7 +8,6 @@ import Theme from '@/constants/Theme';
 import {
   DRIVER_DETAIL_HORIZONTAL_PAD,
   DriverSubScreenHeader,
-  driverDetailPageBackground,
 } from '@/components/driver/DriverSubScreenHeader';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -82,25 +83,36 @@ async function readAssetBytes(uri: string, base64?: string): Promise<ArrayBuffer
   return bytes;
 }
 
-function statusLabel(doc: DriverKycDocument | undefined): string {
-  if (!doc?.storage_path) return 'Not added';
-  switch (doc.status) {
-    case 'verified':
-      return 'Verified';
-    case 'rejected':
-      return 'Rejected — tap to re-upload';
-    case 'expired':
-      return 'Expired — tap to re-upload';
-    default:
-      return 'Pending review';
-  }
+function formatDocDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function statusColor(doc: DriverKycDocument | undefined, colors: { emerald: string; textMuted: string }): string {
-  if (!doc?.storage_path) return colors.textMuted;
-  if (doc.status === 'verified') return colors.emerald;
-  if (doc.status === 'rejected' || doc.status === 'expired') return Theme.negative;
-  return Theme.accentGold;
+type DocStatusMeta = {
+  label: string;
+  color: string;
+  icon: keyof typeof FontAwesome.glyphMap;
+};
+
+function statusMeta(
+  doc: DriverKycDocument | undefined,
+  uploading: boolean,
+  muted: string,
+): DocStatusMeta {
+  if (uploading) return { label: 'Uploading', color: Theme.assignmentVehicleAccent, icon: 'refresh' };
+  if (!doc?.storage_path) return { label: 'Not added', color: muted, icon: 'circle-o' };
+  switch (doc.status) {
+    case 'verified':
+      return { label: 'Verified', color: Theme.complianceStageSuccessFg, icon: 'check-circle' };
+    case 'rejected':
+      return { label: 'Rejected', color: Theme.negative, icon: 'times-circle' };
+    case 'expired':
+      return { label: 'Expired', color: Theme.negative, icon: 'clock-o' };
+    default:
+      return { label: 'Pending', color: Theme.assignmentVehicleAccent, icon: 'dot-circle-o' };
+  }
 }
 
 export default function DocumentsScreen() {
@@ -110,7 +122,7 @@ export default function DocumentsScreen() {
   const { theme } = useDriverTheme();
   const isDark = theme === 'dark';
   const colors = useDriverThemeColors();
-  const pageBg = driverDetailPageBackground(isDark, colors.background);
+  const pageBg = isDark ? colors.background : Theme.surfaceGray;
   const [documents, setDocuments] = useState<DriverKycDocument[]>([]);
   const [uploadingDocKey, setUploadingDocKey] = useState<DriverKycDocType | null>(null);
   const [submission, setSubmission] = useState<DriverKycSubmission | null>(null);
@@ -414,6 +426,7 @@ export default function DocumentsScreen() {
           paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
           paddingBottom: insets.bottom + 80,
           paddingTop: 16,
+          flexGrow: 1,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -427,55 +440,89 @@ export default function DocumentsScreen() {
             ? ` · ${uploadedCount - (mandatoryTypes.length - missingDocCount)} optional`
             : ''}
         </Text>
-        <Text style={[styles.sectionEyebrow, { color: colors.textMuted }]}>ID & proof</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.tableHead, { borderBottomColor: colors.border }]}>
+            <View style={styles.nameCol}>
+              <View style={styles.headIconSpacer} />
+              <Text style={[styles.headLabel, { color: colors.textMuted }]}>Document</Text>
+            </View>
+            <View style={styles.typeCol}>
+              <Text style={[styles.headLabel, { color: colors.textMuted }]}>Type</Text>
+            </View>
+            <View style={styles.statusCol}>
+              <Text style={[styles.headLabel, { color: colors.textMuted }]}>Status</Text>
+            </View>
+          </View>
           {DOC_DEFS.map((def, idx) => {
             const doc = docsByType.get(def.key);
+            const optional = isOptionalDoc(def.key);
+            const status = statusMeta(doc, uploadingDocKey === def.key, colors.textMuted);
+            const uploadedOn = doc?.storage_path ? formatDocDate(doc.created_at) : null;
             return (
               <TouchableOpacity
                 key={def.key}
-                style={[styles.docRow, idx === 0 ? { borderTopWidth: 0 } : { borderTopColor: colors.border }]}
+                style={[
+                  styles.docRow,
+                  idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                ]}
                 onPress={() => onDocumentPress(def.key, def.label)}
                 activeOpacity={0.7}
                 disabled={uploadingDocKey != null}
               >
-                <View style={styles.docRowLeft}>
+                <View style={styles.nameCol}>
                   <View style={[styles.docRowIcon, { backgroundColor: colors.emeraldMuted }]}>
-                    <FontAwesome name={def.icon} size={14} color={colors.emerald} />
+                    <DriverMotionIcon delay={idx * 160}>
+                      <FontAwesome name={def.icon} size={13} color={colors.emerald} />
+                    </DriverMotionIcon>
                   </View>
                   <View style={styles.docRowLabelCol}>
-                    <View style={styles.docRowLabelLine}>
-                      <Text style={[styles.docRowLabel, { color: colors.text }]}>
-                        {def.label}
-                        {/* Asterisk marks required; "Optional" marks the rest.
-                            Both stated explicitly so neither is inferred. */}
-                        {!isOptionalDoc(def.key) ? (
-                          <Text style={styles.docRowRequiredStar}> *</Text>
-                        ) : null}
+                    <Text style={[styles.docRowLabel, { color: colors.text }]} numberOfLines={2}>
+                      {def.label}
+                    </Text>
+                    {uploadedOn ? (
+                      <Text style={[styles.docRowDate, { color: colors.textMuted }]} numberOfLines={1}>
+                        {uploadedOn}
                       </Text>
-                      {isOptionalDoc(def.key) ? (
-                        <Text style={[styles.docRowOptional, { color: colors.textMuted }]}>
-                          Optional
-                        </Text>
-                      ) : null}
-                    </View>
-                    {/* The reviewer's reason has to be readable without tapping —
-                        a driver who can't see why it failed can't fix it. */}
+                    ) : null}
                     {doc?.status === 'rejected' && doc.rejection_notes ? (
-                      <Text style={[styles.docRowReason, { color: Theme.negative }]}>
+                      <Text style={[styles.docRowReason, { color: Theme.negative }]} numberOfLines={2}>
                         {doc.rejection_notes}
                       </Text>
                     ) : null}
                   </View>
                 </View>
-                <View style={styles.docRowRight}>
-                  <Text
-                    style={[styles.docRowStatus, { color: statusColor(doc, colors) }]}
-                    numberOfLines={1}
+                <View style={styles.typeCol}>
+                  <View
+                    style={[
+                      styles.typePill,
+                      {
+                        backgroundColor: optional
+                          ? Theme.complianceStageInfoBg
+                          : Theme.complianceStagePendingBg,
+                      },
+                    ]}
                   >
-                    {uploadingDocKey === def.key ? 'Uploading...' : statusLabel(doc)}
+                    <FontAwesome
+                      name={optional ? 'circle-o' : 'asterisk'}
+                      size={9}
+                      color={optional ? Theme.complianceStageInfoFg : Theme.complianceStagePendingFg}
+                    />
+                    <Text
+                      style={[
+                        styles.typePillText,
+                        { color: optional ? Theme.complianceStageInfoFg : Theme.complianceStagePendingFg },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {optional ? 'Optional' : 'Required'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.statusCol}>
+                  <FontAwesome name={status.icon} size={12} color={status.color} />
+                  <Text style={[styles.statusText, { color: status.color }]} numberOfLines={1}>
+                    {status.label}
                   </Text>
-                  <FontAwesome name="chevron-right" size={12} color={colors.textMuted} />
                 </View>
               </TouchableOpacity>
             );
@@ -545,6 +592,10 @@ export default function DocumentsScreen() {
             </Text>
           </TouchableOpacity>
         ) : null}
+
+        <View style={styles.reviewMotionSlot}>
+          <DocumentSearchMotion />
+        </View>
       </ScrollView>
 
       {/* Rejected optional document → three real choices, not a browser confirm. */}
@@ -634,18 +685,25 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { flex: 1 },
   submitBtn: {
-    marginTop: 20,
-    borderRadius: 14,
-    paddingVertical: 15,
+    marginTop: 16,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  submitBtnText: { fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
+  submitBtnText: { fontSize: 14, fontWeight: '600', letterSpacing: -0.2 },
+  reviewMotionSlot: {
+    flexGrow: 1,
+    minHeight: 168,
+    marginTop: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   submitStatusCard: {
-    marginTop: 20,
-    borderRadius: 14,
+    marginTop: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 14,
+    padding: 12,
   },
   submitStatusTitle: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   submitStatusBody: { fontSize: 12, lineHeight: 17 },
@@ -690,15 +748,15 @@ const styles = StyleSheet.create({
   },
   sheetPrimaryBtn: {
     width: '100%',
-    borderRadius: 14,
-    paddingVertical: 15,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
   },
-  sheetPrimaryBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  sheetPrimaryBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   sheetSecondaryBtn: {
     width: '100%',
-    borderRadius: 14,
-    paddingVertical: 15,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
     marginTop: 10,
@@ -716,50 +774,76 @@ const styles = StyleSheet.create({
   sectionSubtitle: {
     fontSize: 13,
     lineHeight: 18,
-    marginBottom: 18,
+    marginBottom: 6,
     paddingHorizontal: 2,
-  },
-  sectionEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 10,
-    paddingHorizontal: 2,
-    textTransform: 'uppercase',
   },
   sectionCard: {
-    borderRadius: 28,
+    marginTop: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    overflow: 'hidden',
+    borderColor: Theme.driverSecondaryGrey,
+    backgroundColor: Theme.cardWhite,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  tableHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  headLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  headIconSpacer: { width: 28 },
+  nameCol: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  typeCol: { width: 78, alignItems: 'flex-start', justifyContent: 'center' },
+  statusCol: {
+    width: 86,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   docRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-  },
-  docRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
-    minWidth: 0,
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
   },
   docRowIcon: {
-    width: 40,
-    height: 40,
+    width: 28,
+    height: 28,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   docRowLabelCol: { flex: 1, minWidth: 0, gap: 2 },
-  docRowLabelLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  docRowLabel: { fontSize: 15, fontWeight: '700', color: Theme.textPrimary },
-  docRowOptional: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
-  docRowRequiredStar: { fontSize: 15, fontWeight: '700', color: Theme.negative },
+  docRowLabel: { fontSize: 13, fontWeight: '700' },
+  docRowDate: { fontSize: 11, fontWeight: '500' },
   docRowReason: { fontSize: 11, fontWeight: '500', lineHeight: 15 },
-  docRowRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, maxWidth: '45%' },
-  docRowStatus: { fontSize: 12, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+  typePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  typePillText: { fontSize: 10, fontWeight: '600' },
+  statusText: { flex: 1, fontSize: 11, fontWeight: '600' },
 });

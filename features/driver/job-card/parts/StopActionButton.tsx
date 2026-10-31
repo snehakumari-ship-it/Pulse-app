@@ -1,5 +1,4 @@
 import { LoadingIndicator } from '@/components/LoadingIndicator';
-import { softElevation } from '@/features/driver/job-card/parts/jobCardSurface';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
 import type { MultiOrderActionKind } from '@/features/driver/job-card/multiOrderStopCopy';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -52,12 +51,14 @@ export function StopActionButton({
 
   return (
     <View style={styles.wrap}>
-      {model.stageLabel ? (
-        <Text style={[styles.stage, { color: colors.emerald }]}>{model.stageLabel}</Text>
-      ) : null}
-      {model.hint ? (
-        <Text style={[styles.hint, { color: colors.textMuted }]}>{model.hint}</Text>
-      ) : null}
+      <View style={styles.copy}>
+        {model.stageLabel ? (
+          <Text style={[styles.stage, { color: colors.emerald }]}>{model.stageLabel}</Text>
+        ) : null}
+        {model.hint ? (
+          <Text style={[styles.hint, { color: colors.textMuted }]}>{model.hint}</Text>
+        ) : null}
+      </View>
       <Pressable
         testID={model.kind === 'arrive' ? 'multi-order-arrive' : 'multi-order-complete-stop'}
         onPress={onPress}
@@ -66,14 +67,15 @@ export function StopActionButton({
         accessibilityLabel={model.cta ?? undefined}
         style={({ pressed }) => [
           styles.cta,
-          softElevation,
-          { backgroundColor: colors.emerald, opacity: busy ? 0.6 : pressed ? 0.88 : 1 },
+          { backgroundColor: colors.primary, opacity: busy ? 0.6 : pressed ? 0.88 : 1 },
         ]}
       >
         {showSpinner ? (
           <LoadingIndicator size="small" color={colors.textOnPrimary} />
         ) : (
-          <Text style={[styles.ctaText, { color: colors.textOnPrimary }]}>{model.cta}</Text>
+          <Text style={[styles.ctaText, { color: colors.textOnPrimary }]} numberOfLines={1}>
+            {model.cta}
+          </Text>
         )}
       </Pressable>
     </View>
@@ -81,7 +83,16 @@ export function StopActionButton({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 6 },
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  copy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
   idle: { gap: 3 },
   stage: {
     fontSize: 10,
@@ -99,16 +110,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cta: {
+    flexShrink: 0,
+    minWidth: 140,
     minHeight: 44,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
-    marginTop: 2,
   },
   ctaText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     letterSpacing: 0.1,
   },
 });

@@ -75,68 +75,28 @@ export function LiveRouteInfoCard({
 
   if (compact) {
     const toShort =
-      toLabel === "destination" ? "drop" : toLabel === "pickup" ? "pickup" : toLabel;
+      toLabel === "destination" ? "drop-off" : toLabel === "pickup" ? "pickup" : toLabel;
+    const detail = [
+      etaDisplay && etaDisplay !== "—" ? etaDisplay : null,
+      `to ${toShort}`,
+      arrivalClock ? `arrive ~${arrivalClock}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return (
-      <View style={styles.compactShell}>
-        <LinearGradient
-          colors={[EMERALD_DARK, EMERALD]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.compactGradient}
-        >
-          <View style={styles.compactEyebrowRow}>
-            <Sparkles size={7} color={MINT} strokeWidth={2.5} />
-            <Text style={styles.compactEyebrow} numberOfLines={1}>
-              LIVE
-            </Text>
-            <Text style={styles.compactTo} numberOfLines={1}>
-              · {toShort}
-            </Text>
-            <Reanimated.View style={[styles.liveDot, styles.liveDotOnDark, pulseStyle]} />
-          </View>
-
-          <View style={styles.compactStats}>
-            <View style={styles.compactStat}>
-              <Navigation size={8} color={MINT} strokeWidth={2.4} />
-              <Text
-                style={styles.compactStatValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
-                {dist}
-              </Text>
-            </View>
-            <View style={styles.compactStatDiv} />
-            <View style={styles.compactStat}>
-              <Clock size={8} color={MINT} strokeWidth={2.4} />
-              <Text
-                style={styles.compactStatValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
-                {etaDisplay}
-              </Text>
-            </View>
-            {arrivalClock ? (
-              <>
-                <View style={styles.compactStatDiv} />
-                <View style={[styles.compactStat, styles.compactStatArrival]}>
-                  <FontAwesome name="flag-checkered" size={7} color={MINT} />
-                  <Text
-                    style={styles.compactStatValue}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
-                    ~{arrivalClock}
-                  </Text>
-                </View>
-              </>
-            ) : null}
-          </View>
-        </LinearGradient>
+      <View style={styles.navCard}>
+        <View style={styles.navIcon}>
+          <Navigation size={18} color="#fff" strokeWidth={2.4} />
+        </View>
+        <View style={styles.navCopy}>
+          <Text style={styles.navDistance} numberOfLines={1}>
+            {dist}
+          </Text>
+          <Text style={styles.navDetail} numberOfLines={1}>
+            {detail}
+          </Text>
+        </View>
+        <Reanimated.View style={[styles.liveDot, styles.liveDotOnDark, pulseStyle]} />
       </View>
     );
   }
@@ -211,80 +171,45 @@ const styles = StyleSheet.create({
         }
       : { elevation: 4 }),
   },
-  compactShell: {
+  navCard: {
     flex: 1,
     minWidth: 0,
-    height: 32,
-    borderRadius: 10,
-    overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.28)",
+    minHeight: 64,
+    borderRadius: 22,
+    backgroundColor: "#111111",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     ...(Platform.OS === "ios"
       ? {
-          shadowColor: "#0f172a",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.22,
+          shadowRadius: 12,
         }
-      : { elevation: 2 }),
+      : { elevation: 6 }),
   },
-  compactGradient: {
-    flex: 1,
-    height: 32,
-    paddingHorizontal: 8,
-    flexDirection: "row",
+  navIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
   },
-  compactEyebrowRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    flexShrink: 1,
-    minWidth: 0,
-    maxWidth: "38%",
-  },
-  compactEyebrow: {
-    fontSize: 7,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-    color: MINT,
-    flexShrink: 0,
-  },
-  compactTo: {
-    fontSize: 8,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.92)",
-    letterSpacing: -0.1,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  compactStats: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 4,
-  },
-  compactStat: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  compactStatArrival: {
-    maxWidth: 52,
-    flexShrink: 1,
-  },
-  compactStatValue: {
-    fontSize: 9,
-    fontWeight: "800",
+  navCopy: { flex: 1, minWidth: 0, gap: 2 },
+  navDistance: {
     color: "#fff",
-    letterSpacing: -0.2,
-    flexShrink: 1,
-    minWidth: 0,
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+  },
+  navDetail: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 12,
+    fontWeight: "600",
   },
   compactStatDiv: {
     width: StyleSheet.hairlineWidth,

@@ -1,27 +1,19 @@
-import { Platform, type ViewStyle } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import Theme from '@/constants/Theme';
+import { DRIVER_CARD_RADIUS, driverCardElevation } from '@/constants/DriverUi';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
 
 type Colors = ReturnType<typeof getDriverThemeColors>;
 
-/** Card radius for Commerce job-card surfaces. */
-export const JOB_CARD_RADIUS = 16;
+/** Card radius for Commerce job-card surfaces (AgriFlow). */
+export const JOB_CARD_RADIUS = DRIVER_CARD_RADIUS;
 
-/** Soft lift used instead of hairline borders on Commerce job-card cards. */
-export const softElevation: ViewStyle = Platform.select<ViewStyle>({
-  web: { boxShadow: '0 2px 10px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04)' } as ViewStyle,
-  default: {
-    shadowColor: Theme.shadow,
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-}) as ViewStyle;
+/** Soft lift used instead of heavy borders on Commerce job-card cards. */
+export const softElevation: ViewStyle = driverCardElevation;
 
 /** Card fill that lifts off the sheet surface in both driver themes. */
 export function cardBackground(colors: Colors): string {
-  return colors.background === Theme.driverBackground ? colors.surfaceElevated : colors.background;
+  return colors.background === Theme.driverBackground ? colors.surfaceElevated : Theme.cardWhite;
 }
 
 export type StatusTone = 'done' | 'active' | 'next' | 'pending' | 'failed';

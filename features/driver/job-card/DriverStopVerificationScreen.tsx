@@ -222,7 +222,9 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverSecondaryGrey,
+    padding: 12,
   },
   muted: {
     fontSize: 12,
@@ -236,15 +238,15 @@ const styles = StyleSheet.create({
   retry: {
     alignSelf: 'flex-start',
     minHeight: Layout.minTouchTargetSize,
-    paddingHorizontal: 18,
-    borderRadius: 999,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,
   },
   retryText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '600',
   },
   done: { gap: 2 },
   doneTitle: {

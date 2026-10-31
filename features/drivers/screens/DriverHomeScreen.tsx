@@ -210,7 +210,7 @@ const DRIVER_MAP_MY_LOCATION_ZOOM = 15;
 /** User +/- / pin taps — still below blank-tile range. */
 const DRIVER_MAP_MAX_ZOOM = 16;
 
-const MAP_CONTROLS_BAR_HEIGHT = 32;
+const MAP_CONTROLS_BAR_HEIGHT = 44;
 const MAP_CONTROLS_BELOW_TOP = 6;
 
 function mapControlsTopInset(
@@ -4581,8 +4581,9 @@ export default function DriverRadarScreen() {
                 {
                   top:
                     controlsVariant === "embedded"
-                      ? insets.top + 96
+                      ? insets.top + 72
                       : insets.top + 10,
+                  alignItems: "flex-start",
                 },
               ]}
               pointerEvents="box-none"
@@ -4644,7 +4645,7 @@ export default function DriverRadarScreen() {
                   accessibilityLabel="Zoom in"
                   accessibilityRole="button"
                 >
-                  <FontAwesome name="plus" size={12} color={colors.text} />
+                  <FontAwesome name="plus" size={15} color={colors.text} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -4660,7 +4661,7 @@ export default function DriverRadarScreen() {
                   accessibilityLabel="Zoom out"
                   accessibilityRole="button"
                 >
-                  <FontAwesome name="minus" size={12} color={colors.text} />
+                  <FontAwesome name="minus" size={15} color={colors.text} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -4686,7 +4687,7 @@ export default function DriverRadarScreen() {
                 >
                   <FontAwesome
                     name="street-view"
-                    size={12}
+                    size={15}
                     color={mapLocateCloseUp ? "#fff" : colors.text}
                   />
                 </TouchableOpacity>
@@ -5677,17 +5678,7 @@ export default function DriverRadarScreen() {
                 driverName={driverName}
                 isOnline
                 variant="assigned"
-                style={[
-                  styles.assignedStaticHeader,
-                  {
-                    paddingTop: insets.top + 20,
-                    paddingBottom: 12,
-                    paddingHorizontal: 20,
-                    backgroundColor: colors.surface,
-                    borderBottomWidth: 1,
-                    borderBottomColor: colors.border,
-                  },
-                ]}
+                style={styles.assignedStaticHeader}
               />
             )}
 
@@ -5702,17 +5693,7 @@ export default function DriverRadarScreen() {
                   driverName={driverName}
                   isOnline
                   variant="assigned"
-                  style={[
-                    styles.assignedStaticHeader,
-                    {
-                      paddingTop: insets.top + 20,
-                      paddingBottom: 12,
-                      paddingHorizontal: 20,
-                      backgroundColor: colors.surface,
-                      borderBottomWidth: 1,
-                      borderBottomColor: colors.border,
-                    },
-                  ]}
+                  style={styles.assignedStaticHeader}
                 />
               )}
 
@@ -5765,29 +5746,18 @@ export default function DriverRadarScreen() {
                 }
               }}
               bottomInset={driverSheetBottomInset}
-              // No gray handle chrome — mission card green hero is the sheet top
-              // again (drag via content pan / card surface).
-              handleComponent={
-                shouldUseStaticMapSheetCard || canPeekSheetForMap
-                  ? () => null
-                  : undefined
-              }
+              style={styles.mapSheetShadow}
               backgroundStyle={{
                 backgroundColor: colors.surface,
-                borderTopLeftRadius:
-                  shouldUseStaticMapSheetCard || canPeekSheetForMap
-                    ? 28
-                    : 28,
-                borderTopRightRadius:
-                  shouldUseStaticMapSheetCard || canPeekSheetForMap
-                    ? 28
-                    : 28,
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
                 overflow: "hidden",
               }}
+              handleStyle={styles.mapSheetHandle}
               handleIndicatorStyle={{
-                backgroundColor: "transparent",
-                width: 50,
-                height: 0,
+                backgroundColor: colors.textMuted,
+                width: 36,
+                height: 4,
                 borderRadius: 999,
               }}
             >
@@ -7721,22 +7691,35 @@ const styles = withWebSafeShadows(
     letterSpacing: 0.2,
   },
   mapTopRightGroup: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    gap: 5,
+    gap: 8,
     flexShrink: 0,
+  },
+  mapSheetShadow: {
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  mapSheetHandle: {
+    paddingTop: 10,
+    paddingBottom: 2,
+    alignItems: "center",
   },
   mapTopIconBtn: {
     width: MAP_CONTROLS_BAR_HEIGHT,
     height: MAP_CONTROLS_BAR_HEIGHT,
-    borderRadius: 10,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
     // Ensure controls stay above map gestures / transparent sheet hosts on web.
     zIndex: 61,
   },

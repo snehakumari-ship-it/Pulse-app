@@ -99,8 +99,8 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const footerPadBottom = Math.max(Math.round(insets.bottom * 0.35), 10);
 
   const dockSurface = {
-    backgroundColor: isDark ? 'rgba(10,10,10,0.95)' : 'rgba(255,255,255,0.96)',
-    borderColor: colors.border,
+    backgroundColor: isDark ? 'rgba(10,10,10,0.95)' : Theme.cardWhite,
+    borderColor: isDark ? colors.border : Theme.driverSecondaryGrey,
   };
 
   const renderTab = (tab: (typeof TAB_CONFIG)[number]) => {
@@ -139,13 +139,13 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
             <FontAwesome5
               name={tab.icon}
               size={16}
-              color={isActive ? colors.text : colors.textMuted}
+              color={isActive ? colors.primary : colors.textMuted}
               solid={isActive}
             />
             <Text
               style={[
                 styles.dockLabel,
-                { color: isActive ? colors.text : colors.textMuted },
+                { color: isActive ? colors.primary : colors.textMuted },
                 isActive && styles.dockLabelActive,
               ]}
               numberOfLines={1}
@@ -192,13 +192,13 @@ const styles = withWebSafeShadows(
     height: DOCK_HEIGHT,
     flexDirection: 'row',
     alignItems: 'stretch',
-    borderRadius: 22,
+    borderRadius: 14,
     borderWidth: 1,
-    shadowColor: Theme.shadow,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 5,
     justifyContent: 'space-evenly',
   },
   dockColumn: {
@@ -214,7 +214,7 @@ const styles = withWebSafeShadows(
     left: 2.5,
     right: 2.5,
     bottom: 2.5,
-    borderRadius: 18,
+    borderRadius: 12,
     borderTopWidth: 1,
     opacity: 0,
   },
