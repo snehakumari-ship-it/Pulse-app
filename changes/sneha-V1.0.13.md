@@ -24,5 +24,7 @@ Driver profile surfaces felt uneven (mixed radii, loud icon bounce, empty `—` 
 - none
 
 ## Tested
-- Typecheck: no errors in touched driver UI files.
-- UI not clicked through on device/simulator in this pass — hard-reload driver profile, fleet vehicle, DCO status, and Edit Profile to verify alignment and motion.
+- Typecheck: no errors in touched driver UI files (local Node heap-limited run OK with 8GB).
+- `DriverMultiOrderJobCard.acceptance` 21/21 after restoring route stats tiles (`Exceptions: N` a11y).
+- Navigation policy 64 pass; lint/cycles/lib-files within baseline; `git diff --check` clean.
+- UI not clicked through on device/simulator — hard-reload driver profile, fleet vehicle, DCO status, and Edit Profile to verify alignment and motion.

@@ -1,13 +1,24 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AlertCircle, CheckCircle2, Clock3, MapPin } from 'lucide-react-native';
 import Layout from '@/constants/Layout';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
 import {
   cardBackground,
   JOB_CARD_RADIUS,
   softElevation,
+  statusToneColors,
+  type StatusTone,
 } from '@/features/driver/job-card/parts/jobCardSurface';
 
 type Colors = ReturnType<typeof getDriverThemeColors>;
+
+/** Stop counts by execution status. */
+export type RouteStopStats = {
+  pending: number;
+  arrived: number;
+  completed: number;
+  failed: number;
+};
 
 type Props = {
   colors: Colors;
@@ -18,7 +29,22 @@ type Props = {
   onViewTripPlan?: () => void;
   kicker?: string;
   summary?: string | null;
+  stats?: RouteStopStats | null;
 };
+
+/** `short` must fit a quarter-width tile on a 360pt phone; `label` is the spoken name. */
+const STAT_TILES: Array<{
+  key: keyof RouteStopStats;
+  label: string;
+  short: string;
+  tone: StatusTone;
+  Icon: typeof Clock3;
+}> = [
+  { key: 'pending', label: 'Pending', short: 'Pending', tone: 'pending', Icon: Clock3 },
+  { key: 'arrived', label: 'At stop', short: 'At stop', tone: 'active', Icon: MapPin },
+  { key: 'completed', label: 'Completed', short: 'Done', tone: 'done', Icon: CheckCircle2 },
+  { key: 'failed', label: 'Exceptions', short: 'Issues', tone: 'failed', Icon: AlertCircle },
+];
 
 export function RouteProgressHeader({
   colors,
@@ -29,6 +55,7 @@ export function RouteProgressHeader({
   onViewTripPlan,
   kicker = "Today's route",
   summary,
+  stats,
 }: Props) {
   const ordersLabel = orderCount > 0
     ? `${orderCount} ${orderCount === 1 ? 'order' : 'orders'}`
@@ -79,6 +106,28 @@ export function RouteProgressHeader({
           {meta}
         </Text>
       </View>
+
+      {stats ? (
+        <View style={styles.stats} testID="multi-order-route-stats">
+          {STAT_TILES.map(({ key, label, short, tone, Icon }) => {
+            const tint = statusToneColors(colors, tone);
+            return (
+              <View
+                key={key}
+                style={[styles.stat, { backgroundColor: tint.bg }]}
+                accessible
+                accessibilityLabel={`${label}: ${stats[key]}`}
+              >
+                <Icon size={14} color={tint.fg} strokeWidth={2.2} />
+                <Text style={[styles.statValue, { color: colors.text }]}>{stats[key]}</Text>
+                <Text style={[styles.statLabel, { color: colors.textMuted }]} numberOfLines={1}>
+                  {short}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -144,5 +193,26 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.1,
+  },
+  stats: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  stat: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    gap: 2,
+  },
+  statValue: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: '600',
   },
 });

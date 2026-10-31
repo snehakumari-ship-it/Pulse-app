@@ -41,7 +41,10 @@ import type { DeliveryProofDraft } from '@/features/driver/job-card/deliveryProo
 import { DriverStopVerificationScreen } from '@/features/driver/job-card/DriverStopVerificationScreen';
 import { DriverTripCompletionScreen } from '@/features/driver/job-card/DriverTripCompletionScreen';
 import { CurrentStopCard } from '@/features/driver/job-card/parts/CurrentStopCard';
-import { RouteProgressHeader } from '@/features/driver/job-card/parts/RouteProgressHeader';
+import {
+  RouteProgressHeader,
+  type RouteStopStats,
+} from '@/features/driver/job-card/parts/RouteProgressHeader';
 import { TripPlanPage } from '@/features/driver/job-card/parts/TripPlanPage';
 import {
   RouteTimeline,
@@ -219,6 +222,18 @@ export function DriverMultiOrderJobCard({
       };
     });
   }, [commerce.stops, stops, mission, currentId]);
+
+  const stopStats = useMemo((): RouteStopStats | null => {
+    if (!sesReady) return null;
+    const stats: RouteStopStats = { pending: 0, arrived: 0, completed: 0, failed: 0 };
+    for (const stop of stops) {
+      if (stop.status === 'completed' || stop.status === 'skipped') stats.completed += 1;
+      else if (stop.status === 'arrived') stats.arrived += 1;
+      else if (stop.status === 'failed') stats.failed += 1;
+      else stats.pending += 1;
+    }
+    return stats;
+  }, [sesReady, stops]);
 
   const focusKind = currentStop
     ? (routePlanKind(String(currentStop.stopType)) === 'drop' ? 'drop' : 'pickup')
@@ -562,6 +577,7 @@ export function DriverMultiOrderJobCard({
         onViewTripPlan={() => setPlanOpen(true)}
         kicker="Commerce Delivery"
         summary={commerceSummary}
+        stats={stopStats}
       />
 
       <RouteTimeline
