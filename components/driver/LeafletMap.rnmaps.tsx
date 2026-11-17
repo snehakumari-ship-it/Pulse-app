@@ -53,6 +53,7 @@ function MarkerContent({
   avatarUri,
   avatarSeed,
   isOnline,
+  showArrivalTruck,
   onPress,
 }: {
   markerId: string;
@@ -63,6 +64,7 @@ function MarkerContent({
   avatarUri?: string | null;
   avatarSeed?: string | null;
   isOnline?: boolean;
+  showArrivalTruck?: boolean;
   onPress?: () => void;
 }) {
   const role = tripMapMarkerRoleFromId(markerId);
@@ -85,6 +87,7 @@ function MarkerContent({
         avatarSeed={avatarSeed}
         isOnline={isOnline ?? (role === 'truck' || role === 'live')}
         size={48}
+        showArrivalTruck={showArrivalTruck}
         onPressStatus={onPress}
       />
     );
@@ -317,6 +320,7 @@ export const LeafletMapRnMaps = React.forwardRef<
                   avatarUri={m.avatarUri}
                   avatarSeed={m.avatarSeed}
                   isOnline={m.isOnline}
+                  showArrivalTruck={m.showArrivalTruck}
                   onPress={m.onPress}
                 />
               </Marker>

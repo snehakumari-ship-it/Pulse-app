@@ -26,6 +26,32 @@ function webPositionToLocationObject(position: GeolocationPosition): LocationObj
   };
 }
 
+export type WebGeolocationPermission = "granted" | "denied" | "prompt" | "unknown";
+
+/**
+ * Read the browser permission without calling getCurrentPosition.
+ * A dismissed prompt becomes a hard block, and calling the Geolocation API
+ * again only reprints Chrome's error.
+ */
+export async function webGeolocationPermission(): Promise<WebGeolocationPermission> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return "unknown";
+  try {
+    const permission = await navigator.permissions?.query?.({
+      name: "geolocation" as PermissionName,
+    });
+    if (
+      permission?.state === "granted" ||
+      permission?.state === "denied" ||
+      permission?.state === "prompt"
+    ) {
+      return permission.state;
+    }
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /**
  * Foreground position watch that avoids expo-location teardown on web
  * (`LocationEventEmitter.removeSubscription` is not implemented there).
@@ -38,6 +64,9 @@ export async function startForegroundPositionWatch(
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       return null;
     }
+    // Only watch after the user has already allowed location. Prompting here
+    // reprints Chrome's blocked-permission error.
+    if ((await webGeolocationPermission()) !== "granted") return null;
     const watchId = navigator.geolocation.watchPosition(
       (position) => onLocation(webPositionToLocationObject(position)),
       () => {},

@@ -76,6 +76,16 @@ export function isDcoOperatingMode(m: DriverOperatingMode): boolean {
 }
 
 /**
+ * Market tab / Find Work surface in the driver dock.
+ * Server maps pending/rejected/none DCO requests to mode DRIVER, so this is
+ * effectively “admin-approved DCO” (incl. vehicle-required, suspended, employment conflict).
+ * Regular fleet drivers never see Market until approval lands.
+ */
+export function canAccessDriverMarketTab(m: DriverOperatingMode): boolean {
+  return isDcoOperatingMode(m);
+}
+
+/**
  * DCO is the only owner-operator concept (there is no separate Fleet Owner
  * capability). Mirrors the server's is_dco_eligible(): approved and not
  * employed. Vehicle is deliberately not required so the first one can be added.
@@ -208,6 +218,10 @@ export function driverHistoryLaneLabel(lane: DriverHistoryLane): string {
   return "Offline trip";
 }
 
+const DCO_HISTORY_TABS = ['offline', 'marketplace'] as const satisfies readonly DriverHistoryTabId[];
+const FLEET_HISTORY_TABS = ['fleet', 'offline'] as const satisfies readonly DriverHistoryTabId[];
+
+/** Stable tab lists — callers put this in effect deps; do not allocate a new array each call. */
 export function driverHistoryTabsForMode(isDco: boolean): readonly DriverHistoryTabId[] {
-  return isDco ? (['offline', 'marketplace'] as const) : (['fleet', 'offline'] as const);
+  return isDco ? DCO_HISTORY_TABS : FLEET_HISTORY_TABS;
 }

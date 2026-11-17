@@ -14,6 +14,8 @@ type Props = {
   compact?: boolean;
   /** Stretch to fill a row (wallet earnings actions). */
   block?: boolean;
+  /** White pill with a slate outline. */
+  outline?: boolean;
   disabled?: boolean;
   label?: string;
   /** Open capture even when due is 0 (offline trip — add revenue). */
@@ -29,6 +31,7 @@ export function DriverCapturePaymentButton({
   reference,
   compact,
   block,
+  outline,
   disabled,
   label = "Capture",
   allowZeroDue = false,
@@ -42,6 +45,7 @@ export function DriverCapturePaymentButton({
       style={({ pressed }) => [
         styles.btn,
         compact && styles.btnCompact,
+        outline && styles.btnOutline,
         block && styles.btnBlock,
         disabled && styles.btnDisabled,
         !disabled && pressed ? styles.btnPressed : null,
@@ -63,7 +67,7 @@ export function DriverCapturePaymentButton({
       accessibilityRole="button"
       accessibilityLabel={`${label} payment`}
     >
-      <Text style={[styles.text, compact && styles.textCompact, block && styles.textBlock]}>
+      <Text style={[styles.text, compact && styles.textCompact, outline && styles.textOutline, block && styles.textBlock]}>
         {label}
       </Text>
     </Pressable>
@@ -87,6 +91,15 @@ const styles = StyleSheet.create({
     minWidth: 68,
     paddingHorizontal: 10,
     borderRadius: 4,
+  },
+  btnOutline: {
+    height: 32,
+    minWidth: 76,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderFocus,
+    backgroundColor: Theme.cardWhite,
   },
   btnBlock: {
     flex: 1,
@@ -113,5 +126,10 @@ const styles = StyleSheet.create({
   },
   textCompact: {
     fontSize: 10,
+  },
+  textOutline: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimary,
   },
 });

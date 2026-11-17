@@ -29,18 +29,63 @@ import { useMyMarketBidsQuery } from '@/lib/queries/useMyMarketBidsQuery';
 import { ROUTES } from '@/lib/routes';
 import type { DriverTripRow } from '@/types/trip-views';
 import { useRouter, type Href } from 'expo-router';
-import { Inbox } from 'lucide-react-native';
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LaneBidInvitesCard } from '@/features/network/components/laneOffers/LaneBidInvitesCard';
+
+const NO_BIDS_ART = require('../../../assets/images/no-bids-empty.png') as number;
+
+/** Shown only while this driver has no bids. Unmounts as soon as a bid row exists. */
+function NoBidsEmpty({
+  titleColor,
+  bodyColor,
+}: {
+  titleColor: string;
+  bodyColor: string;
+}) {
+  const enter = useSharedValue(0);
+
+  useEffect(() => {
+    enter.value = withTiming(1, { duration: 460, easing: Easing.out(Easing.cubic) });
+  }, [enter]);
+
+  const artStyle = useAnimatedStyle(() => ({
+    opacity: enter.value,
+    transform: [{ translateY: (1 - enter.value) * 8 }],
+  }));
+
+  return (
+    <View style={styles.empty}>
+      <Animated.View style={artStyle}>
+        <Image
+          source={NO_BIDS_ART}
+          style={styles.emptyArt}
+          resizeMode="contain"
+          accessibilityIgnoresInvertColors
+        />
+      </Animated.View>
+      <Text style={[styles.emptyTitle, { color: titleColor }]}>No bids yet</Text>
+      <Text style={[styles.emptyBody, { color: bodyColor }]}>
+        Bid on an open Market load and it will show up here.
+      </Text>
+    </View>
+  );
+}
 
 function formatSubmittedAt(iso: string): string {
   try {
@@ -104,9 +149,7 @@ export function MyBidsContent({
 }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
-  const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';
 
   const { bids, isLoading, isRefetching, refetch, error } = useMyMarketBidsQuery(uid);
   const { awards } = useMyMarketAwardsQuery(uid);
@@ -199,6 +242,7 @@ export function MyBidsContent({
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{
+        flexGrow: 1,
         paddingBottom: Math.max(insets.bottom, 16) + 24,
         paddingTop: listHeader ? 0 : 10,
         gap: 14,
@@ -224,13 +268,10 @@ export function MyBidsContent({
       {isLoading ? (
         <ActivityIndicator color={colors.emerald} style={{ marginTop: 28 }} />
       ) : bids.length === 0 ? (
-        <View style={[styles.empty, { backgroundColor: isDark ? colors.surface : Theme.cardWhite, borderColor: cardBorder }]}>
-          <Inbox size={22} color={colors.emerald} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>No bids yet</Text>
-          <Text style={[styles.emptyBody, { color: colors.textMuted }]}>
-            Bid on an open Market load and it will show up here.
-          </Text>
-        </View>
+        <NoBidsEmpty
+          titleColor={colors.text}
+          bodyColor={colors.textMuted}
+        />
       ) : (
         <>
           {groups.awarded.length > 0 ? (
@@ -494,12 +535,29 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   empty: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    gap: 6,
+    paddingTop: 36,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
   },
-  emptyTitle: { fontSize: 14, fontWeight: '700', letterSpacing: -0.15 },
-  emptyBody: { fontSize: 12, lineHeight: 17 },
+  emptyArt: {
+    width: 156,
+    height: 200,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  emptyBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 4,
+    maxWidth: 260,
+  },
   errorText: { color: Theme.negative, fontSize: 12, fontWeight: '600' },
 });

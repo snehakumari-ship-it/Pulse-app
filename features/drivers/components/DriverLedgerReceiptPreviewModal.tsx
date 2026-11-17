@@ -51,6 +51,8 @@ export function DriverLedgerReceiptPreviewModal({
         <View style={styles.cardShell} onStartShouldSetResponder={() => true}>
           <LedgerEntryReceiptCard
             desktop={isDesktop}
+            tone="driver"
+            heroAnimation={false}
             statusLabel={receipt.statusLabel}
             title={receipt.title}
             amount={receipt.amount}

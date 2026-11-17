@@ -1,11 +1,12 @@
 import { Alert, View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BadgeCheck, CircleCheck } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useRouter } from 'expo-router';
 import Theme from '@/constants/Theme';
 import {
   DRIVER_DETAIL_HORIZONTAL_PAD,
-  DriverSubScreenHeader,
   driverDetailPageBackground,
 } from '@/components/driver/DriverSubScreenHeader';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
@@ -404,9 +405,22 @@ export default function DocumentsScreen() {
     );
   };
 
-  return (
-    <View style={[styles.root, { backgroundColor: pageBg }]}>
-      <DriverSubScreenHeader title="KYC & documents" onBack={handleBack} />
+  const approved = submission?.review_status === 'approved';
+  const page = (
+    <>
+      <View style={[styles.kycHeader, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity
+          style={styles.kycBack}
+          onPress={handleBack}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <FontAwesome name="arrow-left" size={16} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.kycTitle, { color: colors.text }]}>KYC & documents</Text>
+        <View style={styles.kycBack} />
+      </View>
 
       <ScrollView
         style={styles.scroll}
@@ -421,14 +435,16 @@ export default function DocumentsScreen() {
         <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
           Upload and verify your proof of identity. One place for all driver compliance.
         </Text>
-        <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-          {mandatoryTypes.length - missingDocCount}/{mandatoryTypes.length} required uploaded
-          {uploadedCount > mandatoryTypes.length - missingDocCount
-            ? ` · ${uploadedCount - (mandatoryTypes.length - missingDocCount)} optional`
-            : ''}
-        </Text>
+        <View style={styles.progressPill}>
+          <Text style={styles.progressPillText}>
+            {mandatoryTypes.length - missingDocCount}/{mandatoryTypes.length} required uploaded
+            {uploadedCount > mandatoryTypes.length - missingDocCount
+              ? ` · ${uploadedCount - (mandatoryTypes.length - missingDocCount)} optional`
+              : ''}
+          </Text>
+        </View>
         <Text style={[styles.sectionEyebrow, { color: colors.textMuted }]}>ID & proof</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.sectionCard}>
           {DOC_DEFS.map((def, idx) => {
             const doc = docsByType.get(def.key);
             return (
@@ -440,7 +456,7 @@ export default function DocumentsScreen() {
                 disabled={uploadingDocKey != null}
               >
                 <View style={styles.docRowLeft}>
-                  <View style={[styles.docRowIcon, { backgroundColor: colors.emeraldMuted }]}>
+                  <View style={[styles.docRowIcon, { backgroundColor: isDark ? colors.emeraldMuted : Theme.driverEmeraldMuted }]}>
                     <FontAwesome name={def.icon} size={14} color={colors.emerald} />
                   </View>
                   <View style={styles.docRowLabelCol}>
@@ -483,7 +499,15 @@ export default function DocumentsScreen() {
         </View>
 
         {submission ? (
-          <View style={[styles.submitStatusCard, { backgroundColor: colors.surfaceElevated, borderColor: colors.border }]}>
+          <View style={[styles.submitStatusCard, { backgroundColor: isDark ? colors.surface : Theme.cardWhite, borderColor: isDark ? colors.border : Theme.border }]}>
+            {approved ? (
+              <View style={styles.approvedArt} pointerEvents="none">
+                <CircleCheck size={18} color={Theme.tripsMint} strokeWidth={2.4} />
+                <BadgeCheck size={42} color={Theme.driverEmerald} strokeWidth={1.6} />
+                <CircleCheck size={14} color={Theme.driverEmeraldMutedText2} strokeWidth={2.4} />
+              </View>
+            ) : null}
+            <View style={[styles.submitStatusCopy, approved && styles.submitStatusCopyApproved]}>
             <Text style={[styles.submitStatusTitle, { color: colors.text }]}>
               {submission.review_status === 'approved'
                 ? 'Verification approved'
@@ -509,6 +533,7 @@ export default function DocumentsScreen() {
                 Documents replaced — re-submit below.
               </Text>
             ) : null}
+            </View>
           </View>
         ) : null}
 
@@ -626,7 +651,22 @@ export default function DocumentsScreen() {
           </View>
         </View>
     </Modal>
-    </View>
+    </>
+  );
+
+  if (isDark) {
+    return <View style={[styles.root, { backgroundColor: pageBg }]}>{page}</View>;
+  }
+
+  return (
+    <LinearGradient
+      colors={[Theme.driverEmeraldWash, Theme.driverEmeraldWash, Theme.driverEmeraldWash]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.root}
+    >
+      {page}
+    </LinearGradient>
   );
 }
 
@@ -643,9 +683,29 @@ const styles = StyleSheet.create({
   submitBtnText: { fontSize: 14, fontWeight: '700', letterSpacing: -0.2 },
   submitStatusCard: {
     marginTop: 20,
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  submitStatusCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  submitStatusCopyApproved: {
+    paddingRight: 72,
+  },
+  approvedArt: {
+    position: 'absolute',
+    right: 12,
+    top: 10,
+    bottom: 10,
+    width: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
   },
   submitStatusTitle: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
   submitStatusBody: { fontSize: 12, lineHeight: 17 },
@@ -713,10 +773,48 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 2,
   },
+  kycHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  kycBack: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.85)',
+  },
+  kycTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    color: Theme.textPrimary,
+  },
+  progressPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F0F6F3',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginBottom: 18,
+    marginLeft: 2,
+  },
+  progressPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Theme.textRouteCard,
+  },
   sectionSubtitle: {
     fontSize: 13,
     lineHeight: 18,
-    marginBottom: 18,
+    marginBottom: 10,
     paddingHorizontal: 2,
   },
   sectionEyebrow: {
@@ -728,17 +826,15 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   sectionCard: {
-    borderRadius: 28,
-    borderWidth: 1,
     overflow: 'hidden',
   },
   docRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 2,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   docRowLeft: {
     flexDirection: 'row',
@@ -750,14 +846,24 @@ const styles = StyleSheet.create({
   docRowIcon: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   docRowLabelCol: { flex: 1, minWidth: 0, gap: 2 },
   docRowLabelLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   docRowLabel: { fontSize: 15, fontWeight: '700', color: Theme.textPrimary },
-  docRowOptional: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
+  docRowOptional: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    backgroundColor: Theme.surfaceGray,
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
   docRowRequiredStar: { fontSize: 15, fontWeight: '700', color: Theme.negative },
   docRowReason: { fontSize: 11, fontWeight: '500', lineHeight: 15 },
   docRowRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, maxWidth: '45%' },

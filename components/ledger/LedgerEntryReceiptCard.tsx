@@ -12,6 +12,7 @@ import {
 
 import { PartyAvatar, type PartyEntityType } from "@/components/PartyAvatar";
 import { LEDGER_RECEIPT } from "@/components/ledger/ledgerEntryReceiptPalette";
+import Theme from "@/constants/Theme";
 import { formatINR } from "@/lib/format";
 import { LEDGER_RECON_LOTTIE } from "@/lib/ledgerReconLottieAssets";
 
@@ -89,25 +90,46 @@ export interface LedgerEntryReceiptCardProps {
   desktop?: boolean;
   /** Hero checkmark / payment glyph; `false` hides animation. */
   heroAnimation?: LedgerEntryReceiptHeroAnimation;
+  /** Driver settlements use the driver palette. Finance keeps the default card. */
+  tone?: "finance" | "driver";
 }
 
 export const LedgerEntryReceiptDetailTable = memo(function LedgerEntryReceiptDetailTable({
   rows,
+  tone = "finance",
 }: {
   rows: LedgerEntryReceiptDetailRow[];
+  tone?: "finance" | "driver";
 }) {
   if (rows.length === 0) return null;
+  const driver = tone === "driver";
 
   return (
-    <View style={styles.detailCard}>
+    <View
+      style={[
+        styles.detailCard,
+        driver && {
+          backgroundColor: Theme.surfaceGray,
+          borderColor: Theme.borderLight,
+        },
+      ]}
+    >
       {rows.map((row, idx) => (
         <View
           key={row.label}
-          style={[styles.detailRow, idx < rows.length - 1 && styles.detailRowBorder]}
+          style={[
+            styles.detailRow,
+            idx < rows.length - 1 && styles.detailRowBorder,
+            driver && idx < rows.length - 1 && { borderBottomColor: Theme.borderLight },
+          ]}
         >
-          <Text style={styles.detailLabel}>{row.label}</Text>
+          <Text style={[styles.detailLabel, driver && { color: Theme.textMuted }]}>{row.label}</Text>
           <Text
-            style={[styles.detailValue, row.multiline && styles.detailValueMultiline]}
+            style={[
+              styles.detailValue,
+              row.multiline && styles.detailValueMultiline,
+              driver && { color: Theme.textPrimary, fontWeight: "600" },
+            ]}
             numberOfLines={row.multiline ? 4 : 2}
           >
             {row.value}
@@ -121,8 +143,16 @@ export const LedgerEntryReceiptDetailTable = memo(function LedgerEntryReceiptDet
 export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
   props: LedgerEntryReceiptCardProps,
 ) {
-  const amountColor = props.isIn ? LEDGER_RECEIPT.amountIn : LEDGER_RECEIPT.amountOut;
-  const heroAnimation = props.heroAnimation ?? "success";
+  const driver = props.tone === "driver";
+  const expense = /expense/i.test(props.statusLabel);
+  const amountColor = driver
+    ? props.isIn
+      ? Theme.driverEmerald
+      : Theme.negative
+    : props.isIn
+      ? LEDGER_RECEIPT.amountIn
+      : LEDGER_RECEIPT.amountOut;
+  const heroAnimation = driver ? false : (props.heroAnimation ?? "success");
   const heroLottie = useMemo(() => {
     if (!heroAnimation) return null;
     if (heroAnimation === "success") return LEDGER_RECON_LOTTIE.success;
@@ -135,6 +165,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
       style={[
         styles.card,
         props.desktop && styles.cardDesktop,
+        driver && styles.cardDriver,
         props.style,
       ]}
     >
@@ -143,8 +174,26 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
         {props.partyAvatar ? (
           <>
             <View style={styles.heroTopRow}>
-              <View style={styles.statusPillSmall}>
-                <Text style={styles.statusPillSmallText}>{props.statusLabel}</Text>
+              <View
+                style={[
+                  styles.statusPillSmall,
+                  driver && {
+                    backgroundColor: expense ? Theme.negativeMuted : Theme.driverEmeraldMuted,
+                    borderColor: expense ? Theme.negative : Theme.driverEmeraldBorderSoft,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusPillSmallText,
+                    driver && {
+                      color: expense ? Theme.negative : Theme.driverEmerald,
+                      fontSize: 10,
+                    },
+                  ]}
+                >
+                  {props.statusLabel}
+                </Text>
               </View>
             </View>
             <View style={styles.heroRow}>
@@ -161,12 +210,12 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                   size={48}
                   shape="circle"
                 />
-                <Text style={styles.partyNameInline} numberOfLines={2}>
+                <Text style={[styles.partyNameInline, driver && { color: Theme.textPrimary }]} numberOfLines={2}>
                   {props.partyAvatar.name}
                 </Text>
               </View>
               <View style={styles.heroPayCol}>
-                <Text style={styles.headlineInline} numberOfLines={2}>
+                <Text style={[styles.headlineInline, driver && { color: Theme.textSecondary }]} numberOfLines={2}>
                   {props.title}
                 </Text>
                 <Text
@@ -197,7 +246,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
         )}
       </View>
 
-      <LedgerEntryReceiptDetailTable rows={props.details} />
+      <LedgerEntryReceiptDetailTable rows={props.details} tone={props.tone} />
 
       {props.dismissAction ||
       props.tripAction ||
@@ -212,13 +261,21 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                   style={({ pressed }) => [
                     styles.ghostBtn,
                     styles.ghostBtnCompact,
+                    driver && styles.driverGhostBtn,
                     pressed && styles.pressed,
                   ]}
                   onPress={props.dismissAction.onPress}
                   accessibilityRole="button"
                   accessibilityLabel={props.dismissAction.label}
                 >
-                  <Text style={[styles.ghostBtnText, styles.ghostBtnTextCompact]} numberOfLines={1}>
+                  <Text
+                    style={[
+                      styles.ghostBtnText,
+                      styles.ghostBtnTextCompact,
+                      driver && styles.driverGhostBtnText,
+                    ]}
+                    numberOfLines={1}
+                  >
                     {props.dismissAction.label}
                   </Text>
                 </Pressable>
@@ -228,13 +285,21 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                 style={({ pressed }) => [
                   styles.ghostBtn,
                   styles.ghostBtnCompact,
+                  driver && styles.driverGhostBtn,
                   pressed && styles.pressed,
                 ]}
                 onPress={props.tripAction.onPress}
                 accessibilityRole="button"
                 accessibilityLabel={props.tripAction.label}
               >
-                <Text style={[styles.ghostBtnText, styles.ghostBtnTextCompact]} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.ghostBtnText,
+                    styles.ghostBtnTextCompact,
+                    driver && styles.driverGhostBtnText,
+                  ]}
+                  numberOfLines={1}
+                >
                   {props.tripAction.label}
                 </Text>
               </Pressable>
@@ -247,6 +312,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                 style={({ pressed }) => [
                   styles.ghostBtn,
                   props.compactActions && styles.ghostBtnCompact,
+                  driver && styles.driverGhostBtn,
                   pressed && styles.pressed,
                 ]}
                 onPress={props.dismissAction.onPress}
@@ -257,6 +323,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                   style={[
                     styles.ghostBtnText,
                     props.compactActions && styles.ghostBtnTextCompact,
+                    driver && styles.driverGhostBtnText,
                   ]}
                   numberOfLines={1}
                 >
@@ -267,12 +334,16 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
             {!props.compactActions && props.tripAction ? (
               <Pressable
                 hitSlop={8}
-                style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.ghostBtn,
+                  driver && styles.driverGhostBtn,
+                  pressed && styles.pressed,
+                ]}
                 onPress={props.tripAction.onPress}
                 accessibilityRole="button"
                 accessibilityLabel={props.tripAction.label}
               >
-                <Text style={styles.ghostBtnText} numberOfLines={1}>
+                <Text style={[styles.ghostBtnText, driver && styles.driverGhostBtnText]} numberOfLines={1}>
                   {props.tripAction.label}
                 </Text>
               </Pressable>
@@ -283,6 +354,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                 style={({ pressed }) => [
                   styles.ghostBtn,
                   props.compactActions && styles.ghostBtnCompact,
+                  driver && styles.driverGhostBtn,
                   pressed && styles.pressed,
                 ]}
                 onPress={props.secondaryAction.onPress}
@@ -293,6 +365,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                   style={[
                     styles.ghostBtnText,
                     props.compactActions && styles.ghostBtnTextCompact,
+                    driver && styles.driverGhostBtnText,
                   ]}
                   numberOfLines={1}
                 >
@@ -306,6 +379,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                 style={({ pressed }) => [
                   styles.primaryBtn,
                   props.compactActions && styles.primaryBtnCompact,
+                  driver && styles.driverPrimaryBtn,
                   pressed && styles.primaryBtnPressed,
                 ]}
                 onPress={props.primaryAction.onPress}
@@ -316,6 +390,7 @@ export const LedgerEntryReceiptCard = memo(function LedgerEntryReceiptCard(
                   style={[
                     styles.primaryBtnText,
                     props.compactActions && styles.primaryBtnTextCompact,
+                    driver && styles.driverPrimaryBtnText,
                   ]}
                   numberOfLines={1}
                 >
@@ -373,6 +448,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 2,
     opacity: 0.22,
+  },
+  cardDriver: {
+    borderRadius: 20,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    maxWidth: 400,
   },
   cardDesktop: {
     maxWidth: 380,
@@ -637,5 +718,26 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.88,
+  },
+  driverGhostBtn: {
+    borderRadius: 12,
+    borderColor: Theme.border,
+    backgroundColor: Theme.cardWhite,
+    minHeight: 40,
+  },
+  driverGhostBtnText: {
+    color: Theme.textPrimary,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  driverPrimaryBtn: {
+    backgroundColor: Theme.buttonDark,
+    borderRadius: 12,
+    minHeight: 40,
+  },
+  driverPrimaryBtnText: {
+    color: Theme.buttonDarkText,
+    fontSize: 12,
+    letterSpacing: 0.4,
   },
 });

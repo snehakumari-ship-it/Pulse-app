@@ -3,7 +3,9 @@ import {
   resolveDriverAvatarImageSource,
 } from '@/constants/DriverLevels';
 import { withWebSafeShadows } from '@/lib/platformViewStyle.util';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useEffect } from 'react';
+import { Truck } from 'lucide-react-native';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -22,6 +24,10 @@ export type DriverMapAvatarMarkerProps = {
   size?: number;
   /** Tap the online status chip to focus / view this location. */
   onPressStatus?: () => void;
+  /** Truck badge once the driver has reached the active stop. */
+  showArrivalTruck?: boolean;
+  /** Photo by default. MapLibre trip map uses the truck face. */
+  variant?: 'avatar' | 'truck';
 };
 
 function resolveAvatarSource(
@@ -43,6 +49,8 @@ export function DriverMapAvatarMarker({
   isOnline = false,
   size = 48,
   onPressStatus,
+  showArrivalTruck = false,
+  variant = 'avatar',
 }: DriverMapAvatarMarkerProps) {
   const ringColor = isOnline ? Theme.darkGreen : Theme.teslaRed;
   const pulse = useSharedValue(0.35);
@@ -67,6 +75,27 @@ export function DriverMapAvatarMarker({
     transform: [{ scale: 1 + pulse.value * 0.35 }],
   }));
 
+  const truckBob = useSharedValue(0);
+  useEffect(() => {
+    if (!showArrivalTruck) {
+      truckBob.value = 0;
+      return;
+    }
+    truckBob.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
+    );
+  }, [showArrivalTruck, truckBob]);
+
+  const truckStyle = useAnimatedStyle(() => ({
+    opacity: showArrivalTruck ? 0.35 + truckBob.value * 0.65 : 0,
+    transform: [{ translateY: truckBob.value * -2 }],
+  }));
+
   const ring = Math.max(3, Math.round(size * 0.1));
   const inner = size - ring * 2;
   const tailW = evenPx(Math.max(10, size * 0.22));
@@ -77,6 +106,18 @@ export function DriverMapAvatarMarker({
 
   return (
     <View style={[styles.wrap, { width: size, height: size + tailH - 1 }]}>
+      {showArrivalTruck ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.truckBadge,
+            truckStyle,
+            { left: (size - 36) / 2 },
+          ]}
+        >
+          <Truck size={16} color={Theme.driverEmeraldDark} strokeWidth={2.4} />
+        </Animated.View>
+      ) : null}
       <Animated.View
         style={[
           styles.pulseRing,
@@ -102,19 +143,28 @@ export function DriverMapAvatarMarker({
               borderRadius: size / 2,
               borderWidth: ring,
               borderColor: ringColor,
+              backgroundColor: variant === 'truck' ? Theme.cardWhite : Theme.driverEmerald,
             },
           ]}
           pointerEvents="none"
         >
-          <Image
-            source={resolveAvatarSource(avatarUri, avatarSeed)}
-            style={{
-              width: inner,
-              height: inner,
-              borderRadius: inner / 2,
-            }}
-            resizeMode="cover"
-          />
+          {variant === 'truck' ? (
+            <MaterialCommunityIcons
+              name="truck"
+              size={Math.round(inner * 0.62)}
+              color={Theme.driverEmeraldDark}
+            />
+          ) : (
+            <Image
+              source={resolveAvatarSource(avatarUri, avatarSeed)}
+              style={{
+                width: inner,
+                height: inner,
+                borderRadius: inner / 2,
+              }}
+              resizeMode="cover"
+            />
+          )}
         </View>
         <Pressable
           onPress={onPressStatus}
@@ -158,6 +208,24 @@ const styles = withWebSafeShadows(
       position: 'relative',
       alignItems: 'center',
       justifyContent: 'flex-start',
+    },
+    truckBadge: {
+      position: 'absolute',
+      top: -30,
+      width: 36,
+      height: 22,
+      borderRadius: 8,
+      backgroundColor: '#ffffff',
+      borderWidth: 1,
+      borderColor: 'rgba(4,120,87,0.28)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 3,
+      shadowColor: '#0f172a',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.16,
+      shadowRadius: 4,
+      elevation: 4,
     },
     pulseRing: {
       position: 'absolute',

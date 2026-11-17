@@ -22,6 +22,7 @@ jest.mock("@/contexts/DriverThemeContext", () => ({
 }));
 jest.mock("@/features/trips/verification/queries/useTripVerification", () => ({
   useTripVerification: () => ({ data: undefined }),
+  useTripVerificationPhotos: () => ({ data: [] }),
 }));
 jest.mock("@/features/trips/verification/GPSDistanceHook", () => ({
   useGPSDistanceEstimate: () => null,

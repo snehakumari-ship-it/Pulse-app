@@ -240,6 +240,7 @@ export function DriverTripExpenseLogSection({
         </View>
       ) : null}
 
+      {!loading && events.length === 0 ? null : (
       <View style={[td.tdTabBar, styles.segmentBar, { backgroundColor: `${colors.border}99` }]}>
         <Pressable
           style={[td.tdTabBtn, filter === "pending" && td.tdTabBtnActive]}
@@ -274,6 +275,7 @@ export function DriverTripExpenseLogSection({
           </Text>
         </Pressable>
       </View>
+      )}
 
       {loading ? (
         <View
@@ -286,20 +288,7 @@ export function DriverTripExpenseLogSection({
           <ActivityIndicator color={colors.emerald} />
           <Text style={[td.tdEmptyTimeline, { color: colors.textMuted }]}>Loading entries…</Text>
         </View>
-      ) : events.length === 0 ? (
-        <View
-          style={[
-            td.tdTimelineCard,
-            styles.stateCard,
-            { backgroundColor: colors.surface, borderColor: colors.border },
-          ]}
-        >
-          <Text style={[td.tdLogStatus, styles.stateTitle, { color: colors.text }]}>No expenses yet</Text>
-          <Text style={[td.tdEmptyTimeline, { color: colors.textMuted }]}>
-            Log fuel, toll, or other costs you paid out of pocket.
-          </Text>
-        </View>
-      ) : displayedEvents.length === 0 ? (
+      ) : events.length === 0 ? null : displayedEvents.length === 0 ? (
         <View
           style={[
             td.tdTimelineCard,
@@ -403,15 +392,15 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   addExpenseCard: {
-    paddingVertical: 4,
+    paddingVertical: 2,
     paddingHorizontal: 4,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   addExpenseRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 8,
+    gap: 8,
+    paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: 10,
   },
@@ -419,9 +408,9 @@ const styles = StyleSheet.create({
     opacity: 0.88,
   },
   addExpenseIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,

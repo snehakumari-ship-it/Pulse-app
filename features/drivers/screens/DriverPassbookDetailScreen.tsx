@@ -4,6 +4,7 @@
  */
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
+import { DriverListEmptyArt } from "@/features/drivers/components/DriverListEmptyArt";
 import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
 import {
   buildDriverLedgerReceiptDetails,
@@ -40,7 +41,9 @@ import * as driversService from '@/features/drivers/services/drivers.service';
 import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
 import * as tripsService from '@/features/trips/services/trips.service';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Print from 'expo-print';
+import Svg, { Path } from 'react-native-svg';
 import { injectPulseWatermarkIntoHtml } from '@/lib/reportWatermark.util';
 import * as Sharing from 'expo-sharing';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -263,7 +266,49 @@ function ledgerTypeLabel(type: string): string {
   return LEDGER_TYPE_LABELS[type] ?? type;
 }
 
+function PassbookHeroContours() {
+  return (
+    <Svg
+      width="100%"
+      height="100%"
+      viewBox="0 0 340 280"
+      style={StyleSheet.absoluteFill}
+      pointerEvents="none"
+    >
+      <Path
+        d="M-20 78 C 40 36, 92 118, 152 74 S 248 18, 364 86"
+        stroke={Theme.cardWhite}
+        strokeOpacity={0.18}
+        strokeWidth={1.25}
+        fill="none"
+      />
+      <Path
+        d="M-20 108 C 52 68, 104 148, 164 104 S 262 48, 364 116"
+        stroke={Theme.cardWhite}
+        strokeOpacity={0.1}
+        strokeWidth={1}
+        fill="none"
+      />
+      <Path
+        d="M188 -8 C 156 42, 228 64, 206 118 S 164 186, 246 248"
+        stroke={Theme.cardWhite}
+        strokeOpacity={0.14}
+        strokeWidth={1.1}
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
 const AMBER_50 = 'rgba(245,158,11,0.12)';
+
+/** Room so the last trip card can scroll clear of the floating driver tab bar. */
+function driverTabBarScrollInset(bottomInset: number): number {
+  const footerPadTop = 6;
+  const dockHeight = Layout.tabBarHeight + 5;
+  const footerPadBottom = Math.max(Math.round(bottomInset * 0.35), 10);
+  return footerPadTop + dockHeight + footerPadBottom + 28;
+}
 
 export default function DriverPassbookDetailScreen() {
   usePreventScreenCapture();
@@ -1002,7 +1047,7 @@ export default function DriverPassbookDetailScreen() {
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Passbook</Text>
         </View>
-        <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.emptyCard}>
           <FontAwesome name="building-o" size={40} color={colors.textMuted} />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>No connection to this fleet</Text>
           <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
@@ -1015,24 +1060,31 @@ export default function DriverPassbookDetailScreen() {
 
   return (
     <>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
     <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+      style={styles.container}
+      contentContainerStyle={{
+        paddingTop: insets.top + 56,
+        paddingBottom: driverTabBarScrollInset(insets.bottom),
+      }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={[styles.headerLite, { paddingTop: insets.top + 14 }]}>
-        <TouchableOpacity onPress={handleBack} style={[styles.backPill, { backgroundColor: colors.surface }]} activeOpacity={0.85}>
-          <FontAwesome name="arrow-left" size={16} color={colors.text} />
-          <Text style={[styles.backPillText, { color: colors.textMuted }]}>Back to fleets</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.fleetHero, { backgroundColor: '#0b1220' }]}>
+      <LinearGradient
+        colors={
+          isDark
+            ? [Theme.driverEmeraldDark, Theme.driverCtaFill]
+            : [Theme.driverCtaFill, Theme.driverEmeraldDark]
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.fleetHero}
+      >
+        <PassbookHeroContours />
         <View style={styles.fleetHeroTop}>
           <View style={styles.fleetHeroTitleWrap}>
             <Text style={styles.fleetHeroTitle} numberOfLines={1}>{orgName}</Text>
             <View style={styles.fleetHeroMetaRow}>
-              <FontAwesome name="calendar-o" size={12} color={'rgba(255,255,255,0.55)'} />
+              <FontAwesome name="calendar-o" size={12} color={Theme.textOnPrimary} />
               <Text style={styles.fleetHeroMetaText} numberOfLines={1}>
                 {joinedLabel ? `Joined ${joinedLabel}` : 'Joined'}
               </Text>
@@ -1053,17 +1105,7 @@ export default function DriverPassbookDetailScreen() {
               </View>
             ) : null}
           </View>
-          <View
-            style={[
-              styles.fleetHeroIcon,
-              {
-                backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.92)',
-                overflow: 'hidden',
-                borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.18)',
-              },
-            ]}
-          >
+          <View style={styles.fleetHeroIcon}>
             <Image
               source={{ uri: fleetOrgAvatarUri }}
               style={styles.fleetHeroIconImage}
@@ -1072,34 +1114,54 @@ export default function DriverPassbookDetailScreen() {
           </View>
         </View>
 
-        <View style={styles.fleetHeroPendingCard}>
-          <Text style={styles.fleetHeroPendingLabel}>Pending to collect</Text>
+        <View style={[styles.fleetHeroStatsCard, { backgroundColor: isDark ? colors.surface : Theme.cardWhite }]}>
+          <Text style={[styles.fleetHeroPendingLabel, { color: isDark ? colors.textMuted : Theme.textSecondary }]}>
+            Pending to collect
+          </Text>
           <View style={styles.fleetHeroPendingRow}>
-            <Text style={styles.fleetHeroPendingAmount}>₹{pendingToCollect.toLocaleString('en-IN')}</Text>
+            <Text style={[styles.fleetHeroPendingAmount, { color: isDark ? colors.text : Theme.textPrimary }]}>
+              ₹{pendingToCollect.toLocaleString('en-IN')}
+            </Text>
             <View style={styles.fleetHeroBoltBadge}>
-              <FontAwesome name="bolt" size={14} color={'rgb(251,146,60)'} />
+              <FontAwesome name="bolt" size={14} color={Theme.driverEmerald} />
+            </View>
+          </View>
+          <View style={[styles.fleetHeroStatsHairline, { backgroundColor: isDark ? colors.border : Theme.borderMedium }]} />
+          <View style={styles.fleetHeroStatsRow}>
+            <View style={styles.fleetHeroStat}>
+              <Text style={[styles.fleetHeroStatLabel, { color: isDark ? colors.textMuted : Theme.textSecondary }]}>
+                Life earnings
+              </Text>
+              <Text style={[styles.fleetHeroStatValue, { color: isDark ? colors.text : Theme.textPrimary }]}>
+                ₹{totalEarned.toLocaleString('en-IN')}
+              </Text>
+            </View>
+            <View style={[styles.fleetHeroStatDivider, { backgroundColor: isDark ? colors.border : Theme.borderMedium }]} />
+            <View style={styles.fleetHeroStat}>
+              <Text style={[styles.fleetHeroStatLabel, { color: isDark ? colors.textMuted : Theme.textSecondary }]}>
+                Settled funds
+              </Text>
+              <Text style={[styles.fleetHeroStatValue, { color: Theme.driverEmerald }]}>
+                ₹{totalReceived.toLocaleString('en-IN')}
+              </Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.fleetHeroStatsRow}>
-          <View style={styles.fleetHeroStat}>
-            <Text style={styles.fleetHeroStatLabel}>Life earnings</Text>
-            <Text style={styles.fleetHeroStatValue}>₹{totalEarned.toLocaleString('en-IN')}</Text>
-          </View>
-          <View style={styles.fleetHeroStatDivider} />
-          <View style={styles.fleetHeroStat}>
-            <Text style={styles.fleetHeroStatLabel}>Settled funds</Text>
-            <Text style={[styles.fleetHeroStatValue, { color: colors.emerald }]}>₹{totalReceived.toLocaleString('en-IN')}</Text>
-          </View>
-        </View>
-
         {showPayTermsPrompt ? (
-          <View style={styles.payTermsPrompt}>
-            <FontAwesome name="exclamation-triangle" size={13} color={'rgb(251,146,60)'} />
+          <View
+            style={[
+              styles.payTermsPrompt,
+              {
+                backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+                borderColor: isDark ? colors.border : Theme.borderMedium,
+              },
+            ]}
+          >
+            <FontAwesome name="exclamation-triangle" size={13} color={Theme.warning} />
             <View style={styles.payTermsPromptText}>
-              <Text style={styles.payTermsPromptTitle}>Estimated — no pay terms agreed</Text>
-              <Text style={styles.payTermsPromptBody}>
+              <Text style={[styles.payTermsPromptTitle, { color: Theme.warning }]}>Estimated — no pay terms agreed</Text>
+              <Text style={[styles.payTermsPromptBody, { color: isDark ? colors.textMuted : Theme.textSecondary }]}>
                 {estimatedTripCount === 1 ? '1 trip is' : `${estimatedTripCount} trips are`} valued at a
                 default 10% of trip value because no salary, commission % or per-km rate is set for this
                 driver. Set pay terms to record what they are actually owed.
@@ -1107,14 +1169,14 @@ export default function DriverPassbookDetailScreen() {
             </View>
           </View>
         ) : null}
-      </View>
+      </LinearGradient>
 
       <View
         style={[
           styles.mainTabsWrap,
           {
-            backgroundColor: isDark ? colors.surfaceElevated : 'rgba(226,232,240,0.55)',
-            borderColor: isDark ? colors.borderSubtle : 'rgba(255,255,255,0.7)',
+            backgroundColor: isDark ? colors.surfaceElevated : Theme.cardWhite,
+            borderColor: isDark ? colors.border : Theme.borderMedium,
           },
         ]}
       >
@@ -1123,14 +1185,23 @@ export default function DriverPassbookDetailScreen() {
             styles.mainTab,
             earningsMainTab === 'trips' && [
               styles.mainTabActive,
-              { backgroundColor: colors.surface, shadowColor: isDark ? '#000' : 'rgba(15,23,42,0.08)' },
+              { backgroundColor: Theme.driverCtaFill },
             ],
           ]}
           onPress={() => setEarningsMainTab('trips')}
           activeOpacity={0.8}
         >
-          <FontAwesome name="history" size={12} color={earningsMainTab === 'trips' ? colors.emerald : colors.textMuted} />
-          <Text style={[styles.mainTabText, earningsMainTab === 'trips' ? { color: colors.emerald } : { color: colors.textMuted }]}>
+          <FontAwesome
+            name="history"
+            size={12}
+            color={earningsMainTab === 'trips' ? Theme.textOnPrimary : colors.textMuted}
+          />
+          <Text
+            style={[
+              styles.mainTabText,
+              earningsMainTab === 'trips' ? { color: Theme.textOnPrimary } : { color: colors.textMuted },
+            ]}
+          >
             Trips
           </Text>
         </TouchableOpacity>
@@ -1139,14 +1210,23 @@ export default function DriverPassbookDetailScreen() {
             styles.mainTab,
             earningsMainTab === 'cash' && [
               styles.mainTabActive,
-              { backgroundColor: colors.surface, shadowColor: isDark ? '#000' : 'rgba(15,23,42,0.08)' },
+              { backgroundColor: Theme.driverCtaFill },
             ],
           ]}
           onPress={() => setEarningsMainTab('cash')}
           activeOpacity={0.8}
         >
-          <FontAwesome name="arrow-down" size={12} color={earningsMainTab === 'cash' ? colors.emerald : colors.textMuted} />
-          <Text style={[styles.mainTabText, earningsMainTab === 'cash' ? { color: colors.emerald } : { color: colors.textMuted }]}>
+          <FontAwesome
+            name="arrow-down"
+            size={12}
+            color={earningsMainTab === 'cash' ? Theme.textOnPrimary : colors.textMuted}
+          />
+          <Text
+            style={[
+              styles.mainTabText,
+              earningsMainTab === 'cash' ? { color: Theme.textOnPrimary } : { color: colors.textMuted },
+            ]}
+          >
             Transactions
           </Text>
         </TouchableOpacity>
@@ -1157,6 +1237,13 @@ export default function DriverPassbookDetailScreen() {
           value={journeySearch}
           onChangeText={setJourneySearch}
           placeholder={earningsMainTab === 'trips' ? 'Search trips...' : 'Search cash in...'}
+          style={[
+            styles.searchBar,
+            {
+              backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+              borderColor: isDark ? colors.border : Theme.borderMedium,
+            },
+          ]}
         />
 
         {earningsMainTab === 'trips' && (
@@ -1176,12 +1263,12 @@ export default function DriverPassbookDetailScreen() {
                   style={[
                     styles.filterChip,
                     active
-                      ? { backgroundColor: colors.emerald, borderColor: colors.emerald }
-                      : { backgroundColor: colors.surface, borderColor: isDark ? colors.borderSubtle : '#e2e8f0' },
+                      ? { backgroundColor: Theme.driverCtaFill, borderColor: Theme.driverCtaFill }
+                      : { backgroundColor: colors.surface, borderColor: isDark ? colors.border : Theme.borderMedium },
                   ]}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.filterChipText, { color: active ? colors.textOnPrimary : colors.textMuted }]}>
+                  <Text style={[styles.filterChipText, { color: active ? Theme.textOnPrimary : colors.textMuted }]}>
                     {chip.label}
                   </Text>
                 </TouchableOpacity>
@@ -1210,11 +1297,9 @@ export default function DriverPassbookDetailScreen() {
         <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
           <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Trips</Text>
           {filteredTripJourneySections.length === 0 ? (
-            <View style={[styles.ledgerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={[styles.ledgerEmpty, { borderBottomWidth: 0 }]}>
-                <FontAwesome name="search" size={32} color={colors.textMuted} />
-                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No trips found</Text>
-              </View>
+            <View style={styles.ledgerEmpty}>
+              <DriverListEmptyArt kind="trips" />
+              <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No trips found</Text>
             </View>
           ) : (
             <View style={styles.tripsPremiumWrapPassbook}>
@@ -1268,7 +1353,7 @@ export default function DriverPassbookDetailScreen() {
                             styles.passbookTripCard,
                             {
                               backgroundColor: colors.surface,
-                              borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)',
+                              borderColor: isDark ? colors.border : Theme.borderMedium,
                             },
                             !isLastTrip && { marginBottom: 14 },
                           ]}
@@ -1279,25 +1364,19 @@ export default function DriverPassbookDetailScreen() {
                                 styles.passbookTripIcon,
                                 {
                                   backgroundColor: isActionRequiredPassbook
-                                    ? 'rgba(249,115,22,0.16)'
-                                    : hasFleetPending || isSettledPassbook
-                                      ? colors.emerald
-                                      : isDark
-                                        ? colors.surfaceElevated
-                                        : 'rgba(248,250,252,0.92)',
+                                    ? Theme.negativeMuted
+                                    : Theme.driverEmeraldMuted,
                                   overflow: 'hidden',
-                                  borderWidth: isActionRequiredPassbook || hasFleetPending || isSettledPassbook ? 0 : 1,
-                                  borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.8)',
                                 },
                               ]}
                             >
                               {isActionRequiredPassbook ? (
-                                <FontAwesome name="exclamation-circle" size={16} color="rgb(249,115,22)" />
+                                <FontAwesome name="exclamation-circle" size={16} color={Theme.warning} />
                               ) : hasFleetPending || isSettledPassbook ? (
                                 <FontAwesome
-                                  name="check-circle"
-                                  size={16}
-                                  color={Theme.textOnPrimary}
+                                  name="check"
+                                  size={14}
+                                  color={Theme.driverCtaFill}
                                 />
                               ) : (
                                 <Image
@@ -1308,7 +1387,14 @@ export default function DriverPassbookDetailScreen() {
                               )}
                             </View>
                             <View style={styles.passbookTripHead}>
-                              <Text style={[styles.passbookTripId, { color: colors.text }]}>{tripRef}</Text>
+                              <Text
+                                style={[styles.passbookTripId, { color: colors.text }]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.72}
+                              >
+                                {tripRef}
+                              </Text>
                               <Text style={[styles.passbookTripMeta, { color: colors.textMuted }]}>
                                 {item.time} • {providerShort}
                               </Text>
@@ -1323,7 +1409,11 @@ export default function DriverPassbookDetailScreen() {
                               <Text
                                 style={[
                                   styles.passbookTripStatusPill,
-                                  pendingSettlement ? styles.passbookTripStatusInfo : styles.passbookTripStatusSuccess,
+                                  {
+                                    backgroundColor: Theme.driverEmeraldMuted,
+                                    color: Theme.driverEmerald,
+                                    borderColor: Theme.driverEmeraldBorderSoft,
+                                  },
                                 ]}
                               >
                                 {statusLine}
@@ -1335,8 +1425,8 @@ export default function DriverPassbookDetailScreen() {
                             style={[
                               styles.passbookRouteCard,
                               {
-                                backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.85)',
-                                borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.65)',
+                              backgroundColor: isDark ? colors.surfaceElevated : Theme.driverEmeraldWash,
+                              borderColor: isDark ? colors.border : Theme.borderMedium,
                               },
                             ]}
                           >
@@ -1347,9 +1437,9 @@ export default function DriverPassbookDetailScreen() {
                               </Text>
                             </View>
                             <View style={styles.passbookRouteMiddle}>
-                              <View style={[styles.passbookRouteDot, { backgroundColor: colors.emerald }]} />
-                              <View style={[styles.passbookRouteLine, { backgroundColor: colors.border }]} />
-                              <View style={[styles.passbookRouteDot, { backgroundColor: colors.textMuted }]} />
+                              <View style={[styles.passbookRouteDot, { backgroundColor: Theme.driverEmerald }]} />
+                              <View style={[styles.passbookRouteLine, { backgroundColor: Theme.driverEmeraldBorderSoft }]} />
+                              <View style={[styles.passbookRouteDot, { backgroundColor: Theme.tripsMint }]} />
                             </View>
                             <View style={[styles.passbookRouteSide, styles.passbookRouteSideRight]}>
                               <Text style={[styles.passbookRouteLabel, { color: colors.textMuted }]}>Destination</Text>
@@ -1360,13 +1450,16 @@ export default function DriverPassbookDetailScreen() {
                           </View>
                           {pendingSettlement && !hasFleetPending ? (
                             <View style={styles.tripActionWrap}>
-                              <DriverCapturePaymentButton
-                                tripId={trip.id}
-                                due={Math.round(headerAmount)}
-                                lane="fleet"
-                                partyName={item.provider}
-                                label="Capture commission"
-                              />
+                              <View style={styles.tripActionFull}>
+                                <DriverCapturePaymentButton
+                                  tripId={trip.id}
+                                  due={Math.round(headerAmount)}
+                                  lane="fleet"
+                                  partyName={item.provider}
+                                  label="Capture commission"
+                                  block
+                                />
+                              </View>
                             </View>
                           ) : null}
                           {pendingSettlement && hasFleetPending ? (
@@ -1374,15 +1467,18 @@ export default function DriverPassbookDetailScreen() {
                               <View
                                 style={[
                                   styles.tripActionHint,
-                                  { backgroundColor: colors.emeraldMuted, borderColor: colors.emeraldBorderSoft },
+                                  {
+                                    backgroundColor: Theme.driverEmeraldMuted,
+                                    borderColor: Theme.driverEmeraldBorderSoft,
+                                  },
                                 ]}
                               >
-                                <Text style={[styles.tripActionHintText, { color: colors.emerald }]}>
+                                <Text style={[styles.tripActionHintText, { color: Theme.driverEmerald }]}>
                                   Fleet update: {pendingMode} · UTR {pendingUtr}
                                 </Text>
                               </View>
                               <TouchableOpacity
-                                style={[styles.tripVerifyBtn, { backgroundColor: colors.emerald }]}
+                                style={[styles.tripVerifyBtn, { backgroundColor: Theme.driverCtaFill }]}
                                 onPress={() => confirmMarkAsPaid(trip, Math.round(headerAmount), fleetPendingLedger)}
                                 disabled={markPaidLoadingTripId === trip.id}
                                 activeOpacity={0.9}
@@ -1411,11 +1507,9 @@ export default function DriverPassbookDetailScreen() {
         <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
           <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Transactions</Text>
           {filteredCashSections.length === 0 ? (
-            <View style={[styles.ledgerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={[styles.ledgerEmpty, { borderBottomWidth: 0 }]}>
-                <FontAwesome name="search" size={32} color={colors.textMuted} />
-                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No cash in yet</Text>
-              </View>
+            <View style={styles.ledgerEmpty}>
+              <DriverListEmptyArt kind="money" />
+              <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No cash in yet</Text>
             </View>
           ) : (
             <View style={styles.cashPremiumWrap}>
@@ -1426,8 +1520,8 @@ export default function DriverPassbookDetailScreen() {
                     style={[
                       styles.cashPremiumGroup,
                       {
-                        backgroundColor: isDark ? colors.surface : 'rgba(255,255,255,0.62)',
-                        borderColor: isDark ? colors.borderSubtle : 'rgba(255,255,255,0.85)',
+                        backgroundColor: colors.surface,
+                        borderColor: isDark ? colors.border : Theme.borderMedium,
                       },
                     ]}
                   >
@@ -1595,6 +1689,15 @@ export default function DriverPassbookDetailScreen() {
       {nonTripLedgerEntries.length > 0 && (
         <View style={[styles.section, styles.gpayListSection]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Salary & other payments</Text>
+          <View
+            style={[
+              styles.salaryCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: isDark ? colors.border : Theme.borderMedium,
+              },
+            ]}
+          >
           {nonTripLedgerEntries.map((entry, entryIdx) => {
             const label = entry.description?.trim() || ledgerTypeLabel(entry.type);
             const raw = Number(entry.amount) || 0;
@@ -1668,10 +1771,30 @@ export default function DriverPassbookDetailScreen() {
               </View>
             );
           })}
+          </View>
         </View>
       )}
 
     </ScrollView>
+    <TouchableOpacity
+      onPress={handleBack}
+      style={[
+        styles.backArrowBtn,
+        {
+          top: insets.top + 8,
+          left: Layout.screenPaddingHorizontal,
+          backgroundColor: colors.surface,
+          borderColor: isDark ? colors.border : Theme.borderMedium,
+        },
+      ]}
+      activeOpacity={0.85}
+      accessibilityRole="button"
+      accessibilityLabel="Back to fleets"
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+    >
+      <FontAwesome name="chevron-left" size={14} color={isDark ? colors.text : Theme.driverCtaFill} />
+    </TouchableOpacity>
+    </View>
     <Modal
       visible={!!whatsAppReminderMessage}
       animationType="fade"
@@ -1820,49 +1943,39 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
   loadingText: { fontSize: 14 },
-  headerLite: {
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingBottom: 14,
-  },
-  backPill: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
+  backArrowBtn: {
+    position: 'absolute',
+    zIndex: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(226,232,240,0.7)',
+    borderColor: Theme.borderMedium,
     shadowColor: 'rgba(15,23,42,0.08)',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 6,
-  },
-  backPillText: {
-    fontSize: 8,
-    fontWeight: '400',
-    textTransform: 'uppercase',
-    letterSpacing: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
   },
   fleetHero: {
     marginHorizontal: Layout.screenPaddingHorizontal,
-    borderRadius: 34,
-    padding: 22,
+    borderRadius: 22,
+    padding: 14,
     overflow: 'hidden',
-    shadowColor: 'rgba(15,23,42,0.30)',
-    shadowOffset: { width: 0, height: 22 },
-    shadowOpacity: 0.22,
-    shadowRadius: 36,
-    elevation: 14,
+    shadowColor: 'rgba(11,79,63,0.28)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 6,
   },
   fleetHeroTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    gap: 16,
+    alignItems: 'flex-start',
+    marginBottom: 10,
+    gap: 10,
   },
   fleetHeroTitleWrap: {
     flex: 1,
@@ -1870,52 +1983,52 @@ const styles = StyleSheet.create({
   },
   fleetHeroTitle: {
     fontSize: 22,
-    fontWeight: '500',
-    letterSpacing: -0.6,
-    color: '#ffffff',
-    marginBottom: 8,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    color: Theme.textOnPrimary,
+    marginBottom: 4,
   },
   fleetHeroMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
+    gap: 6,
+    flexWrap: 'nowrap',
   },
   fleetHeroMetaText: {
-    fontSize: 8,
-    fontWeight: '400',
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.4,
+    color: Theme.textOnPrimary,
   },
   fleetHeroMetaDot: {
-    fontSize: 10,
-    fontWeight: '400',
-    color: 'rgba(16,185,129,0.85)',
+    fontSize: 11,
+    fontWeight: '700',
+    color: Theme.tripsMint,
   },
   fleetHeroActivePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    flexShrink: 0,
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.25)',
-    backgroundColor: 'rgba(16,185,129,0.10)',
+    backgroundColor: Theme.driverWhiteMutedStrong,
   },
   fleetHeroActiveDot: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
-    backgroundColor: 'rgba(16,185,129,0.9)',
+    backgroundColor: Theme.tripsMint,
   },
   fleetHeroActiveText: {
-    fontSize: 8,
-    fontWeight: '400',
+    fontSize: 10,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    color: 'rgba(16,185,129,0.95)',
+    letterSpacing: 0.6,
+    color: Theme.textOnPrimary,
   },
   fleetHeroPayTermsWrap: {
     marginTop: 10,
@@ -1926,8 +2039,8 @@ const styles = StyleSheet.create({
   fleetHeroPayTermPill: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.26)',
-    backgroundColor: 'rgba(15,23,42,0.35)',
+    borderColor: Theme.driverWhiteMutedStrong,
+    backgroundColor: Theme.driverWhiteMuted,
     paddingHorizontal: 10,
     paddingVertical: 6,
     flexDirection: 'row',
@@ -1935,84 +2048,88 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fleetHeroPayTermLabel: {
-    fontSize: 7,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 1,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-    color: 'rgba(148,163,184,0.9)',
+    color: Theme.textOnPrimary,
   },
   fleetHeroPayTermValue: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: '700',
-    color: 'rgba(226,232,240,0.95)',
+    color: Theme.textOnPrimary,
   },
   fleetHeroIcon: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.22,
-    shadowRadius: 30,
-    elevation: 10,
+    overflow: 'hidden',
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.driverWhiteMutedStrong,
   },
   fleetHeroIconImage: {
     width: '100%',
     height: '100%',
   },
-  fleetHeroPendingCard: {
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    padding: 16,
-    marginBottom: 16,
+  fleetHeroStatsCard: {
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: 'rgba(15,23,42,0.12)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    elevation: 4,
   },
   fleetHeroPendingLabel: {
-    fontSize: 8,
-    fontWeight: '400',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 2.2,
-    color: 'rgba(251,146,60,0.85)',
-    marginBottom: 8,
+    letterSpacing: 0.8,
+    marginBottom: 2,
   },
   fleetHeroPendingRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12,
+    alignItems: 'center',
+    gap: 8,
   },
   fleetHeroPendingAmount: {
-    fontSize: 36,
-    fontWeight: '500',
-    letterSpacing: -1.1,
-    color: 'rgb(251,146,60)',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.6,
   },
   fleetHeroBoltBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: 'rgba(251,146,60,0.12)',
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: Theme.driverEmeraldMuted,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(251,146,60,0.20)',
+    borderColor: Theme.driverEmeraldBorderSoft,
+  },
+  fleetHeroStatsHairline: {
+    height: 1,
+    marginTop: 10,
+    marginBottom: 10,
   },
   fleetHeroStatsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+    alignItems: 'stretch',
+    gap: 10,
   },
   payTermsPrompt: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
-    marginTop: 14,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(251,146,60,0.12)',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(251,146,60,0.3)',
   },
   payTermsPromptText: {
     flex: 1,
@@ -2022,45 +2139,41 @@ const styles = StyleSheet.create({
   payTermsPromptTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: 'rgb(251,146,60)',
   },
   payTermsPromptBody: {
     fontSize: 11,
-    lineHeight: 16,
-    color: 'rgba(255,255,255,0.7)',
+    lineHeight: 15,
   },
   fleetHeroStat: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
   },
   fleetHeroStatDivider: {
     width: 1,
-    height: 42,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignSelf: 'stretch',
   },
   fleetHeroStatLabel: {
-    fontSize: 8,
-    fontWeight: '400',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 2,
-    color: 'rgba(255,255,255,0.35)',
-    marginBottom: 6,
+    letterSpacing: 0.5,
+    marginBottom: 2,
   },
   fleetHeroStatValue: {
-    fontSize: 18,
-    fontWeight: '500',
-    letterSpacing: -0.4,
-    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   mainTabsWrap: {
-    marginTop: 12,
+    marginTop: 16,
     marginHorizontal: Layout.screenPaddingHorizontal,
     flexDirection: 'row',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 999,
     padding: 4,
     gap: 4,
-    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowOffset: { width: 0, height: 1 },
@@ -2077,10 +2190,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
-    minHeight: 36,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'transparent',
+    minHeight: 40,
+    borderRadius: 999,
   },
   mainTabActive: {
     ...Platform.select({
@@ -2094,15 +2205,27 @@ const styles = StyleSheet.create({
     }),
   },
   mainTabText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   searchSection: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 10,
-    gap: 10,
+    paddingTop: 14,
+    gap: 12,
+  },
+  searchBar: {
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    borderRadius: 16,
+    minHeight: 48,
+    shadowColor: 'rgba(15,23,42,0.06)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 2,
   },
   filterChipScrollWrap: {
     minHeight: 34,
@@ -2290,14 +2413,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   passbookTripCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
-    padding: 12,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 20,
     overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowColor: 'rgba(15,23,42,0.08)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 3,
   },
   passbookTripTop: {
     flexDirection: 'row',
@@ -2309,9 +2433,10 @@ const styles = StyleSheet.create({
   passbookTripIcon: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 2,
   },
   passbookTripIconImage: {
     width: '100%',
@@ -2322,9 +2447,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   passbookTripId: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: -0.25,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.3,
     marginBottom: 3,
   },
   passbookTripMeta: {
@@ -2342,21 +2467,24 @@ const styles = StyleSheet.create({
   passbookTripRight: {
     alignItems: 'flex-end',
     gap: 8,
+    flexShrink: 0,
+    maxWidth: '42%',
   },
   passbookTripAmount: {
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.35,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
   passbookTripStatusPill: {
-    fontSize: 8,
-    fontWeight: '400',
+    fontSize: 9,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
+    letterSpacing: 0.5,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: 999,
     overflow: 'hidden',
+    borderWidth: 1,
   },
   passbookTripStatusInfo: {
     backgroundColor: '#eff6ff',
@@ -2373,10 +2501,10 @@ const styles = StyleSheet.create({
   passbookRouteCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   passbookRouteSide: {
     flex: 1,
@@ -2401,35 +2529,47 @@ const styles = StyleSheet.create({
     width: 44,
   },
   passbookRouteDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   passbookRouteLine: {
-    width: 1,
-    height: 22,
-    marginVertical: 2,
+    width: 2,
+    height: 18,
+    marginVertical: 3,
+    borderRadius: 1,
   },
   tripActionWrap: {
-    marginTop: 12,
+    marginTop: 14,
     gap: 10,
-    alignItems: "flex-end",
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  tripActionFull: {
+    width: '100%',
+    alignSelf: 'stretch',
+    flexDirection: 'row',
   },
   tripActionHint: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   tripActionHintText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1,
+    letterSpacing: 0.6,
+    textAlign: 'center',
   },
   tripVerifyBtn: {
-    minHeight: 42,
-    borderRadius: 12,
+    width: '100%',
+    minHeight: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -2458,14 +2598,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   cashPremiumGroup: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 16,
+    borderWidth: 1,
+    borderRadius: 20,
     overflow: 'hidden',
-    shadowColor: 'rgba(15,23,42,0.12)',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowColor: 'rgba(15,23,42,0.08)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 3,
   },
   cashPremiumRow: {
     paddingHorizontal: 6,
@@ -2774,6 +2914,17 @@ const styles = StyleSheet.create({
   },
   section: { marginTop: 28 },
   gpayListSection: { marginHorizontal: Layout.screenPaddingHorizontal },
+  salaryCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    shadowColor: 'rgba(15,23,42,0.08)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 3,
+  },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '400',
@@ -2788,11 +2939,8 @@ const styles = StyleSheet.create({
   tripBlock: { borderBottomWidth: 1 },
   receivedSubrow: { paddingVertical: 10, paddingLeft: 52 },
   emptyCard: {
-    marginHorizontal: 24,
-    marginTop: 24,
-    padding: 28,
-    borderRadius: 16,
-    borderWidth: 1,
+    marginTop: 28,
+    paddingHorizontal: 28,
     alignItems: 'center',
   },
   emptyTitle: { fontSize: 16, fontWeight: '500', marginTop: 16 },

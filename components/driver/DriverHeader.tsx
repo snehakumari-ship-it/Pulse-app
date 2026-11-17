@@ -47,6 +47,10 @@ type Props = {
   onPressOtpClaim?: () => void;
   onPressNotifications?: () => void;
   onPressLanguage?: () => void;
+  /** Language chip. Hidden on the fleet assignment page. */
+  showLanguage?: boolean;
+  /** Active-trip dashboard: name, language/status pill, and the bell. */
+  layout?: 'default' | 'road';
   onPressChat?: () => void;
   /** Active trip for header expense / odometer shortcuts. */
   hasActiveTrip?: boolean;
@@ -65,6 +69,8 @@ export function DriverHeader({
   variant = 'default',
   onPressNotifications,
   onPressLanguage,
+  showLanguage = true,
+  layout = 'default',
   onPressChat,
   hasActiveTrip = false,
   showExpenseOps = true,
@@ -107,6 +113,8 @@ export function DriverHeader({
   }));
 
   const showTripOps = Boolean(onPressExpense || onPressOdometer);
+  const avatarSize = layout === 'road' ? 48 : AVATAR_SIZE;
+  const ringSize = avatarSize + 6;
 
   return (
     <View
@@ -132,16 +140,16 @@ export function DriverHeader({
           accessibilityLabel={isOnline ? 'Profile, online' : 'Profile'}
           accessibilityHint="Opens your driver profile"
         >
-          <View style={styles.avatarStack}>
+          <View style={[styles.avatarStack, { width: ringSize, height: ringSize }]}>
             {isOnline ? (
               <Animated.View
                 pointerEvents="none"
                 style={[
                   styles.onlinePresenceRing,
                   {
-                    width: ONLINE_RING_SIZE,
-                    height: ONLINE_RING_SIZE,
-                    borderRadius: ONLINE_RING_SIZE / 2,
+                    width: ringSize,
+                    height: ringSize,
+                    borderRadius: ringSize / 2,
                     borderWidth: ONLINE_RING_WIDTH,
                     borderColor: colors.emerald,
                   },
@@ -150,7 +158,7 @@ export function DriverHeader({
               />
             ) : null}
             <DriverSelfAvatar
-              size={Layout.driverHeaderAvatarSize}
+              size={avatarSize}
               uri={avatarUri}
               borderColor={colors.emerald}
               backgroundColor={colors.emerald}
@@ -159,39 +167,49 @@ export function DriverHeader({
         </TouchableOpacity>
 
         <View style={styles.headerTextWrap}>
-          <DriverBrandMark color={colors.textMuted} />
-          <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
+          {layout === 'road' ? null : <DriverBrandMark color={colors.textMuted} />}
+          <Text
+            style={[
+              styles.welcomeTitle,
+              layout === 'road' && styles.welcomeTitleRoad,
+              { color: colors.text },
+            ]}
+            numberOfLines={1}
+          >
             {title}
           </Text>
         </View>
       </View>
 
       <View style={styles.headerRight}>
-        <TouchableOpacity
-          onPress={
-            onPressLanguage ??
-            (() =>
-              router.push(
-                ROUTES.MODALS.LANGUAGE_SETTINGS as Parameters<typeof router.push>[0],
-              ))
-          }
-          style={[
-            styles.languageBtn,
-            { backgroundColor: colors.whiteMuted, borderColor: colors.border },
-          ]}
-          activeOpacity={0.8}
-          accessibilityLabel="Language"
-          accessibilityHint="Change app display language"
-        >
-          <FontAwesome
-            name="globe"
-            size={Layout.driverHeaderActionIconSize - 1}
-            color={colors.text}
-          />
-          <Text style={[styles.languageCode, { color: colors.textMuted }]}>
-            {languageCode}
-          </Text>
-        </TouchableOpacity>
+        {showLanguage ? (
+          <TouchableOpacity
+            onPress={
+              onPressLanguage ??
+              (() =>
+                router.push(
+                  ROUTES.MODALS.LANGUAGE_SETTINGS as Parameters<typeof router.push>[0],
+                ))
+            }
+            style={[
+              styles.languageBtn,
+              layout === 'road' && styles.languageBtnRoad,
+              { backgroundColor: colors.whiteMuted, borderColor: colors.border },
+            ]}
+            activeOpacity={0.8}
+            accessibilityLabel={layout === 'road' ? `${languageCode}, ${isOnline ? 'online' : 'offline'}` : 'Language'}
+            accessibilityHint="Change app display language"
+          >
+            <FontAwesome
+              name="globe"
+              size={Layout.driverHeaderActionIconSize - 1}
+              color={colors.text}
+            />
+            <Text style={[styles.languageCode, layout === 'road' && styles.languageCodeRoad, { color: colors.text }]}>
+              {layout === 'road' ? `${languageCode} / ${isOnline ? 'Online' : 'Offline'}` : languageCode}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
 
         {showTripOps ? (
           <DriverHeaderTripOpsButtons
@@ -210,6 +228,7 @@ export function DriverHeader({
         {/* Trip-message inbox. Only entry point for drivers with no active trip —
             the per-trip Chat buttons live on trip cards, which aren't rendered
             when the driver is idle. */}
+        {layout === 'road' ? null : (
         <TouchableOpacity
           onPress={onPressChat ?? (() => router.push('/(driver)/chat'))}
           style={[
@@ -236,6 +255,7 @@ export function DriverHeader({
             strokeWidth={2.25}
           />
         </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           onPress={onPressNotifications ?? (() => router.push('/(driver)/notifications'))}
@@ -287,7 +307,7 @@ const styles = StyleSheet.create({
   },
   avatarBtn: {
     padding: 2,
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
   },
   avatarStack: {
     width: ONLINE_RING_SIZE,
@@ -306,6 +326,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.2,
     lineHeight: 18,
+  },
+  welcomeTitleRoad: {
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 24,
+  },
+  languageBtnRoad: {
+    paddingHorizontal: 12,
+    minWidth: 0,
+  },
+  languageCodeRoad: {
+    fontSize: 12,
+    letterSpacing: 0,
+    lineHeight: 14,
   },
   headerRight: {
     flexDirection: 'row',

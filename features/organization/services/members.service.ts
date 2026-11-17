@@ -894,23 +894,35 @@ export async function getMyTeamInvites(): Promise<{
   invites: TeamInvite[];
 }> {
   try {
-    const { data, error } = await supabase().rpc("get_my_team_invites");
-    if (!error && data) {
-      return { error: null, invites: data as TeamInvite[] };
+    const { data: { user } } = await supabase().auth.getUser();
+    if (!user) return { error: null, invites: [] };
+    // Read the member rows directly. get_my_team_invites() is returning 500
+    // on preprod, and that single failure was opening the shared circuit.
+    const { data, error } = await supabase()
+      .from("organization_members")
+      .select("id, organization_id, role, joined_at")
+      .eq("user_id", user.id)
+      .eq("status", "pending");
+    if (error) return { error: new Error(error.message), invites: [] };
+    const rows = data ?? [];
+    const orgIds = [...new Set(rows.map((row) => row.organization_id))];
+    const names = new Map<string, string>();
+    if (orgIds.length > 0) {
+      const { data: orgs } = await supabase()
+        .from("organizations")
+        .select("id, name")
+        .in("id", orgIds);
+      for (const org of orgs ?? []) {
+        if (org.id && org.name) names.set(org.id, org.name);
+      }
     }
-    if (error) {
-      // Fallback
-      const { data: { user } } = await supabase().auth.getUser();
-      if (!user) return { error: null, invites: [] };
-      const { data: fb, error: fbErr } = await supabase()
-        .from("organization_members")
-        .select("id, organization_id, role, joined_at")
-        .eq("user_id", user.id)
-        .eq("status", "pending");
-      if (fbErr) return { error: new Error(fbErr.message), invites: [] };
-      return { error: null, invites: (fb ?? []).map((r) => ({ ...r, org_name: "" })) as TeamInvite[] };
-    }
-    return { error: null, invites: [] };
+    return {
+      error: null,
+      invites: rows.map((row) => ({
+        ...row,
+        org_name: names.get(row.organization_id) ?? "",
+      })) as TeamInvite[],
+    };
   } catch (e) {
     return { error: e instanceof Error ? e : new Error(String(e)), invites: [] };
   }

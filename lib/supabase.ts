@@ -97,19 +97,39 @@ function isAuthTokenRequest(input: RequestInfo | URL): boolean {
  * the amplifier behind the 2026-09-19 bootstrap incident. Retrying cannot help,
  * because nothing about the query gets faster on the second try.
  */
-async function isStatementTimeoutResponse(res: Response): Promise<boolean> {
-  if (res.status < 500) return false;
+async function readErrorBody(res: Response): Promise<{ code: string; message: string } | null> {
+  if (res.status < 500) return null;
   try {
     const body = await res.clone().json();
-    const code = String(body?.code ?? '');
-    const msg = String(body?.message ?? '').toLowerCase();
-    return (
-      code === '57014' ||
-      /canceling statement due to statement timeout/.test(msg)
-    );
+    return {
+      code: String(body?.code ?? "").toUpperCase(),
+      message: String(body?.message ?? "").toLowerCase(),
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+async function isStatementTimeoutResponse(res: Response): Promise<boolean> {
+  const body = await readErrorBody(res);
+  if (!body) return false;
+  return (
+    body.code === "57014" ||
+    /canceling statement due to statement timeout/.test(body.message)
+  );
+}
+
+/** Postgres/PostgREST rejected this statement. The database itself is still up. */
+const ORIGIN_SQLSTATE =
+  /^(08|53|57)/;
+
+async function isPostgresQueryFaultResponse(res: Response): Promise<boolean> {
+  const body = await readErrorBody(res);
+  if (!body?.code) return false;
+  if (body.code === "57014") return true;
+  if (/^PGRST[12]/.test(body.code)) return true;
+  if (!/^[0-9A-Z]{5}$/.test(body.code)) return false;
+  return !ORIGIN_SQLSTATE.test(body.code);
 }
 
 /** True only for genuine token-expiry responses — not for plain permission (42501) denials. */
@@ -257,12 +277,16 @@ async function fetchWithTimeoutAndRetryRaw(
             else noteSupabaseHealthy();
           } else if (isOriginDownHttpStatus(res.status)) {
             const statementTimeout = await isStatementTimeoutResponse(res);
+            const queryFault =
+              !statementTimeout && (await isPostgresQueryFaultResponse(res));
             recordSupabaseHttp5xx(res.status);
-            if (shouldOpenOriginCircuitForHttpFailure(res.status, statementTimeout)) {
+            if (shouldOpenOriginCircuitForHttpFailure(res.status, statementTimeout, queryFault)) {
               if (admission === 'probe') finishSupabaseCircuitProbe(false);
               else noteSupabaseOriginDown();
             } else if (statementTimeout) {
               recordSupabaseHttpTimeout();
+              if (admission === 'probe') finishSupabaseCircuitProbe(true);
+            } else if (queryFault) {
               if (admission === 'probe') finishSupabaseCircuitProbe(true);
             } else if (admission === 'probe') {
               finishSupabaseCircuitProbe(true);

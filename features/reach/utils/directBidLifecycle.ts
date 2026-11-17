@@ -17,8 +17,39 @@ export type DirectBidUiBucket =
   | 'superseded'
   | 'other';
 
-/** Filters on the LOADS opportunity feed (excludes awarded/rejected/superseded). */
-export type BidStatusFilter = 'all' | 'open' | 'quoted' | 'counter';
+/**
+ * Filters on the Market / Find Work STATUS dropdown.
+ * `negotiating` covers quoted + counter. `awarded` / `closed` surface history
+ * rows that the default "All" opportunity feed hides.
+ * Legacy URL params `quoted` / `counter` map to `negotiating` via parse helper.
+ */
+export type BidStatusFilter =
+  | 'all'
+  | 'open'
+  | 'negotiating'
+  | 'awarded'
+  | 'closed';
+
+const BID_STATUS_FILTERS: readonly BidStatusFilter[] = [
+  'all',
+  'open',
+  'negotiating',
+  'awarded',
+  'closed',
+] as const;
+
+export function bidStatusFilterOptions(): readonly BidStatusFilter[] {
+  return BID_STATUS_FILTERS;
+}
+
+/** Normalize URL / legacy params into a BidStatusFilter. */
+export function parseBidStatusFilterParam(raw: string | undefined | null): BidStatusFilter {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'open' || v === 'negotiating' || v === 'awarded' || v === 'closed') return v;
+  // Legacy Find Work URL params from before the STATUS dropdown redesign.
+  if (v === 'quoted' || v === 'counter') return 'negotiating';
+  return 'all';
+}
 
 const BUCKET_RANK: Record<DirectBidUiBucket, number> = {
   counter: 0,
@@ -67,20 +98,51 @@ export function matchesBidStatusFilter(
   if (filter === 'all') {
     return isLoadOpportunity(story);
   }
-  if (!isLoadOpportunity(story)) return false;
-  return bucket === filter;
+  if (filter === 'open') {
+    return isLoadOpportunity(story) && bucket === 'open';
+  }
+  if (filter === 'negotiating') {
+    return isLoadOpportunity(story) && (bucket === 'quoted' || bucket === 'counter');
+  }
+  if (filter === 'awarded') {
+    return bucket === 'awarded';
+  }
+  // closed: rejected / superseded / expired referral / inactive campaign
+  if (bucket === 'rejected' || bucket === 'superseded') return true;
+  if (story.referral_status === 'expired') return true;
+  const campaign = (story.campaign_status ?? '').toLowerCase();
+  return campaign !== '' && campaign !== 'active' && !isLoadOpportunity(story);
 }
 
 export function bidStatusFilterLabel(filter: BidStatusFilter): string {
   switch (filter) {
     case 'open':
-      return 'Available';
-    case 'quoted':
-      return 'Bid submitted';
-    case 'counter':
-      return 'Counter received';
+      return 'Open / Bidding Active';
+    case 'negotiating':
+      return 'Under Negotiation';
+    case 'awarded':
+      return 'Awarded';
+    case 'closed':
+      return 'Closed / Expired';
     default:
       return 'All';
+  }
+}
+
+export function bidStatusFilterTone(
+  filter: BidStatusFilter,
+): 'neutral' | 'open' | 'negotiating' | 'awarded' | 'closed' {
+  switch (filter) {
+    case 'open':
+      return 'open';
+    case 'negotiating':
+      return 'negotiating';
+    case 'awarded':
+      return 'awarded';
+    case 'closed':
+      return 'closed';
+    default:
+      return 'neutral';
   }
 }
 

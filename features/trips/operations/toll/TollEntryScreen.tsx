@@ -27,6 +27,7 @@ import { operationsEntryStyles as s } from "../shared/operationsEntryScreen.styl
 import { useOperationsSyncState } from "../state/useOperationsSyncState";
 import { DriverExpenseCategorySwitch } from "../shared/DriverExpenseCategorySwitch";
 import { DriverExpenseChipSelect } from "../shared/DriverExpenseChipSelect";
+import { DriverExpensePaymentFields } from "../shared/DriverExpensePaymentFields";
 import type { DriverExpenseCategoryNav } from "../shared/driverExpenseCategoryNav.util";
 import { buildExpenseEntryPartyPreview } from "../shared/expenseEntryPartyPreview.util";
 import type { TripOtherExpenseCategory } from "../types";
@@ -49,15 +50,17 @@ import { ExpenseBillPhotoScan } from "@/features/trips/operations/shared/Expense
 export function TollEntryScreen({
   trip,
   entryId,
-  otherCategory = "parking",
+  otherCategory = null,
   onCategoryNavChange,
+  onClearCategory,
   lockCategorySwitch = false,
   billCapture,
 }: {
   trip: TripRow;
   entryId?: string | null;
-  otherCategory?: TripOtherExpenseCategory;
+  otherCategory?: TripOtherExpenseCategory | null;
   onCategoryNavChange?: (next: DriverExpenseCategoryNav) => void;
+  onClearCategory?: () => void;
   lockCategorySwitch?: boolean;
   billCapture?: ExpenseBillCaptureBag;
 }) {
@@ -78,14 +81,14 @@ export function TollEntryScreen({
   const [paymentOwner, setPaymentOwner] = useState<OperationalPaymentOwner>(() =>
     defaultPaymentOwnerForTrip(trip, profile?.role),
   );
-  const [paymentMode, setPaymentMode] = useState<OperationalPaymentMode>("unknown");
+  const [paymentMode, setPaymentMode] = useState<OperationalPaymentMode | null>(null);
   const [hint, setHint] = useState<string | null>(null);
 
   const handleOcrPreview = useCallback(
     (result: ExpenseReceiptOcrResult) => {
       return previewTollReceiptOcr(
         result,
-        { amountInr, plazaName, notes, paymentMode },
+        { amountInr, plazaName, notes, paymentMode: paymentMode ?? "unknown" },
         {
           setAmountInr,
           setPlazaName,
@@ -168,7 +171,7 @@ export function TollEntryScreen({
       setNotes(entry.notes ?? "");
       setIsEstimated(entry.is_estimated === true);
       setPaymentOwner(entry.payment_owner ?? "organization");
-      setPaymentMode(entry.payment_mode ?? "unknown");
+      setPaymentMode(entry.payment_mode ?? null);
       const receiptPath = entry.receipt_storage_path?.trim();
       if (receiptPath) {
         void getDocumentViewUrl(receiptPath).then((url) => {
@@ -271,12 +274,13 @@ export function TollEntryScreen({
           />
         }
       >
-        <DriverExpenseSection title="Category & payment">
+        <DriverExpenseSection>
           <DriverExpenseCategorySwitch
             tripId={trip.id}
             formKind="toll"
             otherCategory={otherCategory}
             onOtherCategoryChange={() => {}}
+            onClearCategory={onClearCategory}
             onCategoryNavChange={onCategoryNavChange}
             lockCategorySwitch={lockCategorySwitch}
           />
@@ -293,14 +297,7 @@ export function TollEntryScreen({
             visualGroup="toll_entry"
           />
           <DriverExpenseFieldDivider />
-          <DriverExpenseChipSelect
-            label="Payment mode"
-            options={PAYMENT_MODE_OPTIONS}
-            value={paymentMode}
-            onChange={setPaymentMode}
-            columns={3}
-            visualGroup="payment_mode"
-          />
+          <DriverExpensePaymentFields value={paymentMode} onChange={setPaymentMode} />
         </DriverExpenseSection>
 
         <DriverExpenseSection title="Details">
@@ -384,6 +381,9 @@ export function TollEntryScreen({
             options={PAYMENT_MODE_OPTIONS}
             value={paymentMode}
             onChange={setPaymentMode}
+            onClear={() => setPaymentMode(null)}
+            clearable
+            collapseAfterSelect={false}
             columns={3}
             visualGroup="payment_mode"
           />

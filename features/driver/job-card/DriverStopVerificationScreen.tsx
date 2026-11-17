@@ -217,12 +217,14 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 8,
-    paddingBottom: 28,
-    gap: 14,
+    paddingBottom: 24,
+    gap: 12,
   },
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverSecondaryGrey,
+    padding: 12,
   },
   muted: {
     fontSize: 12,
@@ -236,19 +238,19 @@ const styles = StyleSheet.create({
   retry: {
     alignSelf: 'flex-start',
     minHeight: Layout.minTouchTargetSize,
-    paddingHorizontal: 18,
-    borderRadius: 999,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,
   },
   retryText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '600',
   },
   done: { gap: 2 },
   doneTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
   },
   nextKicker: {

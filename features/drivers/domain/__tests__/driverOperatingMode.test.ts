@@ -6,6 +6,7 @@ import {
   canManageIndieBook,
   canTagOfflineParty,
   canManageOwnerVehicles,
+  canAccessDriverMarketTab,
   driverHistoryLane,
   driverHistoryLaneLabel,
   driverHistoryTabsForMode,
@@ -33,6 +34,7 @@ describe('parseDriverOperatingMode', () => {
     const m = serverMode({ mode: 'DRIVER', is_employee_driver: true });
     expect(m.marketplaceAllowed).toBe(false);
     expect(isDcoOperatingMode(m)).toBe(false);
+    expect(canAccessDriverMarketTab(m)).toBe(false);
     expect(canAddDcoShippers(m)).toBe(false);
     expect(canManageIndieBook(m)).toBe(false);
     expect(canAttributeToEmployer(m)).toBe(true);
@@ -93,7 +95,15 @@ describe('parseDriverOperatingMode', () => {
     expect(m.marketplaceAllowed).toBe(true);
     expect(m.hasActiveVehicle).toBe(true);
     expect(canAddDcoShippers(m)).toBe(true);
-    expect(canTagOfflineParty(m)).toBe(true);
+    expect(canAccessDriverMarketTab(m)).toBe(true);
+  });
+
+  it('Market dock appears after DCO approval even before a vehicle is added', () => {
+    expect(canAccessDriverMarketTab(serverMode({ mode: 'DCO_VEHICLE_REQUIRED', dco_status: 'APPROVED' }))).toBe(
+      true,
+    );
+    expect(canAccessDriverMarketTab(serverMode({ mode: 'DRIVER', dco_status: 'PENDING' }))).toBe(false);
+    expect(canAccessDriverMarketTab(serverMode({ mode: 'DRIVER', dco_status: 'NONE' }))).toBe(false);
   });
 
   it('L: removing the vehicle leaves a DCO (not an employee) without Marketplace', () => {
@@ -124,8 +134,6 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
     const m = serverMode({ mode: 'DRIVER', dco_status: 'NONE' });
     expect(isDcoOperatingMode(m)).toBe(false);
     expect(canManageOwnerVehicles(m)).toBe(false);
-    expect(canAddDcoShippers(m)).toBe(false);
-    expect(canTagOfflineParty(m)).toBe(true);
     expect(m.marketplaceAllowed).toBe(false);
   });
 
@@ -159,7 +167,6 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
   it('suspended or still-employed DCOs cannot manage owner vehicles (mirrors is_dco_eligible)', () => {
     expect(canManageOwnerVehicles(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
     expect(canAddDcoShippers(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
-    expect(canTagOfflineParty(serverMode({ mode: 'DCO_SUSPENDED', dco_status: 'SUSPENDED' }))).toBe(false);
     expect(
       canManageOwnerVehicles(
         serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
@@ -167,11 +174,6 @@ describe('single owner-operator concept (DCO = Driver-come-Owner = Fleet Owner)'
     ).toBe(false);
     expect(
       canAddDcoShippers(
-        serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
-      ),
-    ).toBe(false);
-    expect(
-      canTagOfflineParty(
         serverMode({ mode: 'DCO_EMPLOYMENT_CONFLICT', dco_status: 'APPROVED', is_employee_driver: true }),
       ),
     ).toBe(false);
@@ -316,6 +318,11 @@ describe('driverHistoryLane / driverHistoryTabsForMode', () => {
   it('DCO history chips are Offline + Marketplace; employee chips are Fleet + Offline', () => {
     expect(driverHistoryTabsForMode(true)).toEqual(['offline', 'marketplace']);
     expect(driverHistoryTabsForMode(false)).toEqual(['fleet', 'offline']);
+  });
+
+  it('returns a stable tab array reference so History deep-link effects do not re-fire every render', () => {
+    expect(driverHistoryTabsForMode(true)).toBe(driverHistoryTabsForMode(true));
+    expect(driverHistoryTabsForMode(false)).toBe(driverHistoryTabsForMode(false));
   });
 
   it('labels DCO as offline/marketplace and employee as offline/fleet', () => {

@@ -1,4 +1,4 @@
-import { CenteredLoadingView } from '@/components/CenteredLoadingView';
+import { DriverListEmptyArt } from '@/features/drivers/components/DriverListEmptyArt';
 import { PendingEarningsTripCard } from '@/features/driver/components/PendingEarningsTripCard';
 import { PendingSalaryRequestCard } from '@/features/driver/components/PendingSalaryRequestCard';
 import { useDriverPendingEarnings } from '@/features/driver/hooks/useDriverPendingEarnings';
@@ -172,8 +172,8 @@ export default function PendingEarningsScreen() {
       >
         {view === 'trips' ? (
           pendingItems.length === 0 ? (
-            <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: colors.border }]}>
-              <FontAwesome name="check-circle" size={36} color={colors.emerald} />
+            <View style={styles.emptyCard}>
+              <DriverListEmptyArt kind="trips" />
               <Text style={[styles.emptyTitle, { color: colors.text }]}>All earnings settled</Text>
               <Text style={[styles.emptySub, { color: colors.textMuted }]}>
                 Completed trips with verified payments appear in your transaction history.
@@ -206,8 +206,8 @@ export default function PendingEarningsScreen() {
             ))
           )
         ) : salaryRequestItems.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor: colors.border }]}>
-            <FontAwesome name="file-text-o" size={34} color={colors.textMuted} />
+          <View style={styles.emptyCard}>
+            <DriverListEmptyArt kind="money" />
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No salary requests yet</Text>
             <Text style={[styles.emptySub, { color: colors.textMuted }]}>
               Submit monthly salary, trip commission, or advance requests for fleet review.
@@ -444,12 +444,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyCard: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 32,
+    paddingTop: 36,
+    paddingHorizontal: 28,
     alignItems: 'center',
     gap: 10,
-    marginTop: 8,
   },
   emptyTitle: {
     fontSize: 16,

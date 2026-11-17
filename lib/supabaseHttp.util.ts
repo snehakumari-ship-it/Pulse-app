@@ -51,9 +51,12 @@ export function isOriginDownHttpStatus(status: number): boolean {
 export function shouldOpenOriginCircuitForHttpFailure(
   status: number,
   statementTimeout: boolean,
+  queryFault = false,
 ): boolean {
   if (!isOriginDownHttpStatus(status)) return false;
-  if (statementTimeout && status === 500) return false;
+  // One RPC or statement failed. The origin is still up. Opening the circuit
+  // turns that single 500 into ServiceUnavailableError 503 on every later call.
+  if (status === 500 && (statementTimeout || queryFault)) return false;
   return true;
 }
 
@@ -522,7 +525,24 @@ export const STORAGE_UPLOAD_TIMEOUT_MS = 90_000;
 export const HUB_RPC_TIMEOUT_MS = 45_000;
 
 const HUB_LATENCY_RPC_RE =
-  /\/rest\/v1\/rpc\/(get_multi_lane_bootstrap|get_unified_b2b_bootstrap|get_network_feed|market_indents_for_org|quoted_indents_for_org|get_trips_for_org|get_trips_where_org_is_supplier|get_customer_ledger_inputs|get_driver_ledger_aggregation|get_connection_partner_display_batch|get_suppliers_with_profiles|get_drivers_with_profiles|get_my_team_invites)\b/i;
+  /\/rest\/v1\/rpc\/(get_multi_lane_bootstrap|get_unified_b2b_bootstrap|get_network_feed|market_indents_for_org|quoted_indents_for_org|get_trips_for_org|get_trips_where_org_is_supplier|get_customer_ledger_inputs|get_driver_ledger_aggregation|get_connection_partner_display_batch|get_suppliers_with_profiles|get_drivers_with_profiles|get_my_team_invites|get_my_driver_operating_mode|get_pending_otp_trips)\b/i;
+
+/** Driver home reads. PostgREST sends every RPC as POST, so these were capped
+ * at the 20s write timeout and died in the boot queue while sibling reads
+ * finished a few seconds later. */
+const DRIVER_BOOT_READ_RPC_RE =
+  /\/rest\/v1\/rpc\/(get_my_driver_operating_mode|get_pending_otp_trips|get_driver_invites_received|is_driver_available)\b/i;
+
+/** Driver-home table read. PostgREST GETs were waiting behind the shared gate. */
+function isDriverHomeTableRead(input: RequestInfo | URL, init?: RequestInit): boolean {
+  const method = String(init?.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return false;
+  return /\/rest\/v1\/drivers\b/i.test(requestUrlString(input));
+}
+
+export function isDriverBootReadRpc(input: RequestInfo | URL): boolean {
+  return DRIVER_BOOT_READ_RPC_RE.test(requestUrlString(input));
+}
 
 export function isHubLatencySensitiveRpc(input: RequestInfo | URL): boolean {
   return HUB_LATENCY_RPC_RE.test(requestUrlString(input));
@@ -567,6 +587,8 @@ export function shouldQueueDataFetch(
   const url = requestUrlString(input);
   if (url.includes("/auth/v1/")) return false;
   if (isLoadCenterCatalogRpc(input)) return false;
+  if (isDriverBootReadRpc(input)) return false;
+  if (isDriverHomeTableRead(input, init)) return false;
   // User-initiated compliance writes must not wait behind preview/list GETs.
   // Sitting in that queue is what turns Approve/Verify/Resubmit into a 20s timeout.
   if (

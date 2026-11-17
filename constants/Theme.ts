@@ -347,6 +347,32 @@ export const Theme = {
   /** Accents, amounts, dots — emerald-700/800 (modern / restrained) */
   driverEmerald: "#047857",
   driverEmeraldDark: "#065f46",
+  /** Solid Market CTA fill (Quote for pool / View trip) — forest green. */
+  driverCtaFill: "#0B4F3F",
+  /** Odometer capture viewfinder. */
+  odometerViewfinder: "#101010",
+  /** Muted sage fill for the odometer save action. */
+  odometerSaveFill: "#618476",
+  /** Active step fill on the odometer start / end / trip rail. */
+  odometerStepActive: "#E2E8F0",
+  /** Driver page canvas. Off-white so pure white cards stay separate. */
+  driverEmeraldWash: "#F8FAFC",
+  /** Driver home header. Same canvas as the page, separated by a slate hairline. */
+  driverHeaderPanel: "#F8FAFC",
+  /** Warm cream face for the pre-DCO collect card. */
+  driverCreamCard: "#FFF8F1",
+  /** Trips history display title — mint. */
+  tripsMint: "#10B981",
+  /** Trips history display title — cyan end of the mint gradient. */
+  tripsCyan: "#06B6D4",
+  /** Completed pill on illustrated trip cards. */
+  tripsCompleted: "#0D9488",
+  /** Trip card face: white on the left so it lifts off the mint page, cyan only behind the map. */
+  tripsCardWashStart: "#FFFFFF",
+  /** Marketplace Pulse Exchange header wash (sky-50). */
+  marketplaceExchangeWash: "#F0F9FF",
+  tripsCardWashMid: "#F4FBFA",
+  tripsCardWashEnd: "#C5E8F8",
   /** Updated reference: gold for ETA, rank */
   driverGold: "#F59E0B",
   /** Overlay on driver screens */

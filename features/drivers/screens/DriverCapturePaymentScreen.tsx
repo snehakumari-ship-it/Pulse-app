@@ -1,6 +1,7 @@
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
+import { DocumentDateCalendar } from "@/components/DocumentDateCalendar";
 import { DetailPageLayout } from "@/components/DetailPageLayout";
-import { LedgerSettlementPctDock } from "@/components/ledger/LedgerSettlementPctDock";
+import { SETTLEMENT_PCTS } from "@/components/ledger/LedgerSettlementPctDock";
 import {
   LedgerProtocolStripModeTile,
   ledgerPaymentModeVisual,
@@ -29,29 +30,166 @@ import * as tripsService from "@/features/trips/services/trips.service";
 import { formatLedgerAmountInput } from "@/lib/format";
 import { PAYMENT_MODES } from "@/lib/paymentModes";
 import { queryKeys } from "@/lib/queryKeys";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { ROUTES } from "@/lib/routes";
 import { showAppAlert } from "@/lib/appAlert";
-import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useSafeBack } from "@/lib/useSafeBack";
-import { Banknote, Hash } from "lucide-react-native";
+import {
+  WebOverlayPortal,
+  resolveWebOverlayHost,
+  webFixedFill,
+} from "@/lib/webOverlayPortal";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Calendar, ChevronDown, ChevronLeft, Pencil } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Rect } from "react-native-svg";
 
 const CAPTURE_MODES = PAYMENT_MODES.filter((mode) =>
   ["CASH", "UPI", "BANK", "CHEQUE"].includes(mode.id),
 );
 
+function MoneyNotes() {
+  return (
+    <Svg width={78} height={56} viewBox="0 0 78 56">
+      <Rect x="16" y="8" width="54" height="34" rx="6" fill={Theme.driverEmeraldWash} stroke={Theme.driverEmerald} strokeWidth="1.6" transform="rotate(-8 43 25)" />
+      <Rect x="8" y="16" width="54" height="34" rx="6" fill={Theme.cardWhite} stroke={Theme.driverCtaFill} strokeWidth="1.6" />
+      <Rect x="22" y="26" width="26" height="14" rx="7" fill="none" stroke={Theme.driverEmerald} strokeWidth="1.4" />
+    </Svg>
+  );
+}
+
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseISODate(value: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T12:00:00`);
+  return new Date();
+}
+
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return toISODate(new Date());
+}
+
+function CapturePaidOnField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (iso: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<View>(null);
+  const maxDate = todayISO();
+  const close = () => setOpen(false);
+  const webHost =
+    Platform.OS === "web"
+      ? resolveWebOverlayHost(anchorRef.current as unknown as HTMLElement | null)
+      : null;
+
+  return (
+    <View ref={anchorRef}>
+      <Pressable
+        style={styles.dateField}
+        disabled={disabled}
+        onPress={() => {
+          if (!disabled) setOpen(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Choose calendar date"
+        accessibilityState={{ expanded: open, disabled: !!disabled }}
+      >
+        <Calendar size={16} color={Theme.textMuted} strokeWidth={2} />
+        <Text style={styles.dateInput}>{value || "YYYY-MM-DD"}</Text>
+        <ChevronDown
+          size={16}
+          color={Theme.textMuted}
+          strokeWidth={2}
+          style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}
+        />
+      </Pressable>
+
+      {open && Platform.OS === "web" ? (
+        <WebOverlayPortal host={webHost}>
+          <View style={[styles.dateOverlay, webFixedFill]}>
+            <Pressable
+              style={styles.dateDismiss}
+              onPress={close}
+              accessibilityLabel="Close date picker"
+            />
+            <View style={styles.datePopover}>
+              <DocumentDateCalendar
+                selectedIso={value}
+                maxDate={maxDate}
+                onSelect={(iso) => {
+                  onChange(iso);
+                  close();
+                }}
+              />
+            </View>
+          </View>
+        </WebOverlayPortal>
+      ) : null}
+
+      {open && Platform.OS === "android" ? (
+        <DateTimePicker
+          value={parseISODate(value)}
+          mode="date"
+          display="default"
+          maximumDate={parseISODate(maxDate)}
+          onChange={(event, date) => {
+            setOpen(false);
+            if (event.type === "set" && date) onChange(toISODate(date));
+          }}
+        />
+      ) : null}
+
+      {Platform.OS === "ios" ? (
+        <Modal visible={open} transparent animationType="slide" onRequestClose={close}>
+          <Pressable style={styles.dateSheetBackdrop} onPress={close}>
+            <View style={styles.dateSheet} onStartShouldSetResponder={() => true}>
+              <View style={styles.dateSheetHeader}>
+                <Text style={styles.dateSheetTitle}>Calendar date</Text>
+                <Pressable onPress={close} hitSlop={10} accessibilityRole="button">
+                  <Text style={styles.dateSheetDone}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={parseISODate(value)}
+                mode="date"
+                display="spinner"
+                maximumDate={parseISODate(maxDate)}
+                onChange={(_, date) => {
+                  if (date) onChange(toISODate(date));
+                }}
+              />
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
+    </View>
+  );
 }
 
 function inr(n: number): string {
@@ -65,6 +203,7 @@ function firstParam(value: string | string[] | undefined): string {
 
 export default function DriverCapturePaymentScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
@@ -104,6 +243,8 @@ export default function DriverCapturePaymentScreen() {
   );
   const [reference, setReference] = useState(referenceHint);
   const [paidOn, setPaidOn] = useState(todayISO());
+  const [amountEditorOpen, setAmountEditorOpen] = useState(false);
+  const [modeRowWidth, setModeRowWidth] = useState(0);
   const [tagOpen, setTagOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [recorded, setRecorded] = useState<{ title: string; message: string } | null>(null);
@@ -196,6 +337,10 @@ export default function DriverCapturePaymentScreen() {
     !!trip &&
     !isTripTaggedToParty(trip);
   const amountNum = Math.round(Number(String(amount).replace(/,/g, "")) || 0);
+  const activePct =
+    dueHint > 0
+      ? SETTLEMENT_PCTS.find((pct) => Math.round((dueHint * pct) / 100) === amountNum) ?? null
+      : null;
   const cap = dueHint > 0 ? dueHint : amountNum;
   const isCash = modeId === "CASH";
   const canSubmit =
@@ -206,13 +351,6 @@ export default function DriverCapturePaymentScreen() {
     (dueHint <= 0 || amountNum <= dueHint) &&
     (isCash || reference.trim().length > 0) &&
     !submitting;
-
-  const kicker =
-    lane === "marketplace"
-      ? "Pulse Exchange"
-      : lane === "fleet"
-        ? "Trip commission"
-        : "Shipper · Client";
 
   const submit = useCallback(async () => {
     if (!trip || !canSubmit) return;
@@ -287,96 +425,132 @@ export default function DriverCapturePaymentScreen() {
     );
   }
 
-  return (
-    <DetailPageLayout
-      title={lane === "fleet" ? "Collect commission" : "Collect payment"}
-     
-      onBack={onBack}
-      titleSubline={<Text style={styles.kicker}>{kicker}</Text>}
-    >
-      <View style={styles.hero}>
-        {needsPartyTag ? (
-          <Text style={styles.heroLabel}>
-            Tag a shipper or middleman on this trip before collecting.
-          </Text>
-        ) : (
-          <Text style={styles.heroLabel}>
-            {lane === "fleet" ? `Commission from ${partyName}` : `Revenue from ${partyName}`}
-          </Text>
-        )}
-        <SmartInput
-          type="currency"
-          value={amountNum}
-          onChange={(_, numeric) => {
-            setAmount(formatLedgerAmountInput(numeric));
-          }}
-          label="Amount received"
-          context={`${partyName} · ${tripDisplay}${dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}`}
-          submitLabel="Apply"
-          variant="hero"
-          density="compact"
-          heroAccentColor={Theme.primary}
-          placeholder="0"
-          required={false}
-          disabled={submitting}
-          validation={{
-            min: 0,
-            max: dueHint > 0 ? dueHint : 100000000,
-          }}
-        />
-        <Text style={styles.heroHint} numberOfLines={2}>
-          {partyName} · {tripDisplay}
-          {dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}
-        </Text>
-        <LedgerSettlementPctDock
-          dueTotalInr={dueHint}
-          amountStr={amount}
-          onAmountChange={setAmount}
-          accentColor={Theme.primary}
-          variant="light"
-          compact
-        />
-      </View>
+  const collectLabel =
+    amountNum > 0
+      ? `Collect ${inr(Math.min(amountNum, cap || amountNum))}`
+      : lane === "fleet"
+        ? "Collect commission"
+        : "Collect payment";
 
-      <View style={styles.card}>
-        <View style={styles.sectionHead}>
-          <View style={[styles.sectionIcon, { backgroundColor: "#dcfce7" }]}>
-            <Banknote size={15} color={Theme.darkGreen} strokeWidth={2.2} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.sectionTitle}>Payment mode</Text>
-            <Text style={styles.sectionHint}>How this money moved</Text>
+  return (
+    <View style={styles.screen}>
+      <LinearGradient
+        colors={[Theme.driverEmeraldWash, Theme.driverEmeraldWash]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={[styles.headerBand, { paddingTop: insets.top + 12 }]}
+      >
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={styles.backBtn}
+        >
+          <ChevronLeft size={18} color={Theme.textPrimary} strokeWidth={2.4} />
+        </Pressable>
+      </LinearGradient>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingBottom: insets.bottom + 28,
+        }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.hero}>
+          <Text style={styles.heroLabel}>
+            {needsPartyTag
+              ? "Tag a shipper before collecting"
+              : lane === "fleet"
+                ? `Commission from ${partyName}`
+                : `Revenue from ${partyName}`}
+          </Text>
+          <Text style={styles.heroAmount}>₹ {Math.max(0, amountNum).toLocaleString("en-IN")}</Text>
+          <Pressable
+            onPress={() => setAmountEditorOpen((open) => !open)}
+            accessibilityRole="button"
+            accessibilityLabel="Edit amount"
+            style={styles.editRow}
+          >
+            <Text style={styles.editText}>Edit</Text>
+            <Pencil size={12} color={Theme.driverEmerald} strokeWidth={2.4} />
+          </Pressable>
+          {amountEditorOpen ? (
+            <SmartInput
+              type="currency"
+              value={amountNum}
+              onChange={(_, numeric) => {
+                setAmount(formatLedgerAmountInput(numeric));
+              }}
+              label="Amount received"
+              context={`${partyName} · ${tripDisplay}${dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}`}
+              submitLabel="Apply"
+              variant="hero"
+              density="compact"
+              heroAccentColor={Theme.driverEmerald}
+              placeholder="0"
+              required={false}
+              disabled={submitting}
+              validation={{
+                min: 0,
+                max: dueHint > 0 ? dueHint : 100000000,
+              }}
+            />
+          ) : null}
+          <View style={styles.moneyArt} pointerEvents="none">
+            <MoneyNotes />
           </View>
         </View>
-        <View style={styles.modeRow}>
-          {CAPTURE_MODES.map((item) => (
-            <View key={item.id} style={styles.modeCell}>
+
+        <Text style={styles.blockTitle}>Settlement</Text>
+        <View style={styles.pctGrid}>
+          {SETTLEMENT_PCTS.map((pct) => {
+            const selected = activePct === pct;
+            return (
+              <Pressable
+                key={pct}
+                onPress={() => {
+                  if (submitting || dueHint <= 0) return;
+                  setAmount(formatLedgerAmountInput(Math.round((dueHint * pct) / 100)));
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                style={[styles.pctChip, selected && styles.pctChipOn]}
+              >
+                <Text style={[styles.pctText, selected && styles.pctTextOn]}>{pct}%</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={styles.blockTitle}>Payment mode</Text>
+        <Text style={styles.blockHint}>How this money moved</Text>
+        <View
+          style={styles.modeRow}
+          onLayout={(event) => setModeRowWidth(event.nativeEvent.layout.width)}
+        >
+          {CAPTURE_MODES.map((item) => {
+            const tileWidth =
+              modeRowWidth > 0 ? (modeRowWidth - 8 * (CAPTURE_MODES.length - 1)) / CAPTURE_MODES.length : undefined;
+            return (
               <LedgerProtocolStripModeTile
+                key={item.id}
                 modeId={item.id}
                 label={ledgerPaymentModeVisual(item.id).shortLabel}
                 selected={modeId === item.id}
                 variant="compact"
+                width={tileWidth}
                 onPress={() => {
                   if (!submitting) setModeId(item.id);
                 }}
               />
-            </View>
-          ))}
+            );
+          })}
         </View>
-      </View>
 
-      <View style={styles.card}>
-        <View style={styles.sectionHead}>
-          <View style={[styles.sectionIcon, { backgroundColor: Theme.avatarIndigo }]}>
-            <Hash size={15} color={Theme.primary} strokeWidth={2.2} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.sectionTitle}>Reference / UTR</Text>
-            <Text style={styles.sectionHint}>
-              {isCash ? "Optional for cash" : "NEFT / UPI / bank transaction reference"}
-            </Text>
-          </View>
-        </View>
+        <Text style={styles.blockTitle}>Details rows</Text>
+        <Text style={styles.fieldLabel}>UTR / Reference</Text>
         <TextInput
           style={styles.input}
           value={reference}
@@ -386,33 +560,46 @@ export default function DriverCapturePaymentScreen() {
           autoCapitalize="characters"
           editable={!submitting}
         />
-        <Text style={styles.dateLabel}>Paid on</Text>
-        <TextInput
-          style={styles.input}
-          value={paidOn}
-          onChangeText={setPaidOn}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Theme.textMuted}
-          editable={!submitting}
-        />
-      </View>
+        <Text style={styles.fieldLabel}>Calendar date</Text>
+        <CapturePaidOnField value={paidOn} onChange={setPaidOn} disabled={submitting} />
 
-      {lane === "marketplace" ? (
-        <Text style={styles.exchangeNote}>
-          Pulse Exchange records this as received after the shipper confirms.
-        </Text>
-      ) : null}
+        {lane === "marketplace" ? (
+          <Text style={styles.exchangeNote}>
+            Pulse Exchange records this as received after the shipper confirms.
+          </Text>
+        ) : null}
+        {!isCash ? (
+          <Text style={styles.exchangeNote}>A UPI or bank reference is required before collecting.</Text>
+        ) : null}
 
-      {needsPartyTag ? (
+        {needsPartyTag ? (
+          <TouchableOpacity
+            style={styles.submit}
+            onPress={() => setTagOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Tag party"
+          >
+            <Text style={styles.submitText}>Tag party first</Text>
+          </TouchableOpacity>
+        ) : null}
+
         <TouchableOpacity
-          style={styles.submit}
-          onPress={() => setTagOpen(true)}
+          style={[styles.submit, !canSubmit && styles.submitDisabled]}
+          onPress={() => {
+            if (canSubmit) setConfirmOpen(true);
+          }}
+          disabled={!canSubmit}
+          activeOpacity={0.88}
           accessibilityRole="button"
-          accessibilityLabel="Tag party"
+          accessibilityLabel="Capture payment"
         >
-          <Text style={styles.submitText}>Tag party first</Text>
+          {submitting ? (
+            <ActivityIndicator size="small" color={Theme.textPrimary} />
+          ) : (
+            <Text style={styles.submitText}>{collectLabel}</Text>
+          )}
         </TouchableOpacity>
-      ) : null}
+      </ScrollView>
 
       <DriverCollectFromSheet
         visible={tagOpen}
@@ -426,25 +613,6 @@ export default function DriverCapturePaymentScreen() {
           void load();
         }}
       />
-
-      <TouchableOpacity
-        style={[styles.submit, !canSubmit && styles.submitDisabled]}
-        onPress={() => {
-          if (canSubmit) setConfirmOpen(true);
-        }}
-        disabled={!canSubmit}
-        activeOpacity={0.88}
-        accessibilityRole="button"
-        accessibilityLabel="Capture payment"
-      >
-        {submitting ? (
-          <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
-        ) : (
-          <Text style={styles.submitText}>
-            Collect {amountNum > 0 ? inr(Math.min(amountNum, cap || amountNum)) : lane === "fleet" ? "commission" : "payment"}
-          </Text>
-        )}
-        </TouchableOpacity>
       <DriverCaptureConfirmModal
         visible={confirmOpen || !!recorded}
         phase={recorded ? "success" : "confirm"}
@@ -466,17 +634,32 @@ export default function DriverCapturePaymentScreen() {
           else onBack();
         }}
       />
-      </DetailPageLayout>
-    );
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  kicker: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
+  screen: {
+    flex: 1,
+    backgroundColor: Theme.driverEmeraldWash,
+  },
+  headerBand: {
+    paddingHorizontal: 16,
+    paddingBottom: 36,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.85)",
+  },
+  scroll: {
+    flex: 1,
+    marginTop: -20,
   },
   empty: {
     fontSize: 13,
@@ -484,89 +667,191 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   hero: {
-    backgroundColor: Theme.surfaceLight,
-    borderRadius: 14,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    marginBottom: 18,
+    overflow: "hidden",
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   heroLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    marginBottom: 4,
   },
-  heroHint: {
+  heroAmount: {
     marginTop: 6,
-    fontSize: 11,
-    fontWeight: "500",
-    color: Theme.textMuted,
-  },
-  card: {
-    backgroundColor: Theme.surfaceLight,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 12,
-  },
-  sectionHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  sectionIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.2,
+    fontSize: 32,
+    fontWeight: "900",
+    letterSpacing: -0.8,
     color: Theme.textPrimaryDark,
   },
-  sectionHint: {
-    marginTop: 1,
-    fontSize: 10,
+  editRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    minHeight: 32,
+  },
+  editText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.driverEmerald,
+  },
+  moneyArt: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+  },
+  blockTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  pctGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 18,
+  },
+  pctChip: {
+    width: "31%",
+    minHeight: 36,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderInput,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  pctChipOn: {
+    backgroundColor: Theme.warningMuted,
+    borderColor: Theme.driverGold,
+  },
+  pctText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textPrimary,
+  },
+  pctTextOn: {
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+  },
+  blockHint: {
+    marginTop: -6,
+    marginBottom: 10,
+    fontSize: 12,
+    fontWeight: "500",
     color: Theme.textMuted,
   },
   modeRow: {
     flexDirection: "row",
-    gap: 6,
+    alignItems: "stretch",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 18,
   },
-  modeCell: {
-    flex: 1,
-    minWidth: 0,
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textMuted,
+    marginBottom: 6,
   },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.borderLight,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 13,
     fontWeight: "600",
     color: Theme.textPrimaryDark,
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.surfaceGray,
     minHeight: 44,
+    marginBottom: 14,
   },
-  dateLabel: {
-    marginTop: 10,
-    marginBottom: 6,
-    fontSize: 10,
+  dateField: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    minHeight: 44,
+    backgroundColor: Theme.cardWhite,
+    marginBottom: 16,
+  },
+  dateInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
     fontWeight: "700",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
+    color: Theme.textPrimaryDark,
+    paddingVertical: 10,
+  },
+  dateOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  dateDismiss: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.32)",
+  },
+  datePopover: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 16,
+    backgroundColor: Theme.cardWhite,
+    overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 12px 32px rgba(15,23,42,0.16)" } as object,
+      default: {},
+    }),
+  },
+  dateSheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(15,23,42,0.35)",
+  },
+  dateSheet: {
+    backgroundColor: Theme.cardWhite,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+  },
+  dateSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Theme.borderLight,
+  },
+  dateSheetTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  dateSheetDone: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Theme.driverCtaFill,
   },
   exchangeNote: {
     fontSize: 11,
@@ -575,20 +860,26 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   submit: {
-    minHeight: 48,
-    borderRadius: 14,
+    minHeight: 52,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    marginTop: 8,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   submitDisabled: {
     opacity: 0.55,
   },
   submitText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: Theme.buttonPrimaryText,
+    fontSize: 15,
+    fontWeight: "900",
+    color: Theme.textPrimaryDark,
   },
 });

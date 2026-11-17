@@ -1,5 +1,7 @@
 // expo-file-system SDK 54 moved readAsStringAsync/EncodingType to the legacy entry.
+// That API is native-only. Web image picks are blob: URLs, which fetch can read.
 import * as FileSystem from "expo-file-system/legacy";
+import { Platform } from "react-native";
 
 import { sha256Hex } from "./sha256.util";
 
@@ -12,12 +14,17 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-function isRemoteUri(uri: string): boolean {
-  return /^https?:\/\//i.test(uri) || uri.startsWith("data:");
+function canFetchUri(uri: string): boolean {
+  return (
+    Platform.OS === "web" ||
+    /^https?:\/\//i.test(uri) ||
+    uri.startsWith("data:") ||
+    uri.startsWith("blob:")
+  );
 }
 
 async function readUriBytes(uri: string): Promise<Uint8Array> {
-  if (isRemoteUri(uri)) {
+  if (canFetchUri(uri)) {
     const response = await fetch(uri);
     if (!response.ok) {
       throw new Error(`Could not read file for fingerprint (${response.status})`);

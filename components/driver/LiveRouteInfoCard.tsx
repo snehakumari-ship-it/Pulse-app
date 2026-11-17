@@ -97,39 +97,24 @@ export function LiveRouteInfoCard({
 
           <View style={styles.compactStats}>
             <View style={styles.compactStat}>
-              <Navigation size={8} color={MINT} strokeWidth={2.4} />
-              <Text
-                style={styles.compactStatValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
+              <Navigation size={11} color={MINT} strokeWidth={2.4} />
+              <Text style={styles.compactStatValue} numberOfLines={1}>
                 {dist}
               </Text>
             </View>
             <View style={styles.compactStatDiv} />
             <View style={styles.compactStat}>
-              <Clock size={8} color={MINT} strokeWidth={2.4} />
-              <Text
-                style={styles.compactStatValue}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-              >
+              <Clock size={11} color={MINT} strokeWidth={2.4} />
+              <Text style={styles.compactStatValue} numberOfLines={1}>
                 {etaDisplay}
               </Text>
             </View>
             {arrivalClock ? (
               <>
                 <View style={styles.compactStatDiv} />
-                <View style={[styles.compactStat, styles.compactStatArrival]}>
-                  <FontAwesome name="flag-checkered" size={7} color={MINT} />
-                  <Text
-                    style={styles.compactStatValue}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
+                <View style={styles.compactStat}>
+                  <FontAwesome name="flag-checkered" size={10} color={MINT} />
+                  <Text style={styles.compactStatValue} numberOfLines={1}>
                     ~{arrivalClock}
                   </Text>
                 </View>
@@ -214,7 +199,7 @@ const styles = StyleSheet.create({
   compactShell: {
     flex: 1,
     minWidth: 0,
-    height: 32,
+    height: 36,
     borderRadius: 10,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
@@ -230,29 +215,28 @@ const styles = StyleSheet.create({
   },
   compactGradient: {
     flex: 1,
-    height: 32,
-    paddingHorizontal: 8,
+    height: 36,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   compactEyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 4,
     flexShrink: 1,
     minWidth: 0,
-    maxWidth: "38%",
   },
   compactEyebrow: {
-    fontSize: 7,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     color: MINT,
     flexShrink: 0,
   },
   compactTo: {
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: "700",
     color: "rgba(255,255,255,0.92)",
     letterSpacing: -0.1,
@@ -265,31 +249,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 4,
+    gap: 6,
   },
   compactStat: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  compactStatArrival: {
-    maxWidth: 52,
-    flexShrink: 1,
+    gap: 3,
+    flexShrink: 0,
   },
   compactStatValue: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "800",
     color: "#fff",
-    letterSpacing: -0.2,
-    flexShrink: 1,
-    minWidth: 0,
+    letterSpacing: -0.1,
+    flexShrink: 0,
   },
   compactStatDiv: {
     width: StyleSheet.hairlineWidth,
-    height: 10,
-    backgroundColor: "rgba(255,255,255,0.32)",
+    height: 12,
+    backgroundColor: "rgba(255,255,255,0.4)",
     flexShrink: 0,
   },
   compactHint: {

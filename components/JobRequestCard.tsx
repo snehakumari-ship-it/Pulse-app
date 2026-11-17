@@ -14,6 +14,7 @@ import {
   TripDetailsStrip,
 } from "@/components/driver/DriverTripSheetLayout";
 import Theme from "@/constants/Theme";
+import { AssignmentCityArt } from "@/features/drivers/components/AssignmentCityArt";
 import Layout from "@/constants/Layout";
 import type { JobCardAssignerPayload } from "@/features/trips/utils/driverAssignerDisplay.util";
 import { LinearGradient } from "expo-linear-gradient";
@@ -67,6 +68,8 @@ export interface JobRequestCardProps {
   onOtpCancel?: () => void;
   edgeToEdge?: boolean;
   variant?: "card" | "page";
+  /** Sheet sits on the map. Dashboard matches the trip-first page. */
+  presentation?: "sheet" | "dashboard";
   assignmentId?: string;
   assignedBy?: JobCardAssignerPayload | null;
   assignedByLine?: string | null;
@@ -104,6 +107,7 @@ export function JobRequestCard({
   onOtpCancel,
   edgeToEdge = false,
   variant = "card",
+  presentation = "sheet",
   assignmentId,
   assignedBy = null,
   assignedByLine = null,
@@ -164,8 +168,12 @@ export function JobRequestCard({
     ]);
   }, [completeAccept, disabled, isAccepted]);
 
-  const shellStyle =
-    variant === "page" || edgeToEdge
+  const dashboardCard = presentation === "dashboard" && !edgeToEdge;
+  const shellStyle = dashboardCard && !otpMode
+    ? [styles.dashboardStack]
+    : dashboardCard
+    ? [styles.dashboardCard]
+    : variant === "page" || edgeToEdge
       ? [
           styles.sheet,
           styles.sheetEdgeToEdge,
@@ -318,6 +326,70 @@ export function JobRequestCard({
             ) : null}
           </View>
         </View>
+      ) : dashboardCard ? (
+        <>
+          <View style={styles.dashboardCard}>
+            <View style={styles.dashboardBody}>
+              <Text style={styles.dashKicker}>Trip assignment</Text>
+              <Text style={[styles.dashRoute, { color: primaryTextColor }]} numberOfLines={3}>
+                {pickup}
+                <Text style={styles.dashArrow}>{"  →  "}</Text>
+                {dropoff}
+              </Text>
+              <Text style={[styles.dashMeta, { color: mutedTextColor }]} numberOfLines={1}>
+                {distance}
+                {"   ·   "}
+                {eta}
+              </Text>
+              {showHeroAssigner ? (
+                <Text style={[styles.dashAssigner, { color: primaryTextColor }]} numberOfLines={1}>
+                  Assigned by {assignedBy?.linePrimary?.trim() || assignedByLine}
+                </Text>
+              ) : null}
+              <AssignmentCityArt pickup={pickup} dropoff={dropoff} earnings={earnings} />
+            </View>
+          </View>
+          <View style={styles.earningsPill}>
+            <Text style={styles.dashYieldLabel}>{earningsLabel}</Text>
+            <Text style={styles.dashYield} numberOfLines={1}>
+              {earnings}
+            </Text>
+          </View>
+          {errorMessage ? (
+            <Text style={[styles.errorText, { color: Theme.negative }]}>{errorMessage}</Text>
+          ) : null}
+          <View style={styles.dashActions}>
+            {onDecline != null && !isAccepted ? (
+              <TouchableOpacity
+                onPress={onDecline}
+                style={styles.dashDecline}
+                disabled={disabled}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.dashDeclineText}>Decline</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              onPress={requestAcceptConfirm}
+              style={[styles.dashAccept, disabled && styles.btnDisabled]}
+              disabled={disabled || isAccepted}
+              activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="Accept trip"
+            >
+              <LinearGradient
+                colors={[EMERALD, EMERALD_DARK]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.dashAcceptFill}
+              >
+                <Text style={styles.acceptLabel} numberOfLines={1}>
+                  {isAccepted ? "Accepted!" : "Accept"}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </>
       ) : (
         <>
           <LinearGradient
@@ -468,6 +540,129 @@ const styles = StyleSheet.create({
   sheetEdgeToEdge: {
     marginHorizontal: 0,
     marginBottom: 0,
+  },
+  dashboardStack: {
+    gap: 12,
+    alignSelf: "stretch",
+  },
+  dashboardCard: {
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        elevation: 3,
+      },
+    }),
+  },
+  earningsPill: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    ...Platform.select({
+      web: { boxShadow: "0 6px 16px rgba(15, 23, 42, 0.06)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
+        elevation: 2,
+      },
+    }),
+  },
+  dashActions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 10,
+  },
+  dashDecline: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.cardWhite,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  dashDeclineText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: Theme.textRouteCard,
+  },
+  dashAccept: {
+    flex: 1.15,
+    minHeight: 52,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  dashAcceptFill: {
+    flex: 1,
+    minHeight: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  dashboardBody: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+    gap: 6,
+  },
+  dashKicker: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    color: Theme.textRouteCard,
+  },
+  dashRoute: {
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.45,
+    lineHeight: 28,
+  },
+  dashArrow: {
+    color: Theme.driverEmerald,
+    fontWeight: "700",
+  },
+  dashMeta: {
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 0.1,
+  },
+  dashAssigner: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  dashYieldLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: Theme.textRouteCard,
+  },
+  dashYield: {
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    color: Theme.driverEmeraldDark,
   },
   sheetShadowIos: {
     shadowColor: "#000",

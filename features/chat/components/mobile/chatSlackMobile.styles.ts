@@ -94,8 +94,8 @@ export const SLACK_CHAT_LIST_PROPS = {
   showsVerticalScrollIndicator: false,
 };
 
-export const slackMobileStyles = withWebSafeShadows(
-  StyleSheet.create({
+export const slackMobileStyles = StyleSheet.create(
+  withWebSafeShadows({
   listScroll: {
     flex: 1,
     minHeight: 0,

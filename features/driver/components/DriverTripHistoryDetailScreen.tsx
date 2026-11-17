@@ -1,98 +1,246 @@
 /**
  * Full-screen trip history detail (stack route).
  */
-import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDriverTheme, useDriverThemeColors } from "@/contexts/DriverThemeContext";
-import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
+import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
+import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
+import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
+import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
+import { getTripAppLocationsForTimeline } from "@/features/driver/services/driverLocation.service";
+import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
 import {
-  buildAssignerDisplayForTrip,
-} from "@/features/trips/utils/driverAssignerDisplay.util";
+    attachDriverAppLocations,
+    buildMissionLog,
+    getTripProgressTitle,
+    isCompleted,
+    isInTransitStatus,
+    parseTripCoordinate,
+    toEtaInterval,
+    type DriverAppLocationPoint,
+} from "@/features/driver/tripHistory/tripHistoryDetail.util";
 import {
-  buildDriverTripNumberMap,
-  getDriverTripDisplayNumber,
+    buildDriverTripNumberMap,
+    getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
-import { formatLedgerDateTime } from "@/lib/format";
-import { formatEstimatedDuration } from "@/lib/formatEstimatedDuration";
-import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
-import { getOptimalRoute } from "@/lib/routingService";
-import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import * as driversService from "@/features/drivers/services/drivers.service";
 import * as salaryRequestsService from "@/features/drivers/services/salaryRequests.service";
-import * as tripsService from "@/features/trips/services/trips.service";
+import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
 import {
-  canTagPartyOnTrip,
-  isTripTaggedToParty,
-  tripNeedsPartyTag,
-  tripReceivablePartyName,
+    canTagPartyOnTrip,
+    isTripTaggedToParty,
+    tripNeedsPartyTag,
+    tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
+import {
+    formatEtaFromRouteSeconds,
+    formatRoadDistanceM,
+} from "@/features/trips/domain/tripStageEta";
+import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
+import * as tripDocumentsService from "@/features/trips/services/tripDocuments.service";
+import * as tripsService from "@/features/trips/services/trips.service";
+import {
+    buildAssignerDisplayForTrip,
+} from "@/features/trips/utils/driverAssignerDisplay.util";
+import { releaseStoragePreviewUrl } from "@/features/trips/utils/storagePreviewObjectUrl.util";
+import { splitHubRouteLocationDisplay } from "@/features/trips/utils/tripLocationDisplay.util";
+import { useTripVerificationSync } from "@/features/trips/verification";
+import { formatLedgerDateTime } from "@/lib/format";
+import { formatEstimatedDuration } from "@/lib/formatEstimatedDuration";
+import { haversineKm, lookupIndianCityCoordinate } from "@/lib/indianCityCoordinates.util";
+import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import { reverseGeocodeCityStateLabel } from "@/lib/reverseGeocodePlace.util";
 import { ROUTES } from "@/lib/routes";
+import { getOptimalRoute } from "@/lib/routingService";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import { type Href, useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import {
-  Calendar,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  FileImage,
-  MessageSquare,
-  Navigation,
-  Route,
-  Share2,
-  ShieldCheck,
-  Tag,
+    Calendar,
+    CheckCircle2,
+    ChevronDown,
+    ChevronUp,
+    Clock,
+    FileImage,
+    Flag,
+    MapPin,
+    MessageSquare,
+    MoreVertical,
+    Navigation,
+    Share2,
+    ShieldCheck,
+    Tag,
+    Truck,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Alert,
-  ScrollView,
-  Image,
-  Share,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Image,
+    ScrollView,
+    Share,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
+    cancelAnimation,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getTripAppLocationsForTimeline } from "@/features/driver/services/driverLocation.service";
-import { reverseGeocodeCityStateLabel } from "@/lib/reverseGeocodePlace.util";
-import {
-  attachDriverAppLocations,
-  buildMissionLog,
-  formatDistance,
-  formatDurationForTrip,
-  getTripProgressTitle,
-  isCompleted,
-  isInTransitStatus,
-  parseTripCoordinate,
-  splitLocationPrimarySecondary,
-  toEtaInterval,
-  type DriverAppLocationPoint,
-} from "@/features/driver/tripHistory/tripHistoryDetail.util";
-import { tripHistoryDetailStyles as styles } from "@/features/driver/tripHistory/tripHistoryDetail.styles";
-import { TripDetailSettlementPanel } from "@/features/driver/components/TripDetailSettlementPanel";
-import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
-import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
-import { DriverDocumentGalleryPreview } from "@/features/driver/components/DriverDocumentGalleryPreview";
-import { useTripVerificationSync } from "@/features/trips/verification";
-import { DriverTripOperationsTab } from "@/features/driver/components/DriverTripOperationsTab";
-import { useRegisterDriverContextTrip } from "@/contexts/DriverTripOpsContext";
+
+const HERO_GRADIENT_LIGHT = [
+  Theme.tripsCardWashStart,
+  Theme.tripsCardWashMid,
+  Theme.cardWhite,
+] as const;
+const HERO_GRADIENT_DARK = ["#042421", "#06332C", "#0A4D40"] as const;
+
+function webMercator(lat: number, lon: number, zoom: number) {
+  const scale = 256 * 2 ** zoom;
+  const x = ((lon + 180) / 360) * scale;
+  const sine = Math.sin((lat * Math.PI) / 180);
+  const y = (0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)) * scale;
+  return { x, y };
+}
+
+function resolveHistoryStop(
+  lat: unknown,
+  lon: unknown,
+  label: string,
+): { latitude: number; longitude: number } | null {
+  const latitude = parseTripCoordinate(lat);
+  const longitude = parseTripCoordinate(lon);
+  if (latitude != null && longitude != null) return { latitude, longitude };
+  const hub = splitHubRouteLocationDisplay(label);
+  return lookupIndianCityCoordinate(hub.city) ?? lookupIndianCityCoordinate(label);
+}
+
+function humanizeDurationLabel(raw: string | null | undefined): string {
+  const formatted = formatEstimatedDuration(raw);
+  if (!formatted || formatted === "—") return "—";
+  const hm = formatted.match(/^(\d+)H(?:\s+(\d+)M)?$/i);
+  if (hm) {
+    const hours = Number(hm[1]);
+    const minutes = hm[2] ? Number(hm[2]) : 0;
+    if (hours <= 0) return `${minutes} min`;
+    return minutes > 0 ? `${hours} hr ${minutes} min` : `${hours} hr`;
+  }
+  const onlyM = formatted.match(/^(\d+)M$/i);
+  if (onlyM) return `${onlyM[1]} min`;
+  const onlyH = formatted.match(/^(\d+(?:\.\d+)?)H$/i);
+  if (onlyH) {
+    const hours = Number(onlyH[1]);
+    if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
+    const whole = Math.floor(hours);
+    const minutes = Math.round((hours - whole) * 60);
+    return minutes > 0 ? `${whole} hr ${minutes} min` : `${whole} hr`;
+  }
+  return formatted;
+}
+
+function partyInitials(name: string): string {
+  const parts = name.split(/\s+/).filter((part) => /[A-Za-z0-9]/.test(part));
+  const letters = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "");
+  return letters.join("") || "•";
+}
+
+function TimelineStepIcon({ status }: { status: string }) {
+  const key = status.trim().toLowerCase();
+  const color = Theme.textOnPrimary;
+  if (key.includes("deliver") || key.includes("complete") || key.includes("done")) {
+    return <Flag size={11} color={color} />;
+  }
+  if (key.includes("transit")) return <Truck size={11} color={color} />;
+  if (key.includes("pick")) return <MapPin size={11} color={color} />;
+  return <CheckCircle2 size={11} color={color} />;
+}
+
+function HeroRouteBackdrop({
+  from,
+  to,
+  width,
+  height,
+  light,
+}: {
+  from: { latitude: number; longitude: number } | null;
+  to: { latitude: number; longitude: number } | null;
+  width: number;
+  height: number;
+  light: boolean;
+}) {
+  const focus = from ?? to;
+  const end = to ?? from;
+  const [failed, setFailed] = useState(false);
+  if (!focus || !end || width < 8 || height < 8) return null;
+
+  let zoom = 12;
+  for (let z = 13; z >= 5; z -= 1) {
+    const a = webMercator(focus.latitude, focus.longitude, z);
+    const b = webMercator(end.latitude, end.longitude, z);
+    zoom = z;
+    if (Math.abs(a.x - b.x) <= width * 0.42 && Math.abs(a.y - b.y) <= 90) break;
+  }
+  const mid = {
+    latitude: (focus.latitude + end.latitude) / 2,
+    longitude: (focus.longitude + end.longitude) / 2,
+  };
+  const world = webMercator(mid.latitude, mid.longitude, zoom);
+  const tileX = Math.floor(world.x / 256);
+  const tileY = Math.floor(world.y / 256);
+  const scale = Math.max(width, 420) / 256;
+  const anchorX = width * 0.7;
+  const anchorY = 78;
+  const left = anchorX - (world.x - tileX * 256) * scale;
+  const top = anchorY - (world.y - tileY * 256) * scale;
+
+  return (
+    <View style={styles.tdHeroMap} pointerEvents="none">
+      {failed ? null : (
+        <Image
+          source={{
+            uri: `https://basemaps.cartocdn.com/${light ? "light_nolabels" : "dark_all"}/${zoom}/${tileX}/${tileY}@2x.png`,
+          }}
+          style={[styles.tdHeroMapTile, { width: 256 * scale, height: 256 * scale, left, top }]}
+          onError={() => setFailed(true)}
+        />
+      )}
+      <LinearGradient
+        colors={
+          light
+            ? [Theme.cardWhite, "rgba(255,255,255,0.92)", "rgba(244,251,250,0.55)"]
+            : ["#042421", "rgba(4,36,33,0.78)", "rgba(4,36,33,0.2)"]
+        }
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.35 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
+
+function PartyMark({ name, logoUrl }: { name: string; logoUrl?: string | null }) {
+  return (
+    <View style={styles.tdHeroPartyMark}>
+      {logoUrl ? (
+        <Image source={{ uri: logoUrl }} style={styles.tdHeroPartyLogo} />
+      ) : (
+        <Text style={styles.tdHeroPartyInitials}>{partyInitials(name)}</Text>
+      )}
+    </View>
+  );
+}
 
 function TimelinePulseIcon({
   expanded,
@@ -172,8 +320,13 @@ export function DriverTripHistoryDetailScreen({
   >([]);
   const [assignmentActorByTripId, setAssignmentActorByTripId] = useState<Record<string, string>>({});
   const [routeMetricsByTripId, setRouteMetricsByTripId] = useState<
-    Record<string, { distance: number; estimated_duration: string }>
+    Record<string, { distance: number; estimated_duration: string; meters: number; seconds: number }>
   >({});
+  const [heroStops, setHeroStops] = useState<{
+    from: { latitude: number; longitude: number } | null;
+    to: { latitude: number; longitude: number } | null;
+  }>({ from: null, to: null });
+  const [heroCardSize, setHeroCardSize] = useState({ width: 0, height: 0 });
   const [detailTab, setDetailTab] = useState<"journey" | "operations" | "settlement">(
     initialTab ?? (initialSelectedExpenseId ? "settlement" : "journey"),
   );
@@ -438,27 +591,35 @@ export function DriverTripHistoryDetailScreen({
   );
 
   useEffect(() => {
-    if (!trip) return;
+    if (!trip) {
+      setHeroStops({ from: null, to: null });
+      return;
+    }
+    const from = resolveHistoryStop(trip.pickup_lat, trip.pickup_lon, trip.pickup_area);
+    const to = resolveHistoryStop(
+      trip.drop_lat,
+      trip.drop_lon,
+      trip.drop_location || trip.drop_area || "",
+    );
+    setHeroStops({ from, to });
     const tid = String(trip.id ?? "").trim();
     const hasDistance = trip.distance != null && String(trip.distance).trim() !== "";
     const hasEta = trip.estimated_duration != null && trip.estimated_duration.trim() !== "";
-    if (!tid || (hasDistance && hasEta)) return;
-    const pickupLat = parseTripCoordinate(trip.pickup_lat);
-    const pickupLon = parseTripCoordinate(trip.pickup_lon);
-    const dropLat = parseTripCoordinate(trip.drop_lat);
-    const dropLon = parseTripCoordinate(trip.drop_lon);
-    if (pickupLat == null || pickupLon == null || dropLat == null || dropLon == null) return;
+    if (!tid || !from || !to || (hasDistance && hasEta)) return;
+    if (haversineKm(from.latitude, from.longitude, to.latitude, to.longitude) < 0.3) return;
     let cancelled = false;
-    void getOptimalRoute(
-      { latitude: pickupLat, longitude: pickupLon },
-      { latitude: dropLat, longitude: dropLon },
-    ).then((route) => {
-      if (cancelled || !route) return;
+    void getOptimalRoute(from, to).then((route) => {
+      if (cancelled || !route || route.distance < 100) return;
       const distanceKm = Math.max(1, Math.round(route.distance / 1000));
       const etaInterval = toEtaInterval(route.duration);
       setRouteMetricsByTripId((prev) => ({
         ...prev,
-        [tid]: { distance: distanceKm, estimated_duration: etaInterval },
+        [tid]: {
+          distance: distanceKm,
+          estimated_duration: etaInterval,
+          meters: route.distance,
+          seconds: route.duration,
+        },
       }));
     });
     return () => {
@@ -491,29 +652,46 @@ export function DriverTripHistoryDetailScreen({
     if (!trip) return [];
     return attachDriverAppLocations(buildMissionLog(trip), appLocationPoints);
   }, [trip, appLocationPoints]);
-  const pickupParts = useMemo(
-    () => splitLocationPrimarySecondary(trip?.pickup_area),
+  const pickupHub = useMemo(
+    () => splitHubRouteLocationDisplay(trip?.pickup_area),
     [trip?.pickup_area],
   );
-  const dropParts = useMemo(
-    () => splitLocationPrimarySecondary(trip?.drop_location),
-    [trip?.drop_location],
+  const dropHub = useMemo(
+    () => splitHubRouteLocationDisplay(trip?.drop_location || trip?.drop_area),
+    [trip?.drop_location, trip?.drop_area],
   );
   const routeFallback = useMemo(() => {
     if (!trip) return null;
     return routeMetricsByTripId[String(trip.id)] ?? null;
   }, [trip, routeMetricsByTripId]);
+  const assignerLogoUrl = useMemo(() => {
+    if (!trip) return null;
+    const orgId = String(trip.organization_id ?? "");
+    const invite = invites.find((row) => String(row.from_organization_id ?? "") === orgId);
+    return invite?.from_org_logo_url || invite?.from_org_avatar_url || null;
+  }, [trip, invites]);
   const distanceDisplay = useMemo(() => {
     if (!trip) return "—";
-    return formatDistance(trip.distance ?? routeFallback?.distance);
+    if (routeFallback && routeFallback.meters >= 100) return formatRoadDistanceM(routeFallback.meters);
+    const raw = trip.distance;
+    if (raw == null || String(raw).trim() === "") return "—";
+    const km = typeof raw === "string" ? parseFloat(raw.replace(/[^0-9.]/g, "")) : Number(raw);
+    if (!Number.isFinite(km) || km < 0) return "—";
+    return `${km.toFixed(1)} km`;
   }, [trip, routeFallback]);
   const durationDisplay = useMemo(() => {
     if (!trip) return "—";
-    if (trip.estimated_duration?.trim()) return formatDurationForTrip(trip);
-    if (routeFallback?.estimated_duration) {
-      return formatEstimatedDuration(routeFallback.estimated_duration);
+    if (routeFallback && routeFallback.seconds >= 30) {
+      return formatEtaFromRouteSeconds(routeFallback.seconds);
     }
-    return formatDurationForTrip(trip);
+    if (trip.estimated_duration?.trim()) return humanizeDurationLabel(trip.estimated_duration);
+    if (trip.started_at && trip.completed_at) {
+      const seconds =
+        (new Date(trip.completed_at).getTime() - new Date(trip.started_at).getTime()) / 1000;
+      if (seconds >= 60) return formatEtaFromRouteSeconds(seconds);
+    }
+    if (routeFallback?.estimated_duration) return humanizeDurationLabel(routeFallback.estimated_duration);
+    return "—";
   }, [trip, routeFallback]);
 
   const historyEmployerOrgIdSet = useMemo(() => {
@@ -639,6 +817,8 @@ export function DriverTripHistoryDetailScreen({
     profile?.uid,
   ]);
 
+  const pageBg = isDark ? colors.background : Theme.driverEmeraldWash;
+
   const onBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace("/(driver)/trip-history");
@@ -646,7 +826,7 @@ export function DriverTripHistoryDetailScreen({
 
   if (loading || !trip) {
     return (
-      <View style={[styles.detailWrap, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+      <View style={[styles.detailWrap, { paddingTop: insets.top, backgroundColor: pageBg }]}>
         <View style={styles.detailLoading}>
           <LoadingIndicator color={colors.emerald} />
           <Text style={{ color: colors.textMuted, marginTop: 12 }}>Loading trip…</Text>
@@ -675,7 +855,7 @@ export function DriverTripHistoryDetailScreen({
         styles.detailWrap,
         {
           paddingTop: insets.top,
-          backgroundColor: colors.background,
+          backgroundColor: pageBg,
         },
       ]}
     >
@@ -687,7 +867,7 @@ export function DriverTripHistoryDetailScreen({
                   paddingTop: 12,
                   paddingBottom: 12,
                   paddingHorizontal: Layout.screenPaddingHorizontal,
-                  backgroundColor: colors.surface,
+                  backgroundColor: pageBg,
                   borderBottomColor: colors.border,
                 },
               ]}
@@ -719,7 +899,7 @@ export function DriverTripHistoryDetailScreen({
                     { color: colors.textMuted },
                   ]}
                 >
-                  TRIP HISTORY
+                  {detailTab === "operations" ? "OPERATIONS" : "TRIP HISTORY"}
                 </Text>
                 <View style={styles.detailHeaderIdRowRef}>
                   <Text
@@ -731,14 +911,55 @@ export function DriverTripHistoryDetailScreen({
                   <View
                     style={[
                       styles.tdStatusDot,
-                      {
-                        backgroundColor: colors.emerald,
-                      },
+                      { backgroundColor: Theme.tripsMint },
                     ]}
                   />
                 </View>
               </View>
               <View style={styles.detailHeaderActions}>
+                {detailTab === "operations" ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.detailBack,
+                      styles.detailBackStyled,
+                      {
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={() => {
+                      const tripRef = getDriverTripDisplayNumber(
+                        selectedTrip,
+                        driverTripNumberById,
+                      );
+                      Alert.alert(tripRef, undefined, [
+                        ...(selectedTrip.driver_id
+                          ? [
+                              {
+                                text: "Trip chat",
+                                onPress: () => {
+                                  const id = encodeURIComponent(String(selectedTrip.id));
+                                  router.push(`/(driver)/chat?tripId=${id}` as Href);
+                                },
+                              },
+                            ]
+                          : []),
+                        {
+                          text: "Share trip",
+                          onPress: () => {
+                            void Share.share({ message: `Trip ${tripRef}` }).catch(() => {});
+                          },
+                        },
+                        { text: "Cancel", style: "cancel" },
+                      ]);
+                    }}
+                    activeOpacity={0.75}
+                    accessibilityLabel="Trip options"
+                  >
+                    <MoreVertical size={17} color={colors.text} />
+                  </TouchableOpacity>
+                ) : (
+                  <>
                 {selectedTrip.driver_id ? (
                   <TouchableOpacity
                     style={[
@@ -778,12 +999,14 @@ export function DriverTripHistoryDetailScreen({
                 >
                   <Share2 size={17} color={colors.text} />
                 </TouchableOpacity>
+                  </>
+                )}
               </View>
             </View>
             <ScrollView
               style={[
                 styles.detailScrollRef,
-                { backgroundColor: colors.background },
+                { backgroundColor: pageBg },
               ]}
               contentContainerStyle={[
                 styles.detailContentRef,
@@ -802,103 +1025,152 @@ export function DriverTripHistoryDetailScreen({
               nestedScrollEnabled
               bounces
             >
-              <View style={styles.tdHeroOuter}>
+              <View
+                style={[
+                  styles.tdHeroOuter,
+                  isDark && {
+                    backgroundColor: "#042421",
+                    borderColor: "rgba(255,255,255,0.12)",
+                  },
+                ]}
+              >
                 <LinearGradient
-                  colors={["#0f172a", "#020617"]}
+                  colors={isDark ? HERO_GRADIENT_DARK : HERO_GRADIENT_LIGHT}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.tdHeroCard}
+                  onLayout={(event) => {
+                    const { width, height } = event.nativeEvent.layout;
+                    setHeroCardSize((prev) =>
+                      prev.width === width && prev.height === height ? prev : { width, height },
+                    );
+                  }}
                 >
-                  <View style={styles.tdHeroGlow} pointerEvents="none" />
-                  <View style={styles.tdHeroWatermark} pointerEvents="none">
-                    <Route size={128} color="rgba(255,255,255,0.08)" />
-                  </View>
+                  <HeroRouteBackdrop
+                    from={heroStops.from}
+                    to={heroStops.to}
+                    width={heroCardSize.width}
+                    height={heroCardSize.height}
+                    light={!isDark}
+                  />
                   <View style={styles.tdHeroInner}>
-                    <Text style={styles.tdHeroKicker}>Route Logic History</Text>
+                    <Text
+                      style={[
+                        styles.tdHeroKicker,
+                        isDark && { color: "rgba(153,246,228,0.92)" },
+                      ]}
+                    >
+                      Route Logic History
+                    </Text>
                     <View style={styles.tdHeroRouteRow}>
                       <View style={styles.tdHeroRouteSide}>
                         <Text
-                          style={styles.tdHeroCity}
+                          style={[styles.tdHeroCity, isDark && { color: Theme.textOnPrimary }]}
                           numberOfLines={1}
                           adjustsFontSizeToFit
-                          minimumFontScale={0.72}
+                          minimumFontScale={0.7}
                         >
-                          {pickupParts.primary.toUpperCase()}
+                          {pickupHub.city.toUpperCase()}
                         </Text>
-                        <Text style={styles.tdHeroState} numberOfLines={1}>
-                          {(pickupParts.secondary ?? "Origin").toUpperCase()}
-                        </Text>
+                        {pickupHub.state ? (
+                          <Text
+                            style={[styles.tdHeroState, isDark && { color: "rgba(153,246,228,0.72)" }]}
+                            numberOfLines={1}
+                          >
+                            {pickupHub.state.toUpperCase()}
+                          </Text>
+                        ) : null}
                       </View>
-
-                      <View style={styles.tdHeroRouteConnector}>
-                        <View style={[styles.tdHeroDot, { backgroundColor: Theme.driverEmerald }]} />
-                        <View style={styles.tdHeroConnectorLine} />
-                        <Text style={[styles.tdHeroToLabel, { color: Theme.driverPrimary }]}>TO</Text>
-                        <View style={styles.tdHeroConnectorLine} />
-                        <View style={[styles.tdHeroDot, { backgroundColor: Theme.driverPrimary }]} />
-                      </View>
-
+                      <Text style={[styles.tdHeroArrow, isDark && { color: "rgba(255,255,255,0.88)" }]}>
+                        →
+                      </Text>
                       <View style={[styles.tdHeroRouteSide, styles.tdHeroRouteSideRight]}>
                         <Text
-                          style={[styles.tdHeroCity, styles.tdHeroCityRight]}
+                          style={[
+                            styles.tdHeroCity,
+                            styles.tdHeroCityRight,
+                            isDark && { color: Theme.textOnPrimary },
+                          ]}
                           numberOfLines={1}
                           adjustsFontSizeToFit
-                          minimumFontScale={0.72}
+                          minimumFontScale={0.7}
                         >
-                          {dropParts.primary.toUpperCase()}
+                          {dropHub.city.toUpperCase()}
                         </Text>
-                        <Text style={[styles.tdHeroState, styles.tdHeroStateRight]} numberOfLines={1}>
-                          {(dropParts.secondary ?? "Destination").toUpperCase()}
-                        </Text>
+                        {dropHub.state ? (
+                          <Text
+                            style={[
+                              styles.tdHeroState,
+                              styles.tdHeroStateRight,
+                              isDark && { color: "rgba(153,246,228,0.72)" },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {dropHub.state.toUpperCase()}
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
 
-                    <View style={styles.tdHeroDivider} />
                     <View style={styles.tdHeroMetaRow}>
-                      <View style={styles.tdHeroMetaItem}>
-                        <View style={styles.tdHeroMetaIconWrap}>
-                          <Navigation size={16} color={Theme.driverPrimary} />
-                        </View>
-                        <View>
-                          <Text style={styles.tdHeroMetaKicker}>Distance</Text>
-                          <Text style={styles.tdHeroMetaValue}>
-                            {distanceDisplay}
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.tdHeroMetaItem}>
-                        <View style={styles.tdHeroMetaIconWrap}>
-                          <Clock size={16} color={Theme.driverPrimary} />
-                        </View>
-                        <View>
-                          <Text style={styles.tdHeroMetaKicker}>Duration</Text>
-                          <Text style={styles.tdHeroMetaValue}>
-                            {durationDisplay}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                    <View style={styles.tdHeroAssignerRow}>
-                      <View style={styles.tdHeroAssignerPair}>
-                        <ShieldCheck size={14} color={Theme.driverPrimary} />
-                        <Text style={styles.tdHeroAssignerLabel}>Assigned by</Text>
-                        <Text style={styles.tdHeroAssignerValue} numberOfLines={1}>
-                          {assignerDisplay}
+                      <View
+                        style={[
+                          styles.tdHeroPill,
+                          isDark && {
+                            backgroundColor: "rgba(255,255,255,0.12)",
+                            borderColor: "rgba(255,255,255,0.16)",
+                          },
+                        ]}
+                      >
+                        <Navigation size={14} color={isDark ? Theme.textOnPrimary : Theme.driverEmerald} />
+                        <Text style={[styles.tdHeroPillText, isDark && { color: Theme.textOnPrimary }]}>
+                          {distanceDisplay}
                         </Text>
                       </View>
-                      {trip && isOfflinePartyTrip && isTripTaggedToParty(trip) ? (
-                        <View style={styles.tdHeroAssignerPair}>
-                          <Tag size={14} color={Theme.driverPrimary} />
-                          <Text style={styles.tdHeroAssignerLabel}>Tagged</Text>
-                          <Text style={styles.tdHeroAssignerValue} numberOfLines={1}>
-                            {tripReceivablePartyName(trip)}
+                      <View
+                        style={[
+                          styles.tdHeroPill,
+                          isDark && {
+                            backgroundColor: "rgba(255,255,255,0.12)",
+                            borderColor: "rgba(255,255,255,0.16)",
+                          },
+                        ]}
+                      >
+                        <Clock size={14} color={isDark ? Theme.textOnPrimary : Theme.driverEmerald} />
+                        <Text style={[styles.tdHeroPillText, isDark && { color: Theme.textOnPrimary }]}>
+                          {durationDisplay}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.tdHeroPartyRow}>
+                      <View style={styles.tdHeroPartyCol}>
+                        <View style={styles.tdHeroPartyKickerRow}>
+                          <ShieldCheck size={12} color={isDark ? "rgba(153,246,228,0.9)" : Theme.driverEmerald} />
+                          <Text style={[styles.tdHeroPartyKicker, isDark && { color: "rgba(153,246,228,0.8)" }]}>
+                            Assigned by
                           </Text>
                         </View>
-                      ) : null}
-                    </View>
-                    {needsOfflinePartyTag || taggedOfflineParty ? (
+                        <View
+                          style={[
+                            styles.tdHeroPartyCard,
+                            isDark && {
+                              backgroundColor: "rgba(255,255,255,0.1)",
+                              borderColor: "rgba(255,255,255,0.14)",
+                            },
+                          ]}
+                        >
+                          <PartyMark name={assignerDisplay} logoUrl={assignerLogoUrl} />
+                          <Text
+                            style={[styles.tdHeroPartyName, isDark && { color: Theme.textOnPrimary }]}
+                            numberOfLines={1}
+                          >
+                            {assignerDisplay}
+                          </Text>
+                        </View>
+                      </View>
                       <TouchableOpacity
-                        style={styles.tdHeroTagRow}
+                        style={styles.tdHeroPartyCol}
+                        disabled={!needsOfflinePartyTag && !taggedOfflineParty}
                         onPress={() => {
                           if (taggedOfflineParty) {
                             router.push(
@@ -909,48 +1181,63 @@ export function DriverTripHistoryDetailScreen({
                             );
                             return;
                           }
-                          setCollectFromOpen(true);
+                          if (needsOfflinePartyTag) setCollectFromOpen(true);
                         }}
                         activeOpacity={0.85}
                         accessibilityRole="button"
                         accessibilityLabel={
                           taggedOfflineParty
-                            ? `Bill to ${taggedOfflineParty}`
-                            : "Tag party"
+                            ? `Tagged ${taggedOfflineParty}`
+                            : needsOfflinePartyTag
+                              ? "Tag party"
+                              : "Tagged party"
                         }
                       >
-                        <Tag
-                          size={13}
-                          color={taggedOfflineParty ? Theme.driverEmerald : Theme.warning}
-                          strokeWidth={2.4}
-                        />
-                        <Text
+                        <View style={styles.tdHeroPartyKickerRow}>
+                          <Tag size={12} color={isDark ? "rgba(153,246,228,0.9)" : Theme.driverEmerald} />
+                          <Text style={[styles.tdHeroPartyKicker, isDark && { color: "rgba(153,246,228,0.8)" }]}>
+                            Tagged
+                          </Text>
+                        </View>
+                        <View
                           style={[
-                            styles.tdHeroTagLabel,
-                            {
-                              color: taggedOfflineParty
-                                ? Theme.driverEmerald
-                                : Theme.warning,
+                            styles.tdHeroPartyCard,
+                            isDark && {
+                              backgroundColor: "rgba(255,255,255,0.1)",
+                              borderColor: "rgba(255,255,255,0.14)",
                             },
                           ]}
-                          numberOfLines={1}
                         >
-                          {taggedOfflineParty
-                            ? `Bill to ${taggedOfflineParty}`
-                            : "Tag party to track AR"}
-                        </Text>
+                          <PartyMark
+                            name={taggedOfflineParty || trip.client_name || "Party"}
+                          />
+                          <Text
+                            style={[styles.tdHeroPartyName, isDark && { color: Theme.textOnPrimary }]}
+                            numberOfLines={1}
+                          >
+                            {taggedOfflineParty ||
+                              (needsOfflinePartyTag ? "Tag a party" : trip.client_name || "—")}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
-                    ) : null}
+                    </View>
                   </View>
-                  <View style={[styles.tdHeroAccentBar, { backgroundColor: colors.emerald }]} />
                 </LinearGradient>
               </View>
 
-              <View style={[styles.tdTabBar, { backgroundColor: `${colors.border}99` }]}>
+              <View
+                style={[
+                  styles.tdTabBar,
+                  { backgroundColor: isDark ? colors.surface : Theme.surfaceGray },
+                ]}
+              >
                 <TouchableOpacity
                   style={[
                     styles.tdTabBtn,
-                    detailTab === "journey" && styles.tdTabBtnActive,
+                    detailTab === "journey" && [
+                      styles.tdTabBtnActive,
+                      { backgroundColor: Theme.buttonDark },
+                    ],
                   ]}
                   onPress={() => setDetailTab("journey")}
                   activeOpacity={0.88}
@@ -959,7 +1246,7 @@ export function DriverTripHistoryDetailScreen({
                     style={[
                       styles.tdTabLabel,
                       {
-                        color: detailTab === "journey" ? "#ffffff" : colors.textMuted,
+                        color: detailTab === "journey" ? Theme.buttonDarkText : colors.textMuted,
                       },
                     ]}
                   >
@@ -969,7 +1256,10 @@ export function DriverTripHistoryDetailScreen({
                 <TouchableOpacity
                   style={[
                     styles.tdTabBtn,
-                    detailTab === "operations" && styles.tdTabBtnActive,
+                    detailTab === "operations" && [
+                      styles.tdTabBtnActive,
+                      { backgroundColor: Theme.buttonDark },
+                    ],
                   ]}
                   onPress={() => setDetailTab("operations")}
                   activeOpacity={0.88}
@@ -978,7 +1268,7 @@ export function DriverTripHistoryDetailScreen({
                     style={[
                       styles.tdTabLabel,
                       {
-                        color: detailTab === "operations" ? "#ffffff" : colors.textMuted,
+                        color: detailTab === "operations" ? Theme.buttonDarkText : colors.textMuted,
                       },
                     ]}
                   >
@@ -988,7 +1278,10 @@ export function DriverTripHistoryDetailScreen({
                 <TouchableOpacity
                   style={[
                     styles.tdTabBtn,
-                    detailTab === "settlement" && styles.tdTabBtnActive,
+                    detailTab === "settlement" && [
+                      styles.tdTabBtnActive,
+                      { backgroundColor: Theme.buttonDark },
+                    ],
                   ]}
                   onPress={() => setDetailTab("settlement")}
                   activeOpacity={0.88}
@@ -997,7 +1290,7 @@ export function DriverTripHistoryDetailScreen({
                     style={[
                       styles.tdTabLabel,
                       {
-                        color: detailTab === "settlement" ? "#ffffff" : colors.textMuted,
+                        color: detailTab === "settlement" ? Theme.buttonDarkText : colors.textMuted,
                       },
                     ]}
                   >
@@ -1048,7 +1341,7 @@ export function DriverTripHistoryDetailScreen({
                           <View key={`${log.status}-${i}`} style={styles.tdLogRowWrap}>
                             {!isLast ? (
                               <View
-                                style={[styles.tdLogConnector, { backgroundColor: colors.border }]}
+                                style={[styles.tdLogConnector, { backgroundColor: Theme.tripsMint }]}
                               />
                             ) : null}
                             <TouchableOpacity
@@ -1075,7 +1368,7 @@ export function DriverTripHistoryDetailScreen({
                                       },
                                     ]}
                                   >
-                                    <CheckCircle2 size={11} color="#ffffff" />
+                                    <TimelineStepIcon status={log.status} />
                                   </View>
                                 </TimelinePulseIcon>
                               </View>
@@ -1287,9 +1580,7 @@ export function DriverTripHistoryDetailScreen({
                             >
                               {name}
                             </Text>
-                            <Text style={[styles.tdPodPreview, { color: colors.textMuted }]}>
-                              Preview
-                            </Text>
+                            <Text style={styles.tdPodPreview}>Preview</Text>
                           </TouchableOpacity>
                         );
                       })
@@ -1353,7 +1644,16 @@ export function DriverTripHistoryDetailScreen({
 
               {detailTab === "operations" && trip ? (
                 <View style={{ marginBottom: 12 }}>
-                  <DriverTripOperationsTab trip={trip} />
+                  <DriverTripOperationsTab
+                    trip={trip}
+                    documents={detailPodDocuments}
+                    documentUrls={detailPodViewUrls}
+                    documentsLoading={detailPodLoading}
+                    onPreviewDocument={(documentId) => {
+                      const index = detailPodDocuments.findIndex((doc) => doc.id === documentId);
+                      if (index >= 0) setPodPreviewIndex(index);
+                    }}
+                  />
                 </View>
               ) : null}
 

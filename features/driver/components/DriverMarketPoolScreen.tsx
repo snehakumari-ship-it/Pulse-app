@@ -45,27 +45,14 @@ import { queryKeys } from '@/lib/queryKeys';
 import { ROUTES } from '@/lib/routes';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { EyeOff } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function dateLabel(value: string | null): string | null {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-}
-
-function pickupWindow(earliest: string | null, latest: string | null): string | null {
-  const a = dateLabel(earliest);
-  const b = dateLabel(latest);
-  if (!a || !b) return a ?? b;
-  return a === b ? a : `${a} – ${b}`;
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
+function FactTile({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.fact}>
+    <View style={styles.factTile}>
       <Text style={styles.factLabel}>{label}</Text>
       <Text style={styles.factValue} numberOfLines={2}>
         {value}
@@ -235,24 +222,30 @@ export default function DriverMarketPoolScreen() {
     </Text>
   ) : (
     <>
-      <View style={styles.card} testID="driver-pool-requirement">
+      <View style={styles.routeHero} testID="driver-pool-requirement">
+        <View style={styles.routeHeroWash} />
         <Text style={styles.eyebrow}>{driverPoolEyebrow(poolCount, true)}</Text>
         <Text style={styles.route} numberOfLines={2}>
           {key.pickup} → {key.drop}
         </Text>
         <Text style={styles.stateDetail}>{POOL_STATE_COPY[summary.state].detail}</Text>
-        <View style={styles.facts}>
-          <Fact label="Vehicle" value={key.vehicleType} />
-          <Fact label="Loads in pool" value={String(poolCount)} />
-          <Fact
-            label="Pickup window"
-            value={pickupWindow(summary.earliestPickup, summary.latestPickup) ?? 'Not listed'}
-          />
-          <Fact
-            label="Material"
-            value={summary.loadTypes.length > 0 ? summary.loadTypes.join(', ') : 'Not listed'}
-          />
-          <Fact label="Shipper" value="Identity hidden" />
+      </View>
+
+      <View style={styles.factRow}>
+        <FactTile label="Vehicle" value={key.vehicleType || 'Not listed'} />
+        <FactTile
+          label="Material"
+          value={summary.loadTypes.length > 0 ? summary.loadTypes.join(', ') : 'Not listed'}
+        />
+      </View>
+
+      <View style={styles.shipperCard} accessibilityLabel="Shipper: Identity hidden">
+        <View style={styles.shipperText}>
+          <Text style={styles.factLabel}>Shipper</Text>
+          <Text style={styles.factValue}>Identity hidden</Text>
+        </View>
+        <View style={styles.shipperIcon}>
+          <EyeOff size={16} color={Theme.textMuted} strokeWidth={2.2} />
         </View>
       </View>
 
@@ -351,11 +344,74 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
   },
-  eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.1, color: Theme.primary },
-  route: { fontSize: 16, fontWeight: '800', color: Theme.textPrimaryDark },
-  stateDetail: { fontSize: 13, color: Theme.textSecondary, lineHeight: 18 },
-  facts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 },
-  fact: { minWidth: '40%', flexGrow: 1, flexBasis: 0, gap: 2 },
+  routeHero: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+    padding: 16,
+    gap: 6,
+    overflow: 'hidden',
+    minHeight: 132,
+    justifyContent: 'flex-end',
+  },
+  routeHeroWash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Theme.driverEmeraldWash,
+    opacity: 0.85,
+  },
+  eyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    color: Theme.driverCtaFill,
+    zIndex: 1,
+  },
+  route: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.3,
+    zIndex: 1,
+  },
+  stateDetail: {
+    fontSize: 13,
+    color: Theme.textSecondary,
+    lineHeight: 18,
+    zIndex: 1,
+  },
+  factRow: { flexDirection: 'row', gap: 8 },
+  factTile: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  shipperCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  shipperText: { flex: 1, minWidth: 0, gap: 2 },
+  shipperIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Theme.surfaceGray,
+  },
   factLabel: { fontSize: 11, fontWeight: '600', color: Theme.textMuted },
   factValue: { fontSize: 14, fontWeight: '700', color: Theme.textPrimaryDark },
   message: { fontSize: 13, lineHeight: 18, marginTop: 24, textAlign: 'center' },
@@ -366,8 +422,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Theme.primary,
+    backgroundColor: Theme.driverCtaFill,
   },
-  retryText: { color: Theme.buttonPrimaryText, fontSize: 13, fontWeight: '700' },
+  retryText: { color: Theme.textOnPrimary, fontSize: 13, fontWeight: '700' },
   pressed: { opacity: 0.88 },
 });

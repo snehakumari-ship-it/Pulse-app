@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { DeliverySuccessMotion } from '@/components/driver/DeliverySuccessMotion';
 import Layout from '@/constants/Layout';
 import Theme from '@/constants/Theme';
 import { getDriverThemeColors } from '@/contexts/DriverThemeContext';
@@ -101,7 +102,11 @@ export function RouteTimeline({ colors, stops, onOpenStop, onViewAll }: Props) {
   return (
     <View
       testID="commerce-route-timeline"
-      style={[styles.card, softElevation, { backgroundColor: cardBackground(colors) }]}
+      style={[
+        styles.card,
+        softElevation,
+        { backgroundColor: cardBackground(colors), borderColor: colors.border },
+      ]}
     >
       <View style={styles.titleRow}>
         <Text style={[styles.title, { color: colors.text }]}>Delivery progress</Text>
@@ -217,6 +222,10 @@ export function RouteTimeline({ colors, stops, onOpenStop, onViewAll }: Props) {
           </View>
         );
       })}
+
+      <View style={styles.motionCorner} pointerEvents="none">
+        <DeliverySuccessMotion />
+      </View>
     </View>
   );
 }
@@ -226,21 +235,28 @@ const MARKER = 16;
 const styles = StyleSheet.create({
   card: {
     borderRadius: JOB_CARD_RADIUS,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: 10,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  motionCorner: {
+    alignSelf: 'flex-end',
+    marginTop: 4,
+    marginRight: -4,
+    opacity: 0.96,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 10,
-    paddingHorizontal: 2,
   },
   title: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 0.2,
+    letterSpacing: -0.1,
   },
   viewAll: {
     minHeight: 28,

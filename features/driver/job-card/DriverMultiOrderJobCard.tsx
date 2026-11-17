@@ -62,7 +62,7 @@ import {
 import { formatTime } from '@/lib/format';
 import { openExternalNavigation } from '@/lib/mapsNavigation.util';
 import { DeliveryDetailsPreview, type DeliveryPreviewStop } from '@/features/driver/job-card/parts/DeliveryDetailsPreview';
-import { ChevronUp, Receipt } from 'lucide-react-native';
+import { ChevronUp } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -83,7 +83,6 @@ export function DriverMultiOrderJobCard({
   onTripCompleted,
   onTripUpdated,
   deliveryDetailsNonce = 0,
-  onExpense,
 }: Props) {
   const colors = useDriverThemeColors();
   const { profile } = useAuth();
@@ -443,53 +442,31 @@ export function DriverMultiOrderJobCard({
     })();
   };
 
-  if (collapsed && !verificationOpen) {
-    const peekPlace = currentStop ? formatStopPlace(currentStop) : 'Route';
-    const peekStage = actionModel.cta ?? actionModel.stageLabel;
-    return (
-      <>
-        <Pressable
-          testID="driver-multi-order-job-card"
-          onPress={() => onToggleCollapse?.()}
-          style={[styles.mapSummary, { backgroundColor: colors.background }]}
-          accessibilityRole="button"
-          accessibilityLabel="Open today's route"
-        >
-          <View style={styles.mapSummaryRow}>
-            <View style={styles.mapSummaryCopy}>
-              <Text style={[styles.mapSummaryKicker, { color: colors.emerald }]}>Commerce Delivery</Text>
-              <Text style={[styles.mapSummaryPlace, { color: colors.text }]} numberOfLines={1}>
-                {peekPlace}
-                {peekStage ? ` · ${peekStage}` : ''}
-              </Text>
-            </View>
-            <View style={[styles.mapSummaryCountPill, { backgroundColor: colors.emeraldMuted }]}>
-              <Text style={[styles.mapSummaryCount, { color: colors.emerald }]}>
-                {done}/{stops.length}
-              </Text>
-            </View>
-            {onExpense ? (
-              <Pressable
-                onPress={onExpense}
-                accessibilityRole="button"
-                accessibilityLabel="Add trip expense"
-                hitSlop={Layout.touchTargetHitSlop}
-                style={[styles.peekExpense, { backgroundColor: colors.emeraldMuted }]}
-              >
-                <Receipt size={18} color={colors.emerald} strokeWidth={2.3} />
-              </Pressable>
-            ) : null}
-            <ChevronUp size={18} color={colors.emerald} strokeWidth={2.6} />
-          </View>
-        </Pressable>
-        <DeliveryDetailsPreview
-          visible={detailsOpen}
-          stops={previewStops}
-          onClose={() => setDetailsOpen(false)}
-        />
-      </>
-    );
-  }
+  const peekPlace = currentStop ? formatStopPlace(currentStop) : 'Route';
+  const peekStage = actionModel.cta ?? actionModel.stageLabel;
+  const peekHeader = collapsed && !verificationOpen ? (
+    <Pressable
+      onPress={() => onToggleCollapse?.()}
+      style={[styles.mapSummary, { backgroundColor: colors.background }]}
+      accessibilityRole="button"
+      accessibilityLabel="Open today's route"
+    >
+      <View style={[styles.peekHandle, { backgroundColor: colors.border }]} />
+      <View style={styles.mapSummaryRow}>
+        <View style={styles.mapSummaryCopy}>
+          <Text style={[styles.mapSummaryKicker, { color: colors.emerald }]}>Commerce Delivery</Text>
+          <Text style={[styles.mapSummaryPlace, { color: colors.text }]} numberOfLines={1}>
+            {peekPlace}
+            {peekStage ? ` · ${peekStage}` : ''}
+          </Text>
+        </View>
+        <Text style={[styles.mapSummaryCount, { color: colors.text }]}>
+          {done}/{stops.length}
+        </Text>
+        <ChevronUp size={16} color={colors.emerald} strokeWidth={2.6} />
+      </View>
+    </Pressable>
+  ) : null;
 
   const nextOnRoute = verified ? currentStop : nextStop;
   const verifyOverlay =
@@ -551,7 +528,6 @@ export function DriverMultiOrderJobCard({
               : null
           }
           onProof={canComplete ? openVerification : null}
-          onExpense={onExpense ?? null}
         >
           {stopAction}
         </CurrentStopCard>
@@ -584,6 +560,7 @@ export function DriverMultiOrderJobCard({
         summary={commerceSummary}
         stats={stopStats}
       />
+
       <RouteTimeline
         colors={colors}
         stops={timelineStops}
@@ -602,16 +579,15 @@ export function DriverMultiOrderJobCard({
   return (
     <View testID="driver-multi-order-job-card" style={sheetStyle}>
       {inSheet ? (
-        <ScrollView
-          style={styles.pageScroll}
-          contentContainerStyle={styles.pageBody}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.pageBody}>
+          {peekHeader}
           {routeBody}
-        </ScrollView>
+        </View>
       ) : (
-        routeBody
+        <>
+          {peekHeader}
+          {routeBody}
+        </>
       )}
       {verifyOverlay}
       <TripPlanPage
@@ -653,14 +629,12 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: TRIP_SHEET_TOP_RADIUS,
     borderTopRightRadius: TRIP_SHEET_TOP_RADIUS,
     gap: TRIP_SHEET_BODY_PAD.gap,
-    overflow: 'hidden',
   },
   sheetFlush: {
     paddingHorizontal: 0,
     paddingTop: 0,
   },
   page: {
-    flex: 1,
     alignSelf: 'stretch',
     width: '100%',
     borderTopLeftRadius: 0,
@@ -673,9 +647,9 @@ const styles = StyleSheet.create({
   },
   pageBody: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 6,
-    paddingBottom: 16,
-    gap: 10,
+    paddingTop: 4,
+    paddingBottom: 8,
+    gap: 8,
   },
   actionDock: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
@@ -685,15 +659,24 @@ const styles = StyleSheet.create({
   edge: { marginHorizontal: 0 },
   inset: { marginHorizontal: Layout.screenPaddingHorizontal },
   mapSummary: {
-    minHeight: 72,
+    height: 76,
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
+    paddingTop: 8,
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 10,
-    paddingBottom: 10,
+    gap: 8,
+  },
+  peekHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 999,
   },
   mapSummaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    minHeight: 44,
   },
   mapSummaryCopy: {
     flex: 1,
@@ -711,22 +694,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.1,
   },
-  mapSummaryCountPill: {
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
   mapSummaryCount: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
-  peekExpense: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  peek: { paddingBottom: 12, gap: 8 },
   peekPlace: {
     fontSize: 15,
     fontWeight: '700',

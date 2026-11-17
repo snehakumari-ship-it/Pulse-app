@@ -27,9 +27,10 @@ const RING = 58;
 const ITEM_W = 66;
 const ADD_BADGE = 22;
 
-const RING_MINE_ACTIVE = ['#4D3636', '#22d3ee', '#10b981'] as const;
-const RING_MINE_IDLE = ['#e2e8f0', '#cbd5e1'] as const;
-const RING_FLEET = [Theme.darkGreen, Theme.accentGold] as const;
+/** Soft brand rings — stay on Theme so the reel matches Market mint chrome. */
+const RING_MINE_ACTIVE = [Theme.driverEmeraldDark, Theme.driverEmerald] as const;
+const RING_MINE_IDLE = [Theme.borderMedium, Theme.borderLight] as const;
+const RING_FLEET = [Theme.driverEmerald, Theme.driverGold] as const;
 const RING_SPONSORED = [Theme.accentBrown, Theme.accentBrownDeep] as const;
 
 type Props = {
@@ -282,18 +283,17 @@ export function DriverPulseStoryReel({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingTop: 8,
-    paddingBottom: 8,
-    backgroundColor: Theme.surfaceGray,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Theme.borderLight,
+    // Transparent so the reel sits on the same mint Market canvas as filters/cards.
+    paddingTop: 6,
+    paddingBottom: 4,
+    backgroundColor: 'transparent',
   },
   scroll: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     gap: 12,
     alignItems: 'flex-start',
     paddingTop: 4,
-    paddingBottom: 6,
+    paddingBottom: 4,
   },
   storyItem: {
     width: ITEM_W,
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ringGap: {
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.cardWhite,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 1.5,
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 12,
     fontWeight: '700',
-    color: Theme.brandBlueInk,
+    color: Theme.textPrimaryDark,
     textAlign: 'center',
     width: '100%',
   },
@@ -369,7 +369,7 @@ const styles = StyleSheet.create({
     fontSize: 8,
     lineHeight: 10,
     fontWeight: '700',
-    color: Theme.accentBrown,
+    color: Theme.textMuted,
     textAlign: 'center',
     width: '100%',
   },
@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     borderRadius: ADD_BADGE / 2,
     backgroundColor: Theme.accentGold,
     borderWidth: 2,
-    borderColor: Theme.screenBackground,
+    borderColor: Theme.cardWhite,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 2,

@@ -12,7 +12,7 @@ import {
   type PoolBidSubmissionResult,
   type PoolCommercialState,
 } from "@/features/network/utils/pooledOpportunity.util";
-import { Check, Minus } from "lucide-react-native";
+import { AlertCircle, Check, Clock3, Minus } from "lucide-react-native";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 const WEB_COPY = Platform.select({
@@ -30,15 +30,37 @@ function targetRangeLabel(
   return lo === hi ? lo : `${lo} – ${hi}`;
 }
 
-function EligibilityRow({ ok, label }: { ok: boolean; label: string }) {
+function EligibilityRow({
+  ok,
+  label,
+  status,
+}: {
+  ok: boolean;
+  label: string;
+  status?: string | null;
+}) {
   return (
     <View style={styles.eligRow}>
       {ok ? (
-        <Check size={13} color={Theme.positive} strokeWidth={2.6} />
+        <Check size={14} color={Theme.positive} strokeWidth={2.6} />
       ) : (
-        <Minus size={13} color={Theme.textMuted} strokeWidth={2.6} />
+        <Minus size={14} color={Theme.textMuted} strokeWidth={2.6} />
       )}
-      <Text style={[styles.eligText, !ok && styles.eligTextOff]}>{label}</Text>
+      <Text style={[styles.eligText, !ok && styles.eligTextOff]} numberOfLines={2}>
+        {label}
+      </Text>
+      {status ? (
+        <View style={styles.eligStatus}>
+          {ok ? (
+            <Clock3 size={12} color={Theme.driverGold} strokeWidth={2.4} />
+          ) : (
+            <AlertCircle size={12} color={Theme.warning} strokeWidth={2.4} />
+          )}
+          <Text style={[styles.eligStatusText, !ok && styles.eligStatusTextOff]} numberOfLines={1}>
+            {status}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -113,6 +135,14 @@ export function PoolBidPanel({
     !canBidCapability || preparing || blockedReason != null || eligibleCount === 0;
   const ctaLabel =
     state === "submitted" ? "Update rate for pool" : "Submit rate for pool";
+  const scopeValue = preparing
+    ? "Preparing…"
+    : eligibleCount > 0
+      ? "All"
+      : "None";
+  const scopeDetail = preparing
+    ? "Preparing pool…"
+    : `All ${plural(eligibleCount, "eligible load")}`;
 
   return (
     <View style={styles.wrap}>
@@ -121,23 +151,6 @@ export function PoolBidPanel({
       <Text style={styles.body}>
         Submit one rate for all eligible loads in this pool.
       </Text>
-
-      <View style={styles.statRow}>
-        <View style={styles.stat}>
-          <Text style={styles.statLabel}>Applies to</Text>
-          <Text style={styles.statValue} testID="pool-bid-scope">
-            {preparing
-              ? "Preparing pool…"
-              : `All ${plural(eligibleCount, "eligible load")}`}
-          </Text>
-        </View>
-        {range ? (
-          <View style={[styles.stat, styles.statEnd]}>
-            <Text style={styles.statLabel}>Shipper target</Text>
-            <Text style={[styles.statValue, styles.statRate]}>{range}</Text>
-          </View>
-        ) : null}
-      </View>
 
       {blockedReason ? (
         <Text style={styles.blocked} accessibilityRole="alert">
@@ -158,11 +171,36 @@ export function PoolBidPanel({
         accessibilityState={{ disabled }}
       >
         {preparing ? (
-          <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
+          <ActivityIndicator size="small" color={Theme.textOnPrimary} />
         ) : (
           <Text style={styles.ctaText}>{ctaLabel}</Text>
         )}
       </Pressable>
+
+      <View style={styles.statRow}>
+        {range ? (
+          <View style={[styles.stat, styles.statTarget]}>
+            <Text style={styles.statLabelOnDark}>Shipper target</Text>
+            <Text style={styles.statValueOnDark} numberOfLines={1}>
+              {range}
+            </Text>
+          </View>
+        ) : null}
+        <View style={[styles.stat, styles.statApplies, !range && styles.statGrow]}>
+          <Text style={styles.statLabelOnDark}>Applies to</Text>
+          <Text
+            style={styles.statValueOnDark}
+            numberOfLines={1}
+            testID="pool-bid-scope"
+            accessibilityLabel={scopeDetail}
+          >
+            {scopeValue}
+          </Text>
+          {/* Keep full scope copy for tests / screen readers without crowding the tile. */}
+          <Text style={styles.statHiddenDetail}>{scopeDetail}</Text>
+        </View>
+      </View>
+
       {!canBidCapability ? (
         <Text style={styles.note}>Your role can view this pool but can't bid.</Text>
       ) : !preparing && !blockedReason && eligibleCount > 0 ? (
@@ -177,9 +215,21 @@ export function PoolBidPanel({
 
       <View style={styles.divider} />
       <Text style={styles.eyebrow}>ELIGIBILITY</Text>
-      <EligibilityRow ok={canBidCapability} label="Bidding access" />
-      <EligibilityRow ok={fitsFleet} label="Vehicle type in your fleet" />
-      <EligibilityRow ok={eligibleCount > 0} label="Loads open for your bid" />
+      <EligibilityRow
+        ok={canBidCapability}
+        label="Bidding access"
+        status={canBidCapability ? null : "Not available"}
+      />
+      <EligibilityRow
+        ok={fitsFleet}
+        label="Vehicle type in your fleet"
+        status={fitsFleet ? null : "Not in fleet"}
+      />
+      <EligibilityRow
+        ok={eligibleCount > 0}
+        label="Loads open for your bid"
+        status={eligibleCount > 0 ? null : "None open"}
+      />
       <Text style={styles.note}>Competing bids are not shown to bidders.</Text>
     </View>
   );
@@ -191,21 +241,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 20,
+    padding: 18,
     gap: 10,
   },
   eyebrow: {
     fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0,
+    fontWeight: "700",
+    letterSpacing: 0.6,
     color: Theme.textMuted,
+    textTransform: "uppercase",
     ...WEB_COPY,
   },
   title: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
     color: Theme.textPrimaryDark,
-    letterSpacing: 0,
+    letterSpacing: -0.2,
     lineHeight: 22,
     ...WEB_COPY,
   },
@@ -215,35 +266,46 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     ...WEB_COPY,
   },
-  statRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  statRow: { flexDirection: "row", gap: 8, marginTop: 2 },
   stat: {
     flex: 1,
     minWidth: 0,
     gap: 4,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: Theme.analyticsCanvas,
-    borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
+    borderRadius: 12,
   },
-  statEnd: { alignItems: "flex-end" },
-  statLabel: {
+  statGrow: { flex: 1 },
+  statTarget: {
+    backgroundColor: Theme.driverCtaFill,
+  },
+  statApplies: {
+    backgroundColor: Theme.buttonDark,
+  },
+  statLabelOnDark: {
     fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 0,
+    fontWeight: "700",
+    letterSpacing: 0.4,
     textTransform: "uppercase",
-    color: Theme.textMuted,
+    color: "rgba(255,255,255,0.72)",
     ...WEB_COPY,
   },
-  statValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    lineHeight: 18,
+  statValueOnDark: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Theme.textOnPrimary,
+    letterSpacing: -0.3,
+    lineHeight: 22,
     ...WEB_COPY,
   },
-  statRate: { color: Theme.primary },
+  /** Visually hidden but queryable for tests / a11y full phrasing. */
+  statHiddenDetail: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: "hidden",
+  },
   blocked: {
     fontSize: 12,
     fontWeight: "600",
@@ -263,7 +325,12 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { opacity: 0.45 },
   ctaPressed: { opacity: 0.88 },
-  ctaText: { fontSize: 14, fontWeight: "600", color: Theme.buttonPrimaryText },
+  ctaText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.buttonPrimaryText,
+    letterSpacing: -0.1,
+  },
   banner: { borderRadius: 10, padding: 10, gap: 3 },
   bannerOk: { backgroundColor: Theme.positiveMuted },
   bannerOkText: { fontSize: 13, fontWeight: "600", color: Theme.positive },
@@ -275,7 +342,34 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.surfaceBorder,
     marginVertical: 6,
   },
-  eligRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 22 },
-  eligText: { fontSize: 13, color: Theme.textPrimaryDark, ...WEB_COPY },
+  eligRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 28,
+  },
+  eligText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.textPrimaryDark,
+    ...WEB_COPY,
+  },
   eligTextOff: { color: Theme.textMuted },
+  eligStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+    maxWidth: "42%",
+  },
+  eligStatusText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Theme.driverGold,
+  },
+  eligStatusTextOff: {
+    color: Theme.warning,
+  },
 });

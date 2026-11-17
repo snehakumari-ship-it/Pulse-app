@@ -690,8 +690,8 @@ export function AddClientModal({
       style={styles.screenRoot}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={[styles.screenRoot, { backgroundColor: Theme.surface }]}>
-        <View style={[styles.screenHeader, { paddingTop: insets.top + 16 }]}>
+      <View style={[styles.screenRoot, { backgroundColor: Theme.driverEmeraldWash }]}>
+        <View style={[styles.screenHeader, { paddingTop: insets.top + 16, backgroundColor: Theme.driverEmeraldWash, borderBottomColor: Theme.borderMedium, borderBottomWidth: 1 }]}>
           <TouchableOpacity
             style={styles.screenHeaderButton}
             onPress={onClose}
@@ -718,6 +718,15 @@ export function AddClientModal({
           ]}
         >
           <View style={styles.screenSection}>
+            <View style={styles.clientHero}>
+              <View style={styles.clientHeroIcon}>
+                <FontAwesome name="handshake-o" size={28} color={Theme.driverCtaFill} />
+              </View>
+              <View style={styles.clientHeroCopy}>
+                <Text style={styles.clientHeroTitle}>Let&apos;s add a new client</Text>
+                <Text style={styles.clientHeroBody}>Fill in the details to get started.</Text>
+              </View>
+            </View>
             <Text style={styles.screenSectionLabel}>CLIENT DETAILS</Text>
 
             {noOrganizationMessage ? (
@@ -953,7 +962,12 @@ export function AddClientModal({
               disabled={!canSubmit || submitting}
               activeOpacity={0.9}
             >
-              <Text style={styles.screenSubmitButtonText}>
+              <Text
+                style={[
+                  styles.screenSubmitButtonText,
+                  (!canSubmit || submitting) && styles.screenSubmitButtonTextDisabled,
+                ]}
+              >
                 {submitting
                   ? useInvitePrimaryAction
                     ? t("sending")
@@ -1355,21 +1369,53 @@ const styles = StyleSheet.create({
   screenHeaderButton: {
     width: 40,
     height: 40,
-    backgroundColor: Theme.surface,
+    borderRadius: 20,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
   screenHeaderTitleWrap: {
     flex: 1,
     minWidth: 0,
   },
   screenTitle: {
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
     color: Theme.textPrimaryDark,
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
+    letterSpacing: -0.2,
+  },
+  clientHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 6,
+  },
+  clientHeroIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.driverEmeraldMuted,
+  },
+  clientHeroCopy: { flex: 1, minWidth: 0, gap: 2 },
+  clientHeroTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.2,
+  },
+  clientHeroBody: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: Theme.textSecondary,
   },
   screenSection: {
     gap: 10,
@@ -1383,9 +1429,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   screenInputCard: {
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderMedium,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     minHeight: 64,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1403,7 +1452,10 @@ const styles = StyleSheet.create({
   screenFieldCard: {
     flex: 1,
     minWidth: 0,
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderMedium,
     paddingHorizontal: 16,
     paddingVertical: 16,
     minHeight: 88,
@@ -1440,7 +1492,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: Theme.screenBackground,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderMedium,
     paddingHorizontal: 16,
     paddingVertical: 14,
     shadowColor: "#000",
@@ -1452,7 +1507,8 @@ const styles = StyleSheet.create({
   screenActionIconWrap: {
     width: 38,
     height: 38,
-    backgroundColor: Theme.buttonMatteBlack,
+    borderRadius: 10,
+    backgroundColor: Theme.driverCtaFill,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1613,9 +1669,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingTop: 16,
-    backgroundColor: Theme.screenBackground,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.06)",
+    backgroundColor: Theme.driverEmeraldWash,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Theme.driverEmeraldBorderSoft,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.04,
@@ -1623,9 +1679,9 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   screenSubmitButton: {
-    minHeight: Layout.minTouchTargetSize + 12,
-    borderRadius: 16,
-    backgroundColor: Theme.buttonMatteBlack,
+    minHeight: Layout.minTouchTargetSize + 8,
+    borderRadius: 28,
+    backgroundColor: Theme.driverCtaFill,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 16,
@@ -1644,6 +1700,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
   },
   screenButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: Theme.borderMedium,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  screenSubmitButtonTextDisabled: {
+    color: Theme.textMuted,
   },
 });

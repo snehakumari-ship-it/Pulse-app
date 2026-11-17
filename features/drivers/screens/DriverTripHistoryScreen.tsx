@@ -1,6 +1,7 @@
-import { DriverBrandMark } from "@/components/driver/DriverBrandMark";
+import { LeafletMap } from "@/components/driver/LeafletMap";
+import type { LeafletLatLng } from "@/components/driver/LeafletMap.types";
+import { LiveRouteInfoCard } from "@/components/driver/LiveRouteInfoCard";
 import { TripListAssignerRow } from "@/components/driver/TripListAssignerRow";
-import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
     driverBodyPrimary,
     driverBodySecondary,
@@ -13,24 +14,31 @@ import {
     useDriverTheme,
     useDriverThemeColors,
 } from "@/contexts/DriverThemeContext";
+import { isUsableMapCoordinate } from "@/features/chat/utils/staticMapUrl.util";
 import {
     buildDriverTripNumberMap,
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
-import * as driversService from "@/features/drivers/services/drivers.service";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
+import { DriverTripEmptyHourglass } from "@/features/drivers/components/DriverTripEmptyHourglass";
 import {
     driverHistoryLane,
     driverHistoryLaneLabel,
     driverHistoryTabsForMode,
     type DriverHistoryTabId,
 } from "@/features/drivers/domain/driverOperatingMode";
+import * as driversService from "@/features/drivers/services/drivers.service";
 import {
     isTripTaggedToParty,
     tripNeedsPartyTag,
     tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import { isAggregateTrip, isRosterTrip, resolveDriverTripPayoutTerms } from "@/features/drivers/utils/driverUtils.util";
-import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import {
+    formatEtaArrivalClock,
+    formatEtaFromRouteSeconds,
+    formatRoadDistanceM,
+} from "@/features/trips/domain/tripStageEta";
 import { getLatestAssignmentAuditByTripIds } from "@/features/trips/services/trip-assignment-audit.service";
 import * as tripsService from "@/features/trips/services/trips.service";
 import {
@@ -41,21 +49,27 @@ import {
     resolveAssignerUserId,
     type JobCardAssignerPayload,
 } from "@/features/trips/utils/driverAssignerDisplay.util";
-import { DriverSelfAvatar } from "@/components/driver/DriverSelfAvatar";
-import { useDriverAvatarUri } from "@/lib/avatarUpload";
+import {
+    getDriverLivePosition,
+    setDriverLivePosition,
+    subscribeDriverLivePosition,
+} from "@/lib/driverLivePositionBus";
+import { lookupIndianCityCoordinate } from "@/lib/indianCityCoordinates.util";
 import { fetchOrgBrandingByIds } from "@/lib/orgBrandingFetch";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import { getOptimalRoute } from "@/lib/routingService";
+import { startForegroundPositionWatch } from "@/lib/safeForegroundPositionWatch";
 import { supabase } from "@/lib/supabase";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
 import { FlashList } from "@shopify/flash-list";
-import { useRouter, useLocalSearchParams, type Href } from "expo-router";
-import {
-    MapPinned,
-    Search as SearchIcon,
-} from "lucide-react-native";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
+import { Search as SearchIcon } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     AppState,
+    LayoutAnimation,
+    Modal,
     Platform,
     StyleSheet,
     Text,
@@ -236,29 +250,177 @@ function AnimatedCardArrow({
   );
 }
 
-/** Side green bar: opacity 0 by default, 100% on touch (reference: opacity-0 group-hover:opacity-100 transition-opacity) */
-function AnimatedAccentBar({
-  pressed,
-  backgroundColor,
-}: {
-  pressed: boolean;
-  backgroundColor: string;
-}) {
-  const opacity = useSharedValue(pressed ? 1 : 0);
-  useEffect(() => {
-    opacity.value = withTiming(pressed ? 1 : 0, { duration: 180 });
-  }, [pressed]);
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-  }));
+function animateCardLayout() {
+  if (Platform.OS === "web") return;
+  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+}
+
+function coordinateForStop(
+  lat: unknown,
+  lng: unknown,
+  label: string | null | undefined,
+): LeafletLatLng | null {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (isUsableMapCoordinate(latitude, longitude)) return { latitude, longitude };
+  const primary = splitLocationPrimarySecondary(label).primary;
+  const hit =
+    lookupIndianCityCoordinate(primary) ?? lookupIndianCityCoordinate(label);
+  return hit ? { latitude: hit.latitude, longitude: hit.longitude } : null;
+}
+
+function stopsAreDistinct(a: LeafletLatLng, b: LeafletLatLng): boolean {
   return (
-    <Animated.View
-      style={[styles.cardRefAccentLeft, { backgroundColor }, animatedStyle, { pointerEvents: 'none' }]}
-    />
+    Math.abs(a.latitude - b.latitude) > 0.02 ||
+    Math.abs(a.longitude - b.longitude) > 0.02
   );
 }
 
-/** Card scale on touch (reference: active:scale-[0.98] transition-all) */
+function TripLiveMapModal({
+  trip,
+  onClose,
+}: {
+  trip: tripsService.TripRow;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const pickup = coordinateForStop(trip.pickup_lat, trip.pickup_lon, trip.pickup_area);
+  const drop = coordinateForStop(trip.drop_lat, trip.drop_lon, trip.drop_location ?? trip.drop_area);
+  const [you, setYou] = useState<LeafletLatLng | null>(() => getDriverLivePosition());
+  const [routeLine, setRouteLine] = useState<LeafletLatLng[] | null>(null);
+  const [distanceDisplay, setDistanceDisplay] = useState<string | null>(null);
+  const [etaDisplay, setEtaDisplay] = useState("—");
+  const [arrivalClock, setArrivalClock] = useState<string | null>(null);
+  const headingToDrop = isTransitStatus(trip.status) || isAtDropStatus(trip.status);
+  const target = headingToDrop ? drop ?? pickup : pickup ?? drop;
+
+  useEffect(() => {
+    let stopped = false;
+    const watchRef: { current: { remove: () => void } | null } = { current: null };
+    const apply = (pos: LeafletLatLng | null) => {
+      if (!stopped && pos) setYou(pos);
+    };
+    apply(getDriverLivePosition());
+    const unsubscribe = subscribeDriverLivePosition(apply);
+    void startForegroundPositionWatch(
+      { timeInterval: 4000, distanceInterval: 20 },
+      (location) => {
+        const next = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        setDriverLivePosition(next);
+        apply(next);
+      },
+    ).then((watch) => {
+      if (stopped) watch?.remove();
+      else watchRef.current = watch;
+    });
+    return () => {
+      stopped = true;
+      unsubscribe();
+      watchRef.current?.remove();
+    };
+  }, []);
+
+  const routeKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const origin = you ?? pickup ?? drop;
+    const destination = target;
+    if (!origin || !destination) return;
+    const key = [
+      origin.latitude.toFixed(2),
+      origin.longitude.toFixed(2),
+      destination.latitude.toFixed(2),
+      destination.longitude.toFixed(2),
+    ].join("|");
+    if (routeKeyRef.current === key) return;
+    routeKeyRef.current = key;
+    let cancelled = false;
+    void getOptimalRoute(origin, destination).then((route) => {
+      if (cancelled || routeKeyRef.current !== key) return;
+      if (route && route.coordinates.length >= 2) {
+        setRouteLine(route.coordinates);
+        setDistanceDisplay(formatRoadDistanceM(route.distance));
+        setEtaDisplay(formatEtaFromRouteSeconds(route.duration));
+        setArrivalClock(formatEtaArrivalClock(route.duration));
+        return;
+      }
+      if (stopsAreDistinct(origin, destination)) {
+        setRouteLine([origin, destination]);
+        setDistanceDisplay(null);
+        setEtaDisplay("—");
+        setArrivalClock(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [you, pickup, drop, target]);
+
+  const center = you ?? pickup ?? drop;
+  const markers = [
+    you ? { id: "you", coordinate: you, label: "You", color: Theme.driverEmerald, isOnline: true } : null,
+    pickup ? { id: "pickup", coordinate: pickup, label: "Pickup", color: Theme.tripsCyan, highlighted: !headingToDrop } : null,
+    drop ? { id: "drop", coordinate: drop, label: "Drop", color: Theme.tripsCompleted, highlighted: headingToDrop } : null,
+  ].filter((marker): marker is NonNullable<typeof marker> => marker != null);
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+      <View style={styles.liveMapScreen}>
+        {center ? (
+          <LeafletMap
+            style={styles.liveMapCanvas}
+            center={center}
+            zoom={13}
+            markers={markers}
+            polyline={routeLine ?? undefined}
+            polylineColor={Theme.driverEmerald}
+            showZoomControls
+            autoFitBoundsOnRouteChange
+          />
+        ) : (
+          <View style={styles.mapUnavailable}>
+            <Text style={styles.mapUnavailableText}>No location saved for this trip</Text>
+          </View>
+        )}
+        <View
+          style={[styles.liveMapChrome, { top: insets.top + 10 }]}
+          pointerEvents="box-none"
+        >
+          <TouchableOpacity
+            style={styles.liveMapBack}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Back to trip"
+          >
+            <FontAwesome name="chevron-left" size={14} color={Theme.textPrimaryDark} />
+            <Text style={styles.liveMapBackText}>Back to trip</Text>
+          </TouchableOpacity>
+          {center ? (
+            <LiveRouteInfoCard
+              compact
+              colors={{
+                surface: Theme.cardWhite,
+                border: Theme.border,
+                text: Theme.textPrimaryDark,
+                textMuted: Theme.textMuted,
+                emerald: Theme.driverEmerald,
+                emeraldMuted: Theme.driverEmeraldMuted,
+              }}
+              toLabel={headingToDrop ? "drop" : "pickup"}
+              distanceDisplay={distanceDisplay}
+              etaDisplay={etaDisplay}
+              arrivalClock={arrivalClock}
+            />
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** Card scale on touch (reference: active:scale-[0.99] transition-all) */
 function AnimatedCardScale({
   pressed,
   children,
@@ -268,7 +430,7 @@ function AnimatedCardScale({
 }) {
   const scale = useSharedValue(1);
   useEffect(() => {
-    scale.value = withTiming(pressed ? 0.98 : 1, { duration: 150 });
+    scale.value = withTiming(pressed ? 0.99 : 1, { duration: 150 });
   }, [pressed]);
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -281,11 +443,11 @@ export default function DriverTripsScreen() {
   const { theme } = useDriverTheme();
   const colors = useDriverThemeColors();
   const isDark = theme === "dark";
+  const pageBg = isDark ? colors.background : Theme.driverEmeraldWash;
   const router = useRouter();
   const { profile } = useAuth();
   const { isDco } = useDriverOperatingModeQuery(profile?.uid ?? null);
-  const historyTabs = driverHistoryTabsForMode(isDco);
-  const { avatarUri } = useDriverAvatarUri();
+  const historyTabs = useMemo(() => driverHistoryTabsForMode(isDco), [isDco]);
   const [driver, setDriver] = useState<driversService.DriverRow | null>(null);
   const [linkedDriverRows, setLinkedDriverRows] = useState<driversService.DriverRow[]>([]);
   const [invites, setInvites] = useState<
@@ -293,7 +455,10 @@ export default function DriverTripsScreen() {
   >([]);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
+  const [liveMapTrip, setLiveMapTrip] = useState<tripsService.TripRow | null>(null);
   const suppressCardPress = useRef(false);
+  /** Deep-link `?type=` applied once so Active / Fleet / Offline taps are not re-forced every render. */
+  const consumedHistoryTypeRef = useRef<string | null>(null);
   const [assignmentActorByTripId, setAssignmentActorByTripId] = useState<
     Record<string, string>
   >({});
@@ -350,6 +515,10 @@ export default function DriverTripsScreen() {
       typeof historyParams.type === "string"
         ? historyParams.type
         : historyParams.type?.[0];
+    if (!type) {
+      consumedHistoryTypeRef.current = null;
+      return;
+    }
     const mapped: DriverHistoryTabId | null =
       type === "fleet" || type === "offline" || type === "marketplace"
         ? type
@@ -358,11 +527,15 @@ export default function DriverTripsScreen() {
           : type === "open"
             ? "offline"
             : null;
-    if (mapped && historyTabs.includes(mapped)) {
-      setTripsSubTab(mapped);
-      setTripView("history");
-    }
-  }, [historyParams.type, historyTabs]);
+    if (!mapped || !historyTabs.includes(mapped)) return;
+    // Same sticky ?type= must not keep resetting the user's tab / Active|History choice.
+    if (consumedHistoryTypeRef.current === type) return;
+    consumedHistoryTypeRef.current = type;
+    setTripsSubTab(mapped);
+    setTripView("history");
+    // Clear so later navigations and toggles are not stuck on this deep link.
+    router.setParams({ type: undefined });
+  }, [historyParams.type, historyTabs, router]);
 
   const historyFocusedRef = useRef(false);
   const historyLoadGen = useRef(0);
@@ -832,7 +1005,7 @@ export default function DriverTripsScreen() {
       tripView === "history" ? isCompleted(trip.status) : !isCompleted(trip.status),
     );
 
-    // History chips only: DCO = Offline + Marketplace; employee = Fleet + Offline.
+    // History chips: DCO = Offline + Marketplace; every other driver = Fleet + Offline.
     if (tripView === "history") {
       list = list.filter((trip) => tripHistoryLane(trip) === tripsSubTab);
     }
@@ -870,10 +1043,6 @@ export default function DriverTripsScreen() {
     driverTripNumberById,
     tripHistoryLane,
   ]);
-  const historyTripsCount = useMemo(
-    () => trips.filter((trip) => isCompleted(trip.status)).length,
-    [trips],
-  );
   const activeTripsCount = useMemo(
     () => trips.filter((trip) => !isCompleted(trip.status)).length,
     [trips],
@@ -895,6 +1064,13 @@ export default function DriverTripsScreen() {
       tripsInHistoryView.filter((trip) => tripHistoryLane(trip) === "marketplace").length,
     [tripsInHistoryView, tripHistoryLane],
   );
+  const historyCountByLane: Record<DriverHistoryTabId, number> = {
+    fleet: fleetTripsCount,
+    offline: offlineTripsCount,
+    marketplace: marketplaceTripsCount,
+  };
+  // History count is the lanes this login can open: DCO marketplace + offline, others fleet + offline.
+  const historyTripsCount = historyTabs.reduce((sum, id) => sum + historyCountByLane[id], 0);
   const poolCountForTab =
     tripView === "active"
       ? activeTripsCount
@@ -915,115 +1091,85 @@ export default function DriverTripsScreen() {
     const dropParts = splitLocationPrimarySecondary(item.drop_location);
     const corridorHint = [pickupParts.secondary, dropParts.secondary].filter(Boolean).join(" · ");
     const assignerPayload = assignerPayloadByTripId[String(item.id)] ?? null;
+    const openTrip = () => {
+      if (suppressCardPress.current) {
+        suppressCardPress.current = false;
+        return;
+      }
+      router.push(`/driver-trip/${item.id}` as Href);
+    };
     return (
-      <TouchableOpacity
+      <View
         style={[
           styles.cardRef,
           {
-            backgroundColor: colors.surface,
-            borderColor: isDark ? colors.borderSubtle : "rgba(16, 185, 129, 0.12)",
+            backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+            borderColor: isDark ? colors.borderSubtle : Theme.driverEmeraldBorderSoft,
           },
         ]}
-        onPress={() => {
-          if (suppressCardPress.current) {
-            suppressCardPress.current = false;
-            return;
-          }
-          router.push(`/driver-trip/${item.id}` as Href);
-        }}
-        onPressIn={() => setPressedCardId(item.id)}
-        onPressOut={() => setPressedCardId(null)}
-        activeOpacity={1}
       >
-        {/* Emerald accent strip — left edge, fades in on press */}
-        <AnimatedAccentBar
-          pressed={pressedCardId === item.id}
-          backgroundColor={colors.emerald}
-        />
         <AnimatedCardScale pressed={pressedCardId === item.id}>
-          <View style={styles.cardWatermark} pointerEvents="none">
-            <MapPinned size={80} color={colors.emerald} strokeWidth={1.2} />
-          </View>
-          <View style={styles.cardRefTop}>
-            <View style={styles.cardRefTopLeft}>
-              <Text
-                style={[
-                  styles.cardRefId,
-                  isDark
-                    ? { color: colors.text, opacity: 0.85 }
-                    : { color: colors.textMuted },
-                ]}
+          <View style={styles.cardCanvas}>
+            <View style={styles.cardTopRow}>
+              <TouchableOpacity
+                style={styles.cardCopy}
+                activeOpacity={1}
+                onPress={openTrip}
+                onPressIn={() => setPressedCardId(item.id)}
+                onPressOut={() => setPressedCardId(null)}
               >
-                {getDriverTripDisplayNumber(item, driverTripNumberById)}{" "}
-                <Text style={{ color: isDark ? colors.borderSubtle : "#e2e8f0" }}> • </Text>{" "}
-                {formatDate(item.pickup_date ?? item.created_at)}
-              </Text>
-              <View style={styles.routeRowRef}>
                 <Text
-                  style={[styles.routeRefPickup, { color: colors.text }]}
+                  style={[styles.cardRefId, { color: isDark ? colors.textMuted : Theme.textSecondary }]}
                   numberOfLines={1}
                 >
-                  {pickupParts.primary}
+                  {getDriverTripDisplayNumber(item, driverTripNumberById)}
+                  {"  ·  "}
+                  {formatDate(item.pickup_date ?? item.created_at)}
                 </Text>
-                <View style={styles.routeArrowWrap}>
-                  <AnimatedCardArrow
-                    pressed={pressedCardId === item.id}
-                    color={colors.emerald}
-                  />
+                <View style={styles.routeRowRef}>
+                  <Text style={[styles.routeRefPickup, { color: colors.text }]} numberOfLines={1}>
+                    {pickupParts.primary}
+                  </Text>
+                  <View style={styles.routeArrowWrap}>
+                    <AnimatedCardArrow pressed={pressedCardId === item.id} color={Theme.driverEmerald} />
+                  </View>
+                  <Text style={[styles.routeRefDrop, { color: colors.text }]} numberOfLines={1}>
+                    {dropParts.primary}
+                  </Text>
                 </View>
-                <Text
-                  style={[styles.routeRefDrop, { color: colors.text }]}
-                  numberOfLines={1}
-                >
-                  {dropParts.primary}
-                </Text>
-              </View>
-              {corridorHint.length > 0 ? (
-                <Text
-                  style={[styles.routeCorridorHint, { color: colors.textMuted }]}
-                  numberOfLines={1}
-                >
-                  {corridorHint}
-                </Text>
-              ) : null}
-              <View style={styles.cardRefLaneRow}>
-                <Text
-                  style={[
-                    styles.tripTypeBadge,
-                    historyLane === "marketplace"
-                      ? styles.tripTypeBadgeMarket
-                      : historyLane === "fleet"
-                        ? styles.tripTypeBadgeFleet
-                        : styles.tripTypeBadgeOffline,
-                  ]}
-                >
-                  {laneLabel}
-                </Text>
-                {distanceLabel ? (
-                  <Text style={[styles.manifestValue, { color: colors.textMuted }]}>
-                    {distanceLabel}
+                {corridorHint.length > 0 ? (
+                  <Text
+                    style={[styles.routeCorridorHint, { color: isDark ? colors.textMuted : Theme.textSecondary }]}
+                    numberOfLines={1}
+                  >
+                    {corridorHint}
                   </Text>
                 ) : null}
-              </View>
+                <View style={styles.cardRefLaneRow}>
+                  <Text
+                    style={[
+                      styles.tripTypeBadge,
+                      historyLane === "marketplace"
+                        ? styles.tripTypeBadgeMarket
+                        : historyLane === "fleet"
+                          ? styles.tripTypeBadgeFleet
+                          : styles.tripTypeBadgeOffline,
+                    ]}
+                  >
+                    {laneLabel}
+                  </Text>
+                  {!completed ? (
+                    <Text style={[styles.badgeRefText, styles.statusInline]}>{badgeLabel}</Text>
+                  ) : null}
+                  {distanceLabel ? (
+                    <Text style={[styles.manifestValue, styles.distanceValue, { color: colors.text }]}>
+                      {distanceLabel}
+                    </Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
             </View>
-            <View
-              style={[
-                styles.badgeRef,
-                completed
-                  ? { backgroundColor: isDark ? "#0f172a" : "#0f172a" }
-                  : { backgroundColor: colors.emerald },
-              ]}
-            >
-              <Text
-                style={[styles.badgeRefText, { color: colors.textOnPrimary }]}
-              >
-                {badgeLabel}
-              </Text>
-            </View>
-          </View>
-          <View
-            style={[styles.cardRefBottom, { borderTopColor: isDark ? colors.borderSubtle : "#f8fafc" }]}
-          >
+            <TouchableOpacity activeOpacity={1} onPress={openTrip}>
             <TripListAssignerRow
               assigner={assignerPayload}
               mutedColor={colors.textMuted}
@@ -1042,15 +1188,19 @@ export default function DriverTripsScreen() {
                   ? tripReceivablePartyName(item)
                   : null
               }
-              style={styles.cardRefAssignerFooter}
+              style={[
+                styles.cardRefAssignerFooter,
+                {
+                  backgroundColor: isDark ? colors.surfaceElevated : Theme.driverEmeraldMuted,
+                  borderColor: isDark ? colors.border : Theme.driverEmeraldBorderSoft,
+                },
+              ]}
               endSlot={
                 <View style={styles.yieldWrapRef}>
                   <Text
                     style={[
                       styles.yieldLabelRef,
-                      isDark
-                        ? { color: colors.text, opacity: 0.85 }
-                        : { color: colors.textMuted },
+                      { color: isDark ? colors.textMuted : Theme.textMuted },
                     ]}
                   >
                     Yield
@@ -1058,7 +1208,7 @@ export default function DriverTripsScreen() {
                   <Text
                     style={[
                       styles.yieldValueRef,
-                      { color: completed ? colors.emerald : colors.textMuted },
+                      { color: completed ? Theme.driverPrimary : colors.textMuted },
                     ]}
                     numberOfLines={1}
                   >
@@ -1067,9 +1217,10 @@ export default function DriverTripsScreen() {
                 </View>
               }
             />
+            </TouchableOpacity>
           </View>
         </AnimatedCardScale>
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -1079,7 +1230,7 @@ export default function DriverTripsScreen() {
         style={[
           styles.container,
           styles.centered,
-          { paddingTop: insets.top, backgroundColor: colors.background },
+          { paddingTop: insets.top, backgroundColor: pageBg },
         ]}
       >
         <Text style={[styles.loadingText, { color: colors.textMuted }]}>
@@ -1093,7 +1244,7 @@ export default function DriverTripsScreen() {
     <View
       style={[
         styles.container,
-        { backgroundColor: colors.background },
+        { backgroundColor: pageBg },
       ]}
     >
       <FlashList
@@ -1105,51 +1256,22 @@ export default function DriverTripsScreen() {
               style={[
                 styles.header,
                 {
-                  paddingTop: insets.top + Layout.driverHeaderTopOffset,
-                  paddingHorizontal: Layout.driverHeaderHorizontalPadding,
-                  paddingBottom: Layout.driverHeaderBottomPadding,
-                  backgroundColor: colors.surface,
-                  borderBottomColor: colors.border,
+                  paddingTop: insets.top + 12,
+                  paddingHorizontal: Layout.screenPaddingHorizontal,
+                  paddingBottom: 4,
+                  backgroundColor: pageBg,
+                  borderBottomWidth: 0,
                 },
               ]}
             >
-              <View style={styles.headerLeft}>
-                <TouchableOpacity
-                  onPress={() => router.push("/(driver)/profile")}
-                  style={styles.avatarBtn}
-                  activeOpacity={0.8}
-                >
-                  <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-                </TouchableOpacity>
-                <View style={styles.headerTextWrap}>
-                  <DriverBrandMark color={colors.textMuted} />
-                  <Text
-                    style={[styles.welcomeTitle, { color: colors.text }]}
-                    numberOfLines={1}
-                  >
-                    Trips
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View
-              style={[styles.creditsSection, { backgroundColor: colors.background }]}
-            >
-              <Text style={[styles.creditsTitle, { color: Theme.driverEmeraldDark }]}>
+              <Text style={styles.tripsDisplayTitle} accessibilityRole="header">
                 TRIPS.
-              </Text>
-              <Text style={[styles.creditsSubtitle, { color: colors.textMuted }]}>
-                {tripView === "active"
-                  ? "In-progress trips"
-                  : isDco
-                    ? "Completed trips · offline / marketplace"
-                    : "Completed trips · fleet / offline"}
               </Text>
             </View>
             <View
               style={[
                 styles.toolbarWrap,
-                { backgroundColor: colors.background },
+                { backgroundColor: pageBg, paddingTop: 8 },
               ]}
             >
               <View style={styles.toolbarTopRow}>
@@ -1158,7 +1280,7 @@ export default function DriverTripsScreen() {
                     styles.searchWrap,
                     {
                       backgroundColor: colors.surface,
-                      borderColor: isDark ? colors.borderSubtle : "rgba(16, 185, 129, 0.15)",
+                      borderColor: isDark ? colors.borderSubtle : Theme.borderLight,
                     },
                   ]}
                 >
@@ -1179,83 +1301,72 @@ export default function DriverTripsScreen() {
                   style={[
                     styles.segmentOuter,
                     {
-                      backgroundColor: isDark ? colors.surfaceElevated : "rgba(241, 245, 249, 0.65)",
-                      borderColor: isDark ? colors.borderSubtle : "#ffffff",
+                      backgroundColor: isDark ? colors.surfaceElevated : Theme.surfaceGray,
                     },
                   ]}
                 >
                   <TouchableOpacity
-                    style={[
-                      styles.segmentBtn,
-                      tripView === "active" && [
-                        styles.segmentBtnActive,
-                        {
-                          backgroundColor: colors.surface,
-                          borderColor: isDark ? colors.borderSubtle : colors.border,
-                        },
-                      ],
-                    ]}
+                    style={[styles.segmentBtn, tripView === "active" && styles.segmentBtnActive]}
                     onPress={() => setTripView("active")}
                     activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: tripView === "active" }}
                   >
                     <View style={styles.segmentLabelRow}>
                       <Text
                         style={[
                           styles.segmentLabel,
-                          {
-                            color:
-                              tripView === "active" ? colors.emerald : colors.textMuted,
-                          },
+                          tripView === "active" ? styles.segmentLabelOn : { color: colors.textMuted },
                         ]}
-                        numberOfLines={1}
                       >
                         Active
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.segmentBtn,
-                      tripView === "history" && [
-                        styles.segmentBtnActive,
-                        {
-                          backgroundColor: colors.surface,
-                          borderColor: isDark ? colors.borderSubtle : colors.border,
-                        },
-                      ],
-                    ]}
-                    onPress={() => setTripView("history")}
-                    activeOpacity={0.8}
-                  >
-                    <View style={styles.segmentLabelRow}>
-                      <Text
-                        style={[
-                          styles.segmentLabel,
-                          {
-                            color:
-                              tripView === "history" ? colors.emerald : colors.textMuted,
-                          },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        History
                       </Text>
                       <View
                         style={[
                           styles.segmentCountBadge,
-                          {
-                            backgroundColor:
-                              tripView === "history" ? colors.emerald : colors.surface,
-                            borderColor: tripView === "history" ? colors.emerald : colors.border,
-                          },
+                          tripView === "active" && styles.segmentCountBadgeOn,
                         ]}
                       >
                         <Text
                           style={[
                             styles.segmentCountBadgeText,
                             {
-                              color:
-                                tripView === "history" ? colors.textOnPrimary : colors.textMuted,
+                              color: tripView === "active" ? Theme.buttonDark : Theme.textOnPrimary,
+                            },
+                          ]}
+                        >
+                          {activeTripsCount}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.segmentBtn, tripView === "history" && styles.segmentBtnActive]}
+                    onPress={() => setTripView("history")}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: tripView === "history" }}
+                  >
+                    <View style={styles.segmentLabelRow}>
+                      <Text
+                        style={[
+                          styles.segmentLabel,
+                          tripView === "history" ? styles.segmentLabelOn : { color: colors.textMuted },
+                        ]}
+                      >
+                        History
+                      </Text>
+                      <View
+                        style={[
+                          styles.segmentCountBadge,
+                          tripView === "history" && styles.segmentCountBadgeOn,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.segmentCountBadgeText,
+                            {
+                              color: tripView === "history" ? Theme.buttonDark : Theme.textOnPrimary,
                             },
                           ]}
                         >
@@ -1268,21 +1379,13 @@ export default function DriverTripsScreen() {
               </View>
 
               {tripView === "history" ? (
-                <View
-                  style={[
-                    styles.tripsSubTabRow,
-                    {
-                      backgroundColor: isDark ? colors.surfaceElevated : "rgba(248,250,252,0.9)",
-                      borderColor: isDark ? colors.borderSubtle : "rgba(226,232,240,0.9)",
-                    },
-                  ]}
-                >
+                <View style={styles.tripsSubTabRow}>
                   {(
                     [
                       {
                         id: "fleet" as const,
                         label: "Fleet",
-                        icon: "building" as const,
+                        icon: "truck" as const,
                         count: fleetTripsCount,
                       },
                       {
@@ -1302,43 +1405,44 @@ export default function DriverTripsScreen() {
                     .filter((tab) => historyTabs.includes(tab.id))
                     .map((tab) => {
                     const active = tripsSubTab === tab.id;
-                    const accent =
-                      tab.id === "offline"
-                        ? Theme.textPrimaryDark
-                        : colors.emerald;
+                    const sameAsOffline = tab.id === "offline" || tab.id === "marketplace";
+                    const accent = sameAsOffline ? Theme.textPrimaryDark : colors.emerald;
+                    const countColors = sameAsOffline
+                      ? { backgroundColor: Theme.buttonDark, color: Theme.buttonDarkText }
+                      : { backgroundColor: Theme.driverEmerald, color: Theme.textOnPrimary };
+                    const fleetActive = active && !sameAsOffline;
                     return (
                       <TouchableOpacity
                         key={tab.id}
                         style={[
                           styles.tripsSubTabBtn,
-                          active && [
-                            styles.tripsSubTabBtnActive,
-                            {
-                              backgroundColor:
-                                tab.id === "offline"
-                                  ? isDark
-                                    ? "rgba(15,23,42,0.16)"
-                                    : "rgba(15,23,42,0.06)"
-                                  : isDark
-                                    ? "rgba(4,120,87,0.18)"
-                                    : Theme.driverEmeraldMuted,
-                              borderColor:
-                                tab.id === "offline"
-                                  ? isDark
-                                    ? "rgba(148,163,184,0.35)"
-                                    : "rgba(148,163,184,0.45)"
-                                  : isDark
-                                    ? "rgba(4,120,87,0.35)"
-                                    : Theme.driverEmeraldBorderSoft,
-                            },
-                          ],
+                          {
+                            backgroundColor: fleetActive
+                              ? isDark
+                                ? "rgba(4,120,87,0.18)"
+                                : Theme.driverEmeraldMuted
+                              : active
+                                ? isDark
+                                  ? "rgba(15,23,42,0.16)"
+                                  : Theme.cardWhite
+                                : "transparent",
+                            borderColor: fleetActive
+                              ? isDark
+                                ? "rgba(4,120,87,0.35)"
+                                : Theme.driverEmeraldBorderSoft
+                              : active
+                                ? isDark
+                                  ? "rgba(148,163,184,0.35)"
+                                  : Theme.borderInput
+                                : "transparent",
+                          },
                         ]}
                         onPress={() => setTripsSubTab(tab.id)}
                         activeOpacity={0.85}
                       >
                         <FontAwesome
                           name={tab.icon}
-                          size={10}
+                          size={12}
                           color={active ? accent : colors.textMuted}
                         />
                         <Text
@@ -1350,6 +1454,11 @@ export default function DriverTripsScreen() {
                         >
                           {tab.label}
                         </Text>
+                        <View style={[styles.laneCountBadge, { backgroundColor: countColors.backgroundColor }]}>
+                          <Text style={[styles.laneCountBadgeText, { color: countColors.color }]}>
+                            {tab.count}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
@@ -1360,7 +1469,13 @@ export default function DriverTripsScreen() {
                 <Text style={[styles.resultMeta, { color: colors.textMuted }]}>
                   Showing {filteredTrips.length} of {poolCountForTab}
                   {" · "}
-                  {tripView === "active" ? "Active" : "History"}
+                  {tripView === "active"
+                    ? "Active"
+                    : tripsSubTab === "marketplace"
+                      ? "Marketplace"
+                      : tripsSubTab === "fleet"
+                        ? "Fleet"
+                        : "Offline"}
                 </Text>
                 {searchQuery.trim().length > 0 ? (
                   <TouchableOpacity
@@ -1384,24 +1499,14 @@ export default function DriverTripsScreen() {
         renderItem={renderItem}
         contentContainerStyle={{
           ...styles.listContent,
-          backgroundColor: colors.background,
+          backgroundColor: pageBg,
           paddingBottom: insets.bottom + 80,
         }}
         ListEmptyComponent={
           filteredTrips.length === 0 ? (
             tripView === "active" && searchQuery.trim().length === 0 ? (
               <View style={styles.emptyActiveWrap}>
-                <View
-                  style={[
-                    styles.emptyActiveIconCircle,
-                    {
-                      backgroundColor: colors.whiteMuted,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <FontAwesome name="send-o" size={26} color={colors.emerald} />
-                </View>
+                <DriverTripEmptyHourglass />
                 <Text style={[styles.emptyActiveTitle, { color: colors.text }]}>
                   No active trips right now
                 </Text>
@@ -1435,8 +1540,8 @@ export default function DriverTripsScreen() {
               </View>
             ) : (
               <View style={styles.empty}>
-                <FontAwesome name="search" size={36} color={colors.tabInactive} />
-                <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+                <DriverTripEmptyHourglass />
+                <Text style={[styles.emptyText, { color: colors.text }]}>
                   {trips.length === 0
                     ? "No trips yet"
                     : tripsSubTab === "fleet"
@@ -1469,6 +1574,9 @@ export default function DriverTripsScreen() {
           }}
         />
       ) : null}
+      {liveMapTrip ? (
+        <TripLiveMapModal trip={liveMapTrip} onClose={() => setLiveMapTrip(null)} />
+      ) : null}
     </View>
   );
 }
@@ -1487,9 +1595,18 @@ const styles = StyleSheet.create({
     color: Theme.textMuted,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomWidth: 1,
+    alignItems: "flex-start",
+    justifyContent: "flex-end",
+    borderBottomWidth: 0,
+  },
+  tripsDisplayTitle: {
+    fontSize: 40,
+    fontWeight: "900",
+    fontStyle: "italic",
+    letterSpacing: -1.6,
+    lineHeight: 44,
+    color: Theme.driverCtaFill,
+    textTransform: "uppercase",
   },
   headerLeft: {
     flexDirection: "row",
@@ -1528,28 +1645,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -0.2,
   },
-  creditsSection: {
-    paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 16,
-    paddingBottom: 16,
-    gap: 6,
-  },
-  creditsTitle: {
-    fontSize: 42,
-    fontWeight: "900",
-    fontStyle: "italic",
-    letterSpacing: -2,
-    lineHeight: 44,
-    textTransform: "uppercase",
-  },
-  creditsSubtitle: {
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 3,
-    marginTop: 4,
-    textTransform: "uppercase",
-    opacity: 0.82,
-  },
   toolbarWrap: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
     paddingBottom: 6,
@@ -1562,33 +1657,40 @@ const styles = StyleSheet.create({
   tripsSubTabRow: {
     marginTop: 10,
     flexDirection: "row",
-    alignItems: "stretch",
-    gap: 6,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 4,
+    alignItems: "center",
+    gap: 10,
   },
   tripsSubTabBtn: {
     flex: 1,
-    minWidth: 0,
     minHeight: 44,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "transparent",
+    borderRadius: 14,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 4,
-  },
-  tripsSubTabBtnActive: {
-    borderWidth: StyleSheet.hairlineWidth,
+    gap: 6,
+    paddingHorizontal: 12,
   },
   tripsSubTabText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: -0.1,
+    lineHeight: 18,
     flexShrink: 1,
+  },
+  laneCountBadge: {
+    minWidth: 20,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  laneCountBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 12,
   },
   searchWrap: {
     flex: 1,
@@ -1598,81 +1700,82 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     gap: 8,
+    ...Platform.select({
+      web: { boxShadow: "0 4px 12px rgba(15, 23, 42, 0.06)" } as object,
+      default: {
+        shadowColor: Theme.shadow,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 10,
+        elevation: 2,
+      },
+    }),
   },
   searchInput: {
     flex: 1,
     minWidth: 0,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
     paddingVertical: 0,
     height: "100%",
   },
   segmentOuter: {
     height: 44,
-    width: 188,
+    width: 168,
     flexShrink: 0,
     borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 4,
+    padding: 3,
     flexDirection: "row",
     alignItems: "stretch",
-    gap: 4,
+    gap: 2,
     overflow: "hidden",
   },
   segmentBtn: {
     flex: 1,
     minWidth: 0,
-    borderRadius: 16,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 6,
-    zIndex: 0,
+    paddingHorizontal: 2,
   },
   segmentBtnActive: {
-    borderWidth: StyleSheet.hairlineWidth,
-    zIndex: 0,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 3,
-      },
-      android: { elevation: 1 },
-      default: {},
-    }),
+    backgroundColor: Theme.buttonDark,
   },
   segmentLabel: {
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0,
+  },
+  segmentLabelOn: {
+    color: Theme.buttonDarkText,
+    fontWeight: "700",
   },
   segmentLabelRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    minWidth: 0,
-    maxWidth: "100%",
+    gap: 3,
   },
   segmentCountBadge: {
-    minWidth: 16,
+    minWidth: 20,
     height: 16,
     borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    backgroundColor: Theme.driverEmerald,
+  },
+  segmentCountBadgeOn: {
+    backgroundColor: Theme.cardWhite,
   },
   segmentCountBadgeText: {
-    fontSize: 8,
+    fontSize: 10,
     fontWeight: "800",
-    letterSpacing: 0.2,
-    lineHeight: 10,
+    lineHeight: 12,
   },
   toolbarFooter: {
     flexDirection: "row",
@@ -1710,27 +1813,128 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   cardRef: {
-    backgroundColor: TRIP_CARD_REF.cardBg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: TRIP_CARD_REF.border,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorderSoft,
+    borderRadius: 20,
     marginBottom: 12,
     overflow: "hidden",
     position: "relative",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowColor: Theme.driverCtaFill,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 8px 20px rgba(11, 79, 63, 0.08)",
+      } as object,
+      default: {},
+    }),
   },
-  cardWatermark: {
+  cardCanvas: {
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    overflow: "hidden",
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  cardCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mapThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: Theme.tripsCardWashMid,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderLight,
+    flexShrink: 0,
+    ...Platform.select({ web: { cursor: "pointer" } as object, default: {} }),
+  },
+  mapFace: {
+    flex: 1,
+    backgroundColor: Theme.tripsCardWashMid,
+    overflow: "hidden",
+  },
+  mapExpanded: {
+    marginTop: 10,
+    height: 200,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: Theme.tripsCardWashEnd,
+  },
+  liveMapScreen: { flex: 1, backgroundColor: "#e8eef2" },
+  liveMapCanvas: { flex: 1 },
+  liveMapChrome: {
     position: "absolute",
-    right: -8,
-    top: "22%",
-    opacity: 0.04,
-    zIndex: 0,
+    left: 16,
+    right: 16,
+    gap: 8,
+    zIndex: 20,
+  },
+  liveMapBack: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.border,
+  },
+  liveMapBackText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+  },
+  mapUnavailable: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  mapUnavailableText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    textAlign: "center",
+  },
+  mapLayers: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.88)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapCaption: {
+    position: "absolute",
+    left: 5,
+    right: 5,
+    bottom: 5,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: Theme.buttonDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapCaptionText: {
+    fontSize: 8,
+    fontWeight: "700",
+    color: Theme.buttonDarkText,
+    textAlign: "center",
   },
   cardRefAccentLeft: {
     position: "absolute",
@@ -1740,51 +1944,41 @@ const styles = StyleSheet.create({
     width: 5,
     zIndex: 1,
   },
-  cardRefTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 10,
-    gap: 8,
-  },
-  cardRefTopLeft: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
-  },
   cardRefId: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
     color: TRIP_CARD_REF.label,
-    letterSpacing: 1.4,
+    letterSpacing: 0.8,
     textTransform: "uppercase",
-    marginBottom: 5,
-    lineHeight: 12,
+    marginBottom: 4,
+    lineHeight: 13,
   },
   routeRowRef: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 6,
     minWidth: 0,
   },
   routeRefPickup: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "800",
     color: TRIP_CARD_REF.title,
-    letterSpacing: -0.25,
+    letterSpacing: -0.4,
     textTransform: "uppercase",
-    lineHeight: 16,
+    lineHeight: 18,
     flexShrink: 1,
+    flexGrow: 0,
     minWidth: 0,
   },
   routeRefDrop: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "800",
     color: TRIP_CARD_REF.title,
-    letterSpacing: -0.25,
+    letterSpacing: -0.4,
     textTransform: "uppercase",
-    lineHeight: 16,
+    lineHeight: 18,
     flexShrink: 1,
+    flexGrow: 1,
     minWidth: 0,
   },
   routeArrowWrap: {
@@ -1792,13 +1986,13 @@ const styles = StyleSheet.create({
     paddingTop: 1,
   },
   routeCorridorHint: {
-    marginTop: 2,
-    fontSize: 9,
+    marginTop: 3,
+    fontSize: 10,
     fontWeight: "600",
-    letterSpacing: 0.6,
+    letterSpacing: 0.4,
     textTransform: "uppercase",
-    opacity: 0.72,
-    lineHeight: 12,
+    opacity: 0.8,
+    lineHeight: 13,
   },
   cardAssignedByLine: {
     marginTop: 4,
@@ -1809,13 +2003,11 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   badgeRef: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
     flexShrink: 0,
-    marginLeft: 0,
     alignSelf: "flex-start",
-    maxWidth: "36%",
   },
   badgeRefCompleted: {
     backgroundColor: TRIP_CARD_REF.badgeCompletedBg,
@@ -1832,20 +2024,23 @@ const styles = StyleSheet.create({
     lineHeight: 11,
   },
   cardRefLaneRow: {
-    marginTop: 8,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 8,
   },
-  cardRefAssignerFooter: {
-    marginTop: 0,
+  statusInline: {
+    color: Theme.textSecondary,
+    letterSpacing: 0.6,
   },
-  cardRefBottom: {
-    paddingTop: 12,
-    marginTop: 3,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: TRIP_CARD_REF.divider,
+  cardRefAssignerFooter: {
+    marginTop: 12,
+    alignSelf: "stretch",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   cardRefDistanceRow: {
     flexDirection: "row",
@@ -1864,11 +2059,14 @@ const styles = StyleSheet.create({
     lineHeight: 11,
   },
   manifestValue: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "800",
     color: TRIP_CARD_REF.body,
     textTransform: "uppercase",
-    lineHeight: 14,
+    lineHeight: 16,
+  },
+  distanceValue: {
+    letterSpacing: 0.2,
   },
   tripTypeBadge: {
     alignSelf: "flex-start",
@@ -1888,14 +2086,14 @@ const styles = StyleSheet.create({
     borderColor: Theme.driverEmeraldBorder,
   },
   tripTypeBadgeMarket: {
-    color: Theme.primary,
-    backgroundColor: Theme.brandBlueWash,
-    borderColor: Theme.brandBlueRing,
+    color: Theme.driverCtaFill,
+    backgroundColor: Theme.driverEmeraldMuted,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
   tripTypeBadgeOffline: {
-    color: Theme.primary,
-    backgroundColor: Theme.surface,
-    borderColor: Theme.surfaceBorder,
+    color: Theme.textOnPrimary,
+    backgroundColor: Theme.driverCtaFill,
+    borderColor: Theme.driverCtaFill,
   },
   yieldWrapRef: {
     alignItems: "flex-end",
@@ -1912,43 +2110,53 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   yieldValueRef: {
-    fontSize: 13,
+    fontSize: 18,
     fontWeight: "800",
-    letterSpacing: -0.25,
-    lineHeight: 16,
+    letterSpacing: -0.4,
+    lineHeight: 22,
     textAlign: "right",
   },
   yieldValueCompleted: { color: TRIP_CARD_REF.emeraldYield },
   yieldValueMuted: { color: TRIP_CARD_REF.muted },
   empty: {
     alignItems: "center",
-    paddingVertical: 48,
-    gap: 12,
+    paddingTop: 48,
+    paddingHorizontal: 32,
+    gap: 8,
+  },
+  emptyHistoryIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
   },
   emptyActiveWrap: {
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 68,
-    paddingHorizontal: 30,
+    paddingTop: 48,
+    paddingHorizontal: 32,
+    gap: 8,
   },
   emptyActiveIconCircle: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
+    marginBottom: 14,
   },
   emptyActiveTitle: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: "800",
     letterSpacing: -0.2,
     textAlign: "center",
   },
   emptyActiveSubtitle: {
     ...driverBodyPrimary,
-    marginTop: 8,
+    marginTop: 0,
     fontSize: 13,
     lineHeight: 20,
     textAlign: "center",

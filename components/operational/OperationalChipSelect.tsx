@@ -15,8 +15,11 @@ export interface OperationalChipSelectProps<T extends string> {
   label: string;
   hint?: string;
   options: ReadonlyArray<OperationalChipOption<T>>;
-  value: T;
+  value: T | null;
   onChange: (value: T) => void;
+  /** Tap the selected chip again to clear it. */
+  clearable?: boolean;
+  onClear?: () => void;
   /** When true, chips use a denser 3-column wrap grid (default on mobile-friendly forms). */
   compact?: boolean;
   /** Tighter label + chip typography for operational entry forms. */
@@ -31,6 +34,8 @@ function OperationalChipSelectInner<T extends string>({
   onChange,
   compact = true,
   density = "default",
+  clearable = false,
+  onClear,
 }: OperationalChipSelectProps<T>) {
   const dense = density === "compact";
   return (
@@ -43,7 +48,13 @@ function OperationalChipSelectInner<T extends string>({
           return (
             <Pressable
               key={option.value}
-              onPress={() => onChange(option.value)}
+              onPress={() => {
+                if (clearable && option.value === value) {
+                  onClear?.();
+                  return;
+                }
+                onChange(option.value);
+              }}
               style={({ pressed }) => [
                 styles.chip,
                 compact && styles.chipCompact,

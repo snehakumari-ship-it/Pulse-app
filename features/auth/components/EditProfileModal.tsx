@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Check, ChevronLeft, Edit3, Mail, Phone, Sparkles } from 'lucide-react-native';
+import { AlertTriangle, Check, ChevronLeft, Edit3, Mail, Phone, Sparkles } from 'lucide-react-native';
 import Theme from '@/constants/Theme';
 import Layout from '@/constants/Layout';
 import Typography from '@/constants/Typography';
@@ -44,13 +44,11 @@ import * as authService from '../services/auth.service';
 
 const DEFAULT_AVATAR_SEED = DEFAULT_DRIVER_AVATAR_SEED;
 
-/** Driver edit screen — cool white page (reference: #FDFEFF). */
-const DRIVER_EDIT_PAGE_BG = '#F6FAFC';
 /** Accent for photo actions should match app primary theme. */
 const DRIVER_FOREST = Theme.primary;
 const DRIVER_INPUT_BG = Theme.liquidPillBg;
-const DRIVER_AVATAR_SIZE = 144;
-const DRIVER_EDIT_FAB = 48;
+const DRIVER_AVATAR_SIZE = 120;
+const DRIVER_EDIT_FAB = 40;
 
 export interface EditProfileModalProps {
   visible: boolean;
@@ -468,7 +466,7 @@ export function EditProfileModal({
       }}
     >
       <KeyboardAvoidingView
-        style={[styles.outer, driverRefLayout && { backgroundColor: DRIVER_EDIT_PAGE_BG }]}
+        style={[styles.outer, driverRefLayout && { backgroundColor: Theme.driverEmeraldWash }]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         keyboardVerticalOffset={0}
       >
@@ -501,7 +499,7 @@ export function EditProfileModal({
               accessibilityLabel="Save profile"
             >
               {saving ? (
-                <LoadingIndicator size="small" color={Theme.driverEmerald} />
+                <LoadingIndicator size="small" color={Theme.textOnPrimary} />
               ) : (
                 <Text style={styles.driverHeaderSavePillText}>Save</Text>
               )}
@@ -581,7 +579,7 @@ export function EditProfileModal({
                       accessibilityLabel="Edit profile photo"
                       accessibilityRole="button"
                     >
-                      <Edit3 size={22} color={Theme.textOnPrimary} strokeWidth={2.5} />
+                      <Edit3 size={16} color={Theme.textOnPrimary} strokeWidth={2.4} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -685,11 +683,11 @@ export function EditProfileModal({
                   accessibilityLabel={hasEmail ? 'Email address (read-only)' : 'Add email'}
                 >
                   <View style={styles.driverContactIconBg}>
-                    <Mail size={22} color={Theme.driverEmerald} strokeWidth={2.2} />
+                    <Mail size={18} color={Theme.driverEmerald} strokeWidth={2.2} />
                   </View>
                   <View style={styles.driverContactMid}>
                     <Text style={styles.driverContactEyebrow}>Email address</Text>
-                    <Text style={styles.driverContactValue} numberOfLines={2}>
+                    <Text style={styles.driverContactValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
                       {hasEmail ? emailTrimmed : 'Add email'}
                     </Text>
                   </View>
@@ -702,7 +700,7 @@ export function EditProfileModal({
 
                 <View style={styles.driverContactRow}>
                   <View style={styles.driverContactIconBgBlue}>
-                    <Phone size={22} color="#2563eb" strokeWidth={2.2} />
+                    <Phone size={18} color="#2563eb" strokeWidth={2.2} />
                   </View>
                   <View style={styles.driverContactMid}>
                     <Text style={styles.driverContactEyebrow}>Mobile number</Text>
@@ -729,10 +727,7 @@ export function EditProfileModal({
                 </View>
               </View>
 
-              <Text style={[styles.driverSectionLegendTop, styles.driverSectionAfterBio]}>
-                Fleet / account
-              </Text>
-              <View style={styles.driverCardWhite}>
+              <View style={[styles.driverCardWhite, styles.driverSectionAfterBio]}>
                 <Text style={styles.driverCardMicroLabel}>Registered company name</Text>
                 <TextInput
                   style={styles.driverCardTextInput}
@@ -772,7 +767,8 @@ export function EditProfileModal({
                 accessibilityLabel="Request account deactivation"
                 accessibilityRole="button"
               >
-                <Text style={styles.driverDeactivateBtnText}>Request Account Deactivation</Text>
+                <AlertTriangle size={14} color={Theme.warning} strokeWidth={2.4} />
+                <Text style={styles.driverDeactivateBtnText}>Request account deactivation</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -1003,7 +999,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Layout.screenPaddingHorizontal - 4,
-    backgroundColor: 'rgba(253,254,255,0.92)',
+    backgroundColor: Theme.driverEmeraldWash,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   driverHeaderBackRound: {
@@ -1011,7 +1007,6 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
   },
   driverHeaderTitleCenter: {
     position: 'absolute',
@@ -1024,36 +1019,38 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   driverHeaderSavePill: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    paddingHorizontal: 14,
+    minHeight: 36,
+    borderRadius: 8,
+    backgroundColor: Theme.driverEmerald,
     minWidth: 72,
     alignItems: 'center',
     justifyContent: 'center',
   },
   driverHeaderSavePillText: {
     fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-    color: Theme.driverEmerald,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: Theme.textOnPrimary,
     textTransform: 'uppercase',
   },
   driverHeroBlock: {
     alignItems: 'center',
-    marginBottom: Layout.sectionSpacing + 6,
-    marginTop: 8,
+    marginBottom: 12,
+    marginTop: 4,
   },
   driverAvatarGlowWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 18,
-    width: DRIVER_AVATAR_SIZE + 48,
-    height: DRIVER_AVATAR_SIZE + 48,
+    marginBottom: 8,
+    width: DRIVER_AVATAR_SIZE + 28,
+    height: DRIVER_AVATAR_SIZE + 28,
   },
   driverAvatarGlowBlob: {
     position: 'absolute',
     width: DRIVER_AVATAR_SIZE + 36,
     height: DRIVER_AVATAR_SIZE + 36,
+    borderRadius: (DRIVER_AVATAR_SIZE + 36) / 2,
     opacity: 0.85,
   },
   driverAvatarRelative: {
@@ -1062,14 +1059,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   driverSquircleGradient: {
-    width: DRIVER_AVATAR_SIZE + 10,
-    height: DRIVER_AVATAR_SIZE + 10,
-    padding: 5,
+    width: DRIVER_AVATAR_SIZE + 8,
+    height: DRIVER_AVATAR_SIZE + 8,
+    padding: 4,
+    borderRadius: (DRIVER_AVATAR_SIZE + 8) / 2,
     overflow: 'hidden',
   },
   driverSquircleInner: {
     width: DRIVER_AVATAR_SIZE,
     height: DRIVER_AVATAR_SIZE,
+    borderRadius: DRIVER_AVATAR_SIZE / 2,
     overflow: 'hidden',
     backgroundColor: '#fff',
     alignItems: 'center',
@@ -1078,6 +1077,7 @@ const styles = StyleSheet.create({
   driverAvatarImageSq: {
     width: '100%',
     height: '100%',
+    borderRadius: DRIVER_AVATAR_SIZE / 2,
   },
   driverHeroNameNew: {
     fontSize: 22,
@@ -1089,31 +1089,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   driverHeroEyebrowSmall: {
-    marginTop: 8,
+    marginTop: 4,
     fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
+    fontWeight: '800',
+    letterSpacing: 1.2,
     color: Theme.textMuted,
     textTransform: 'uppercase',
     textAlign: 'center',
   },
   driverSectionLegendTop: {
     fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
+    fontWeight: '800',
+    letterSpacing: 1.2,
     color: Theme.textMuted,
-    marginBottom: 12,
-    marginLeft: 6,
+    marginBottom: 6,
+    marginLeft: 2,
     textTransform: 'uppercase',
   },
   driverSectionAfterBio: {
-    marginTop: 22,
+    marginTop: 12,
   },
   driverCardWhite: {
     backgroundColor: Theme.screenBackground,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    marginBottom: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 0,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -1125,27 +1128,30 @@ const styles = StyleSheet.create({
     }),
   },
   driverCardMicroLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
     color: Theme.textMuted,
     textTransform: 'uppercase',
-    marginBottom: 8,
+    marginBottom: 2,
   },
   driverCardTextInput: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: Theme.textPrimaryDark,
-    paddingVertical: 2,
+    height: 24,
+    paddingVertical: 0,
     paddingHorizontal: 0,
+    margin: 0,
   },
   driverBioHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 6,
-    marginTop: 18,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+    marginTop: 12,
+    minHeight: 32,
   },
   driverSectionLegendInline: {
     fontSize: 10,
@@ -1157,10 +1163,11 @@ const styles = StyleSheet.create({
   driverGeneratePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    gap: 6,
+    paddingHorizontal: 12,
+    minHeight: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(167,243,208,0.45)',
   },
   driverGeneratePillText: {
     fontSize: 10,
@@ -1171,10 +1178,13 @@ const styles = StyleSheet.create({
   },
   driverCardWhiteBio: {
     backgroundColor: Theme.screenBackground,
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 16,
-    marginBottom: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    marginBottom: 0,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -1189,21 +1199,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: Theme.textSecondary,
-    minHeight: 120,
-    lineHeight: 22,
+    minHeight: 64,
+    lineHeight: 20,
     paddingVertical: 0,
+    margin: 0,
   },
   driverBioHintItalic: {
-    fontSize: 9,
+    fontSize: 11,
     fontStyle: 'italic',
-    fontWeight: '700',
+    fontWeight: '500',
     color: Theme.textMuted,
-    marginTop: 14,
+    marginTop: 6,
   },
   driverContactCard: {
     backgroundColor: Theme.screenBackground,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Theme.borderInput,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 0,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -1217,24 +1231,27 @@ const styles = StyleSheet.create({
   driverContactRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    gap: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 56,
+    gap: 10,
   },
   driverContactRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(167,243,208,0.45)',
   },
   driverContactIconBg: {
-    width: 48,
-    height: 48,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    backgroundColor: 'rgba(167,243,208,0.45)',
   },
   driverContactIconBgBlue: {
-    width: 48,
-    height: 48,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(219,234,254,0.9)',
@@ -1244,32 +1261,37 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   driverContactEyebrow: {
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 1,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
     color: Theme.textMuted,
     textTransform: 'uppercase',
-    marginBottom: 4,
+    marginBottom: 1,
   },
   driverContactValue: {
     fontSize: 14,
     fontWeight: '700',
+    lineHeight: 18,
     color: Theme.textPrimaryDark,
   },
   driverContactPhoneInput: {
     fontSize: 14,
     fontWeight: '700',
+    lineHeight: 18,
+    height: 20,
     color: Theme.textPrimaryDark,
     paddingVertical: 0,
     paddingHorizontal: 0,
+    margin: 0,
   },
   driverVerifiedChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(167,243,208,0.35)',
+    gap: 4,
+    paddingHorizontal: 8,
+    minHeight: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(167,243,208,0.45)',
   },
   driverVerifiedChipText: {
     fontSize: 9,
@@ -1290,6 +1312,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: DRIVER_EDIT_FAB,
     height: DRIVER_EDIT_FAB,
+    borderRadius: DRIVER_EDIT_FAB / 2,
     backgroundColor: DRIVER_FOREST,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1304,8 +1327,8 @@ const styles = StyleSheet.create({
     }),
   },
   driverEditFabElevated: {
-    right: -6,
-    bottom: -6,
+    right: 4,
+    bottom: 4,
   },
   driverSectionLegend: {
     ...Typography.headerTitle,
@@ -1493,40 +1516,34 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   driverSaveChangesBtn: {
-    marginTop: 12,
+    marginTop: 16,
+    borderRadius: 999,
     backgroundColor: Theme.driverEmerald,
-    paddingVertical: 20,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 56,
-    ...Platform.select({
-      ios: {
-        shadowColor: DRIVER_FOREST,
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.25,
-        shadowRadius: 14,
-      },
-      android: { elevation: 6 },
-    }),
+    minHeight: 48,
   },
   driverSaveChangesBtnText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: Theme.buttonPrimaryText,
-    letterSpacing: 2,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Theme.textOnPrimary,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   driverDeactivateBtn: {
-    marginTop: 16,
-    paddingVertical: 14,
+    marginTop: 12,
+    minHeight: 36,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
   driverDeactivateBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 2,
-    color: Theme.negative,
-    textTransform: 'uppercase',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0,
+    color: Theme.warning,
   },
   driverAvatarPickerBlock: {
     marginBottom: 20,
@@ -1549,7 +1566,7 @@ const styles = StyleSheet.create({
   },
   scrollContentDriver: {
     paddingHorizontal: Layout.screenPaddingHorizontal,
-    paddingTop: 24,
+    paddingTop: 12,
   },
   actionSheetOverlay: {
     ...StyleSheet.absoluteFillObject,

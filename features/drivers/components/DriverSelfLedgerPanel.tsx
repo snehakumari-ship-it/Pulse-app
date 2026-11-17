@@ -3,19 +3,19 @@
  * Employer / open-trips blocks stay on Fleet for employed drivers only.
  */
 import {
-  driverBodySecondary,
-  driverUIBold,
-  driverUISemiBold,
+    driverBodySecondary,
+    driverUIBold,
+    driverUISemiBold,
 } from '@/constants/DriverTypography';
 import Theme from '@/constants/Theme';
-import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from '@/features/drivers/components/DriverLedgerReceiptPreviewModal';
-import type { DriverLedgerRow } from '@/features/drivers/services/drivers.service';
 import {
-  buildDriverLedgerReceiptDetails,
-  deriveDriverPaymentMode,
-  extractDriverPaymentUtr,
+    buildDriverLedgerReceiptDetails,
+    deriveDriverPaymentMode,
+    extractDriverPaymentUtr,
 } from '@/features/driver/tripSettlement/driverTripSettlement.util';
 import { phonePeMetaDate } from '@/features/driver/utils/driverGpayTransactions.util';
+import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from '@/features/drivers/components/DriverLedgerReceiptPreviewModal';
+import type { DriverLedgerRow } from '@/features/drivers/services/drivers.service';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -73,10 +73,19 @@ type Props = {
   isDark: boolean;
 };
 
+const PREVIEW_COUNT = 4;
+
 export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, colors, isDark }: Props) {
   const [preview, setPreview] = useState<DriverLedgerReceiptPreview | null>(null);
-  const sections = useMemo(() => {
-    const sorted = [...entries].sort(
+  const [showAll, setShowAll] = useState(false);
+
+  const visibleEntries = useMemo(
+    () => (showAll ? entries : [...entries].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, PREVIEW_COUNT)),
+    [entries, showAll],
+  );
+  const hiddenCount = Math.max(0, entries.length - PREVIEW_COUNT);
+  const visibleSections = useMemo(() => {
+    const sorted = [...visibleEntries].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
     const map = new Map<string, DriverLedgerRow[]>();
@@ -87,41 +96,37 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
       else map.set(key, [e]);
     }
     return [...map.entries()].map(([label, rows]) => ({ label, rows }));
-  }, [entries]);
-
-  const totals = useMemo(() => {
-    let inAmt = 0;
-    let outAmt = 0;
-    for (const e of entries) {
-      const n = Number(e.amount) || 0;
-      if (n >= 0) inAmt += n;
-      else outAmt += Math.abs(n);
-    }
-    return { inAmt: Math.round(inAmt), outAmt: Math.round(outAmt), net: Math.round(inAmt - outAmt) };
-  }, [entries]);
+  }, [visibleEntries]);
 
   if (entries.length === 0) {
     return (
       <View style={styles.wrap}>
-        <Text style={[styles.title, { color: colors.text }]}>Self transactions</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Self-Transactions</Text>
         <Text style={[styles.sub, { color: colors.textMuted }]}>
           Settlements, salary, and adjustments from your ledger — same cash movements Business
           Finance tracks.
         </Text>
         <View
           style={[
-            styles.emptyCard,
+            styles.group,
             {
               backgroundColor: colors.surface,
               borderColor: isDark ? colors.borderSubtle ?? colors.border : Theme.borderLight,
+              borderLeftColor: Theme.driverEmerald,
             },
           ]}
         >
-          <FontAwesome name="list-alt" size={22} color={colors.textMuted} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>No transactions yet</Text>
-          <Text style={[styles.emptyBody, { color: colors.textMuted }]}>
-            When trips settle or salary/incentives post, they appear here.
-          </Text>
+          <View style={styles.row}>
+            <View style={[styles.iconSq, { backgroundColor: colors.emeraldMuted }]}>
+              <FontAwesome name="arrow-down" size={14} color={colors.emerald} />
+            </View>
+            <View style={styles.mid}>
+              <Text style={[styles.primary, { color: colors.text }]}>No transactions yet</Text>
+              <Text style={[styles.secondary, { color: colors.textMuted }]}>
+                When trips settle or salary/incentives post, they appear here.
+              </Text>
+            </View>
+          </View>
         </View>
       </View>
     );
@@ -129,48 +134,9 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
 
   return (
     <View style={styles.wrap}>
-      <Text style={[styles.title, { color: colors.text }]}>Self transactions</Text>
-      <Text style={[styles.sub, { color: colors.textMuted }]}>
-        Your driver ledger — in, out, and adjustments.
-      </Text>
+      <Text style={[styles.title, { color: colors.text }]}>Self-Transactions</Text>
 
-      <View
-        style={[
-          styles.summaryRow,
-          {
-            backgroundColor: colors.surface,
-            borderColor: isDark ? colors.borderSubtle ?? colors.border : Theme.borderLight,
-          },
-        ]}
-      >
-        <View style={styles.summaryCell}>
-          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>In</Text>
-          <Text style={[styles.summaryValue, { color: colors.emerald }]}>
-            ₹{totals.inAmt.toLocaleString('en-IN')}
-          </Text>
-        </View>
-        <View style={[styles.summaryDivider, { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight }]} />
-        <View style={styles.summaryCell}>
-          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Out</Text>
-          <Text style={[styles.summaryValue, { color: colors.text }]}>
-            ₹{totals.outAmt.toLocaleString('en-IN')}
-          </Text>
-        </View>
-        <View style={[styles.summaryDivider, { backgroundColor: isDark ? colors.borderSubtle : Theme.borderLight }]} />
-        <View style={styles.summaryCell}>
-          <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Net</Text>
-          <Text
-            style={[
-              styles.summaryValue,
-              { color: totals.net >= 0 ? colors.emerald : Theme.negative },
-            ]}
-          >
-            ₹{Math.abs(totals.net).toLocaleString('en-IN')}
-          </Text>
-        </View>
-      </View>
-
-      {sections.map(({ label, rows }) => (
+      {visibleSections.map(({ label, rows }) => (
         <View key={label} style={styles.section}>
           <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>{label}</Text>
           <View
@@ -179,6 +145,7 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
               {
                 backgroundColor: colors.surface,
                 borderColor: isDark ? colors.borderSubtle ?? colors.border : Theme.borderLight,
+                borderLeftColor: Theme.driverEmerald,
               },
             ]}
           >
@@ -280,6 +247,19 @@ export function DriverSelfLedgerPanel({ entries, orgNameById, tripNumberById, co
         </View>
       ))}
 
+      {hiddenCount > 0 ? (
+        <TouchableOpacity
+          onPress={() => setShowAll((open) => !open)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={showAll ? "Show fewer transactions" : "Show all transactions"}
+          style={styles.showAll}
+        >
+          <Text style={styles.showAllText}>{showAll ? "Show fewer" : "Show all transactions"}</Text>
+          <FontAwesome name={showAll ? "chevron-up" : "arrow-right"} size={10} color={Theme.textPrimaryDark} />
+        </TouchableOpacity>
+      ) : null}
+
       <DriverLedgerReceiptPreviewModal
         visible={!!preview}
         receipt={preview}
@@ -303,35 +283,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: -4,
   },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 10,
-    marginTop: 2,
-  },
-  summaryCell: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 6,
-  },
-  summaryDivider: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-  },
-  summaryLabel: {
-    ...driverUISemiBold,
-    fontSize: 9,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  summaryValue: {
-    ...driverUIBold,
-    fontSize: 13,
-    letterSpacing: -0.2,
-  },
   section: { gap: 6 },
   sectionLabel: {
     ...driverUISemiBold,
@@ -340,9 +291,23 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     paddingHorizontal: 2,
   },
+  showAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 36,
+  },
+  showAllText: {
+    ...driverUIBold,
+    fontSize: 12,
+    color: Theme.textPrimaryDark,
+  },
   group: {
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 2,
+    borderLeftColor: Theme.driverEmerald,
     overflow: 'hidden',
   },
   row: {
@@ -383,11 +348,16 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     alignItems: 'center',
-    gap: 6,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 28,
+    gap: 8,
+    paddingTop: 28,
     paddingHorizontal: 18,
+  },
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyTitle: {
     ...driverUIBold,

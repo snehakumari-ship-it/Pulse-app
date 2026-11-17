@@ -101,8 +101,8 @@ export function driverExpenseEntryHref(
 
 export function activeDriverExpenseCategoryValue(
   formKind: DriverExpenseFormKind,
-  otherCategory: TripOtherExpenseCategory,
-): DriverExpenseCategoryNav {
+  otherCategory: TripOtherExpenseCategory | null,
+): DriverExpenseCategoryNav | null {
   if (formKind === "fuel") return "fuel";
   if (formKind === "toll") return "toll";
   return otherCategory;

@@ -1,0 +1,147 @@
+diff --git a/node_modules/@react-navigation/elements/lib/module/Screen.js b/node_modules/@react-navigation/elements/lib/module/Screen.js
+index e4ff174..0f496ad 100644
+--- a/node_modules/@react-navigation/elements/lib/module/Screen.js
++++ b/node_modules/@react-navigation/elements/lib/module/Screen.js
+@@ -2,7 +2,7 @@
+ 
+ import { NavigationProvider } from '@react-navigation/native';
+ import * as React from 'react';
+-import { StyleSheet, View } from 'react-native';
++import { StyleSheet, View, Platform } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { Background } from "./Background.js";
+ import { getDefaultHeaderHeight } from "./Header/getDefaultHeaderHeight.js";
+@@ -28,20 +28,43 @@ export function Screen(props) {
+   } = props;
+   const defaultHeaderHeight = useFrameSize(size => getDefaultHeaderHeight(size, modal, headerStatusBarHeight));
+   const headerRef = React.useRef(null);
++  const screenRef = React.useRef(null);
++  // Apply aria-hidden only after focus has left this screen. Setting it in the
++  // same commit as navigation leaves the pressed button focused inside a
++  // hidden ancestor, which browsers block.
++  const [ariaHidden, setAriaHidden] = React.useState(!focused);
+   const [headerHeight, setHeaderHeight] = React.useState(defaultHeaderHeight);
+   React.useLayoutEffect(() => {
+     headerRef.current?.measure((_x, _y, _width, height) => {
+       setHeaderHeight(height);
+     });
+   }, [route.name]);
+-  return /*#__PURE__*/_jsxs(Background, {
+-    "aria-hidden": !focused,
++  React.useLayoutEffect(() => {
++    if (focused) {
++      setAriaHidden(false);
++      return;
++    }
++    if (Platform.OS === 'web' && typeof document !== 'undefined') {
++      const node = screenRef.current;
++      const active = document.activeElement;
++      if (node instanceof HTMLElement && active instanceof HTMLElement && (node === active || node.contains(active))) {
++        active.blur();
++      }
++    }
++    setAriaHidden(true);
++  }, [focused]);
++  return /*#__PURE__*/_jsx(Background, {
++    "aria-hidden": ariaHidden,
+     style: [styles.container, style]
+     // On Fabric we need to disable collapsing for the background to ensure
+     // that we won't render unnecessary views due to the view flattening.
+     ,
+     collapsable: false,
+-    children: [headerShown ? /*#__PURE__*/_jsx(NavigationProvider, {
++    children: /*#__PURE__*/_jsxs(View, {
++      ref: screenRef,
++      style: styles.container,
++      collapsable: false,
++      children: [headerShown ? /*#__PURE__*/_jsx(NavigationProvider, {
+       route: route,
+       navigation: navigation,
+       children: /*#__PURE__*/_jsx(View, {
+@@ -62,7 +85,7 @@ export function Screen(props) {
+           children: header
+         })
+       })
+-    }) : null, /*#__PURE__*/_jsx(View, {
++      }) : null, /*#__PURE__*/_jsx(View, {
+       style: styles.content,
+       children: /*#__PURE__*/_jsx(HeaderShownContext.Provider, {
+         value: isParentHeaderShown || headerShown !== false,
+@@ -72,6 +95,7 @@ export function Screen(props) {
+         })
+       })
+     })]
++    })
+   });
+ }
+ const styles = StyleSheet.create({
+diff --git a/node_modules/@react-navigation/elements/src/Screen.tsx b/node_modules/@react-navigation/elements/src/Screen.tsx
+index 68455b1..b1577c9 100644
+--- a/node_modules/@react-navigation/elements/src/Screen.tsx
++++ b/node_modules/@react-navigation/elements/src/Screen.tsx
+@@ -7,6 +7,7 @@ import {
+ import * as React from 'react';
+ import {
+   Animated,
++  Platform,
+   type StyleProp,
+   StyleSheet,
+   View,
+@@ -57,6 +58,11 @@ export function Screen(props: Props) {
+   );
+ 
+   const headerRef = React.useRef<View>(null);
++  const screenRef = React.useRef<View>(null);
++  // Apply aria-hidden only after focus has left this screen. Setting it in the
++  // same commit as navigation leaves the pressed button focused inside a
++  // hidden ancestor, which browsers block.
++  const [ariaHidden, setAriaHidden] = React.useState(!focused);
+ 
+   const [headerHeight, setHeaderHeight] = React.useState(defaultHeaderHeight);
+ 
+@@ -66,14 +72,36 @@ export function Screen(props: Props) {
+     });
+   }, [route.name]);
+ 
++  React.useLayoutEffect(() => {
++    if (focused) {
++      setAriaHidden(false);
++      return;
++    }
++
++    if (Platform.OS === 'web' && typeof document !== 'undefined') {
++      const node = screenRef.current as unknown as HTMLElement | null;
++      const active = document.activeElement;
++      if (
++        node instanceof HTMLElement &&
++        active instanceof HTMLElement &&
++        (node === active || node.contains(active))
++      ) {
++        active.blur();
++      }
++    }
++
++    setAriaHidden(true);
++  }, [focused]);
++
+   return (
+     <Background
+-      aria-hidden={!focused}
++      aria-hidden={ariaHidden}
+       style={[styles.container, style]}
+       // On Fabric we need to disable collapsing for the background to ensure
+       // that we won't render unnecessary views due to the view flattening.
+       collapsable={false}
+     >
++      <View ref={screenRef} style={styles.container} collapsable={false}>
+       {headerShown ? (
+         <NavigationProvider route={route} navigation={navigation}>
+           <View
+@@ -113,6 +141,7 @@ export function Screen(props: Props) {
+           </HeaderHeightContext.Provider>
+         </HeaderShownContext.Provider>
+       </View>
++      </View>
+     </Background>
+   );
+ }

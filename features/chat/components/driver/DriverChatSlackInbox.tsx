@@ -1,3 +1,4 @@
+import { DriverChatEmptyArt } from "@/features/chat/components/driver/DriverChatEmptyArt";
 import { DriverShipperFeedbackModal } from "@/features/chat/components/driver/DriverShipperFeedbackModal";
 import {
   ChatSlackListHeader,
@@ -15,11 +16,11 @@ import { driverChatMessagesQueryKey } from "@/features/chat/utils/driverChatMess
 import type { TripConversation, TripMessageRow } from "@/features/chat/types/chat.types";
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
 import { useQueryClient } from "@tanstack/react-query";
-import { MessageSquare } from "lucide-react-native";
 import { FlashList } from "@shopify/flash-list";
 import { memo, useCallback, useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { driverChatInboxStyles as driver } from "@/features/chat/components/driver/driverChatInbox.styles";
 import { driverConversationUnreadCount } from "@/features/chat/utils/driverChatUnread.util";
 
 function formatTripDate(iso: string | null | undefined): string {
@@ -115,6 +116,7 @@ function DriverChatSlackInboxInner({
           previewStarFilled={previewStarFilled}
           onPressPreviewStar={() => setFeedbackConv(item)}
           onPress={() => onOpenConv(item)}
+          tone="driver"
         />
       );
     },
@@ -130,11 +132,12 @@ function DriverChatSlackInboxInner({
     "this shipper";
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+    <View style={driver.screen}>
       <ChatSlackListHeader
         streamLabel="Trip messages"
         topInset={insets.top}
         onBack={onBack}
+        tone="driver"
         profileIdentity={{
           displayName: profileName?.trim() || "Driver",
           entityType: "driver",
@@ -146,22 +149,13 @@ function DriverChatSlackInboxInner({
 
       {isLoading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontSize: 13, color: "#94a3b8" }}>Loading conversations…</Text>
+          <Text style={driver.loading}>Loading conversations…</Text>
         </View>
       ) : conversations.length === 0 ? (
-        <View style={{ alignItems: "center", paddingTop: 64, gap: 12, paddingHorizontal: 32 }}>
-          <MessageSquare size={36} color="#e2e8f0" />
-          <Text style={{ fontSize: 14, color: "#94a3b8", textAlign: "center" }}>
-            No trip messages yet
-          </Text>
-          <Text
-            style={{
-              fontSize: 12,
-              color: "#94a3b8",
-              textAlign: "center",
-              lineHeight: 18,
-            }}
-          >
+        <View style={driver.emptyWrap}>
+          <DriverChatEmptyArt />
+          <Text style={driver.emptyTitle}>No trip messages yet</Text>
+          <Text style={driver.emptyBody}>
             Open messages from an active trip or trip history — chats are tied to each trip.
           </Text>
         </View>
@@ -170,7 +164,10 @@ function DriverChatSlackInboxInner({
           data={conversations}
           keyExtractor={(c) => c.id}
           extraData={feedbackConv?.id}
-          contentContainerStyle={{ paddingBottom: Math.max(bottomInset, 12) }}
+          contentContainerStyle={[
+            driver.listContent,
+            { paddingBottom: Math.max(bottomInset, 16) },
+          ]}
           renderItem={renderConvItem}
         />
       )}

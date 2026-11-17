@@ -26,10 +26,10 @@ import {
 import { ROUTES, tripExpenseEntryEditRoute } from "@/lib/routes";
 import { type Href, useRouter } from "expo-router";
 import {
-  Activity,
   Banknote,
   CheckCircle2,
   ChevronRight,
+  Gauge,
   Info,
   Receipt,
   Sparkles,
@@ -141,6 +141,13 @@ export function TripDetailSettlementPanel({
         : costEvents.length > 0
           ? "All expenses settled"
           : "No expenses yet";
+  const odometerSnapshot = toVerificationSnapshot(trip);
+  const odometerValue =
+    odometerSnapshot.startOdometerKm != null || odometerSnapshot.endOdometerKm != null
+      ? [formatKm(odometerSnapshot.startOdometerKm), formatKm(odometerSnapshot.endOdometerKm)]
+          .filter((part) => part && part !== "—")
+          .join(" → ") || "—"
+      : "—";
 
   const reimbursementMetrics = [
     {
@@ -255,7 +262,7 @@ export function TripDetailSettlementPanel({
   return (
     <View style={{ marginBottom: 12 }}>
       {showMarketplaceCollect ? (
-        <View style={[panelStyles.partyCard, { marginBottom: 12 }]}>
+        <View style={[panelStyles.partyCard, { marginBottom: 8 }]}>
           <Text style={panelStyles.partyKicker}>Collect from shipper</Text>
           <Text style={panelStyles.partyName} numberOfLines={1}>
             {marketplaceShipper}
@@ -274,7 +281,7 @@ export function TripDetailSettlementPanel({
       ) : null}
 
       {showDcoPartyActions ? (
-        <View style={[panelStyles.partyCard, { marginBottom: 12 }]}>
+        <View style={[panelStyles.partyCard, { marginBottom: 8 }]}>
           <Text style={panelStyles.partyKicker}>
             {taggedToParty ? "Bill to" : "Tag a party first"}
           </Text>
@@ -289,7 +296,7 @@ export function TripDetailSettlementPanel({
                 accessibilityRole="button"
                 accessibilityLabel={`Collect from ${taggedPartyName}`}
               >
-                <Text style={panelStyles.collectBtnText}>Collect</Text>
+                <Text style={panelStyles.collectBtnText}>Collect Payout</Text>
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity
@@ -303,6 +310,36 @@ export function TripDetailSettlementPanel({
               </Text>
             </TouchableOpacity>
           </View>
+          {showCommissionHero ? (
+            <View style={[panelStyles.payoutRow, { borderTopColor: isDark ? colors.border : "#e2e8f0" }]}>
+              <View style={panelStyles.payoutCol}>
+                <Text style={[panelStyles.payoutLabel, { color: colors.textMuted }]}>
+                  Expected payout
+                </Text>
+                <Text style={[panelStyles.payoutValue, { color: colors.text }]} numberOfLines={1}>
+                  {inr(settlementView.amount)}
+                </Text>
+              </View>
+              <View style={[panelStyles.payoutDivider, { backgroundColor: isDark ? colors.border : "#e2e8f0" }]} />
+              <View style={panelStyles.payoutCol}>
+                <Text style={[panelStyles.payoutLabel, { color: colors.textMuted }]}>Trip earning</Text>
+                <View style={[panelStyles.payoutBadge, { backgroundColor: "#ecfdf5" }]}>
+                  <Text style={[panelStyles.payoutBadgeText, { color: Theme.driverEmerald }]} numberOfLines={1}>
+                    {inr(settlementView.expectedAmount)}
+                  </Text>
+                </View>
+              </View>
+              <View style={[panelStyles.payoutDivider, { backgroundColor: isDark ? colors.border : "#e2e8f0" }]} />
+              <View style={panelStyles.payoutCol}>
+                <Text style={[panelStyles.payoutLabel, { color: colors.textMuted }]}>Outstanding</Text>
+                <View style={[panelStyles.payoutBadge, { backgroundColor: "rgba(232,33,39,0.1)" }]}>
+                  <Text style={[panelStyles.payoutBadgeText, { color: Theme.negative }]} numberOfLines={1}>
+                    {inr(settlementView.status === "settled" ? 0 : settlementView.outstandingAmount)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -324,7 +361,7 @@ export function TripDetailSettlementPanel({
         </View>
       ) : null}
 
-      {showCommissionHero ? (
+      {showCommissionHero && !showDcoPartyActions ? (
         <View style={styles.tdSettlementGlow}>
           <View
             style={[
@@ -394,6 +431,36 @@ export function TripDetailSettlementPanel({
         </View>
       ) : null}
 
+      {showDcoPartyActions ? (
+        <View
+          style={[
+            panelStyles.odoRow,
+            {
+              backgroundColor: isDark ? colors.surface : "#f8fafc",
+              borderColor: isDark ? colors.border : "#f1f5f9",
+            },
+          ]}
+        >
+          <View style={panelStyles.odoSide}>
+            <Text style={[panelStyles.odoLabel, { color: colors.textMuted }]}>Odometer</Text>
+            <View style={panelStyles.odoValueRow}>
+              <Gauge size={14} color={colors.textMuted} />
+              <Text style={[panelStyles.odoValue, { color: colors.text }]} numberOfLines={1}>
+                Odometer {odometerValue}
+              </Text>
+            </View>
+          </View>
+          <View style={[panelStyles.odoSide, panelStyles.odoSideRight]}>
+            <Text style={[panelStyles.odoLabel, { color: colors.textMuted }]}>Tagged</Text>
+            <Text style={[panelStyles.odoValue, { color: colors.text }]} numberOfLines={1}>
+              {taggedPartyName || trip.client_name || "—"}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {!showDcoPartyActions ? (
+      <>
       <View style={styles.tdEarningsHeader}>
         <Text style={[styles.tdEarningsHeaderTitle, { color: colors.textMuted }]}>
           Earnings detail
@@ -544,6 +611,8 @@ export function TripDetailSettlementPanel({
           </Text>
         </View>
       </View>
+      </>
+      ) : null}
 
       {showRequestFromFleet ? (
         <>
@@ -580,30 +649,29 @@ export function TripDetailSettlementPanel({
         </>
       ) : null}
 
-      <View style={[styles.tdTimelineHeader, { marginTop: 6 }]}>
-        <View style={styles.tdTimelineHeaderIcon}>
-          <Wallet size={13} color="#ffffff" strokeWidth={2.2} />
-        </View>
-        <Text style={[styles.tdTimelineHeaderTitle, { color: colors.text }]} numberOfLines={1}>
-          Reimbursement summary
-        </Text>
-        <View
-          style={[
-            panelStyles.syncPill,
-            { backgroundColor: colors.surfaceElevated, borderColor: colors.border },
-          ]}
-        >
-          <View style={[panelStyles.syncDot, { backgroundColor: colors.emerald }]} />
-          <Text style={[panelStyles.syncPillText, { color: colors.emerald }]}>Live</Text>
-        </View>
-      </View>
-
       <View
         style={[
           styles.tdTimelineCard,
-          { backgroundColor: colors.surface, borderColor: colors.border, marginBottom: 12 },
+          { backgroundColor: colors.surface, borderColor: colors.border, marginBottom: 8, paddingVertical: 12 },
         ]}
       >
+        <View style={[styles.tdTimelineHeader, { marginBottom: 10, marginTop: 0 }]}>
+          <View style={styles.tdTimelineHeaderIcon}>
+            <Wallet size={13} color="#ffffff" strokeWidth={2.2} />
+          </View>
+          <Text style={[styles.tdTimelineHeaderTitle, { color: colors.text }]} numberOfLines={1}>
+            Reimbursement summary
+          </Text>
+          <View
+            style={[
+              panelStyles.syncPill,
+              { backgroundColor: isDark ? colors.surfaceElevated : "#ecfdf5", borderColor: "transparent" },
+            ]}
+          >
+            <View style={[panelStyles.syncDot, { backgroundColor: colors.emerald }]} />
+            <Text style={[panelStyles.syncPillText, { color: colors.emerald }]}>Live</Text>
+          </View>
+        </View>
         <View
           style={[
             styles.tdLogDetailsBox,
@@ -631,36 +699,12 @@ export function TripDetailSettlementPanel({
               </View>
             ))}
           </View>
-        </View>
-      </View>
-
-      <View style={[panelStyles.statusBanner, { backgroundColor: colors.emeraldDark }]}>
-        <Text style={panelStyles.summaryStatus}>{reimbursementStatusMessage}</Text>
-        <Text style={panelStyles.summaryHint}>
-          Fleet reviews and marks reimbursements after you submit expenses.
-        </Text>
-      </View>
-
-      <View style={[styles.tdTimelineHeader, { marginTop: 14 }]}>
-        <View style={styles.tdTimelineHeaderIcon}>
-          <Activity size={13} color="#ffffff" strokeWidth={2.2} />
-        </View>
-        <Text style={[styles.tdTimelineHeaderTitle, { color: colors.text }]} numberOfLines={1}>
-          Expense log
-        </Text>
-        <TouchableOpacity
-          onPress={openAddExpense}
-          activeOpacity={0.8}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          accessibilityRole="button"
-          accessibilityLabel="Add expense"
-          style={panelStyles.addExpenseHeaderBtn}
-        >
-          <Text style={[styles.tdLogMetaV, { color: colors.emerald, fontWeight: "700" }]}>
-            Add
+          <Text style={[panelStyles.reimburseNote, { color: colors.textMuted }]}>
+            {costEvents.length === 0
+              ? "Fleet reviews and marks reimbursements after you submit expenses."
+              : `${reimbursementStatusMessage}. Fleet reviews and marks reimbursements after you submit expenses.`}
           </Text>
-          <ChevronRight size={14} color={colors.emerald} strokeWidth={2.4} />
-        </TouchableOpacity>
+        </View>
       </View>
 
       <DriverTripExpenseLogSection
@@ -678,7 +722,7 @@ export function TripDetailSettlementPanel({
       <TouchableOpacity
         style={[
           styles.tdQueryBtn,
-          { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 12 },
+          { backgroundColor: colors.surface, borderColor: colors.border, marginTop: 8, minHeight: 40, paddingVertical: 8 },
         ]}
         activeOpacity={0.85}
         onPress={() => router.push("/(driver)/wallet" as Href)}
@@ -747,8 +791,9 @@ const panelStyles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
-    padding: 14,
-    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
   },
   partyKicker: {
     fontSize: 10,
@@ -758,16 +803,95 @@ const panelStyles = StyleSheet.create({
     color: Theme.textMuted,
   },
   partyName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
     letterSpacing: -0.2,
     color: Theme.textPrimary,
-    marginTop: -4,
+    marginTop: -2,
+  },
+  payoutRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 2,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  payoutCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  payoutDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+  },
+  payoutLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  payoutValue: {
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  payoutBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  payoutBadgeText: {
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  odoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  odoSide: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  odoSideRight: {
+    alignItems: "flex-end",
+  },
+  odoLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
+  odoValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  odoValue: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  reimburseNote: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "500",
+    lineHeight: 15,
   },
   collectBtn: {
-    minHeight: 48,
-    borderRadius: 14,
-    backgroundColor: Theme.actionBtnInk,
+    minHeight: 40,
+    borderRadius: 12,
+    backgroundColor: Theme.buttonDark,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 14,
@@ -778,8 +902,8 @@ const panelStyles = StyleSheet.create({
     color: Theme.buttonDarkText,
   },
   tagBtn: {
-    minHeight: 44,
-    borderRadius: 14,
+    minHeight: 36,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.surface,
@@ -819,15 +943,15 @@ const panelStyles = StyleSheet.create({
     fontWeight: "600",
   },
   metricsBox: {
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    marginBottom: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   metricGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    rowGap: 14,
-    columnGap: 12,
+    rowGap: 8,
+    columnGap: 10,
   },
   metricCell: {
     width: "47%",
@@ -842,10 +966,10 @@ const panelStyles = StyleSheet.create({
     lineHeight: 16,
   },
   metricValue: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
     letterSpacing: -0.2,
-    lineHeight: 22,
+    lineHeight: 18,
   },
   statusBanner: {
     borderRadius: 10,
@@ -866,13 +990,5 @@ const panelStyles = StyleSheet.create({
     fontWeight: "500",
     lineHeight: 16,
     color: "rgba(255,255,255,0.82)",
-  },
-  addExpenseHeaderBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    flexShrink: 0,
-    minHeight: 44,
-    justifyContent: "center",
   },
 });

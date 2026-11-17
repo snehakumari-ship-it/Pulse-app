@@ -29,6 +29,8 @@ export interface SmartInputTriggerProps {
   errorMessage?: string;
   /** Tint for hero variant currency prefix (defaults to Theme.primary). */
   heroAccentColor?: string;
+  /** Keep the label for accessibility, but do not draw it on the field. */
+  hideLabel?: boolean;
 }
 
 export function SmartInputTrigger({
@@ -45,6 +47,7 @@ export function SmartInputTrigger({
   required = false,
   errorMessage,
   heroAccentColor = Theme.primary,
+  hideLabel = false,
 }: SmartInputTriggerProps) {
   const compact = density === 'compact';
   const hasValue = !!displayValue;
@@ -126,10 +129,12 @@ export function SmartInputTrigger({
         accessibilityLabel={`${label}: ${displayValue || placeholder}`}
         accessibilityState={{ disabled }}
       >
-        <Text style={[styles.fieldLabel, compact && styles.fieldLabelCompact]}>
-          {label}
-          {required ? <Text style={styles.required}> *</Text> : null}
-        </Text>
+        {hideLabel ? null : (
+          <Text style={[styles.fieldLabel, compact && styles.fieldLabelCompact]}>
+            {label}
+            {required ? <Text style={styles.required}> *</Text> : null}
+          </Text>
+        )}
         <View style={styles.fieldValueRow}>
           {prefix && hasValue ? (
             <Text style={[styles.fieldPrefix, compact && styles.fieldPrefixCompact, valueStyle]}>
@@ -142,6 +147,7 @@ export function SmartInputTrigger({
               compact && styles.fieldValueCompact,
               !hasValue && styles.fieldPlaceholder,
               !hasValue && compact && styles.fieldPlaceholderCompact,
+              !hasValue && hideLabel && styles.fieldPlaceholderEmphasis,
               valueStyle,
             ]}
           >
@@ -176,10 +182,12 @@ export function SmartInputTrigger({
         accessibilityLabel={`${label}: ${displayValue || placeholder}`}
         accessibilityState={{ disabled }}
       >
-        <Text style={[styles.rowLabel, compact && styles.rowLabelCompact]}>
-          {label}
-          {required ? <Text style={styles.required}> *</Text> : null}
-        </Text>
+        {hideLabel ? null : (
+          <Text style={[styles.rowLabel, compact && styles.rowLabelCompact]}>
+            {label}
+            {required ? <Text style={styles.required}> *</Text> : null}
+          </Text>
+        )}
         <View style={styles.rowRight}>
           {prefix && hasValue ? (
             <Text style={[styles.rowPrefix, compact && styles.rowPrefixCompact, valueStyle]}>
@@ -401,6 +409,11 @@ const styles = StyleSheet.create({
   fieldPlaceholderCompact: {
     fontSize: 10,
     fontWeight: '500',
+  },
+  fieldPlaceholderEmphasis: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.textPrimaryDark,
   },
   fieldSuffixCompact: {
     fontSize: 10,

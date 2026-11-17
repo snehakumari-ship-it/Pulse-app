@@ -1,15 +1,11 @@
 import { AppLoadingSplash } from "@/components/AppLoadingSplash";
 import { DriverHeader } from "@/components/driver/DriverHeader";
-import { LiveRouteInfoCard } from "@/components/driver/LiveRouteInfoCard";
-import {
-  sheetStyles,
-  TripDetailsStrip,
-} from "@/components/driver/DriverTripSheetLayout";
 import { DriverInviteCard } from "@/components/driver/DriverInviteCard";
-import { JobRequestCard } from "@/components/JobRequestCard";
-import { ThemedAlertModal } from "@/components/ThemedAlertModal";
-import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import { DriverMapAvatarMarker } from "@/components/driver/DriverMapAvatarMarker";
+import {
+    sheetStyles,
+    TripDetailsStrip,
+} from "@/components/driver/DriverTripSheetLayout";
 import {
     LeafletMap,
     type LeafletMapRef,
@@ -17,59 +13,48 @@ import {
     type LeafletPolylineLayer,
     type LeafletRouteLabel,
 } from "@/components/driver/LeafletMap";
-import { useOptionalDriverAvatar } from "@/contexts/DriverAvatarContext";
-import { DriverDailySummaryCard } from "@/features/driver/components/DriverDailySummaryCard";
-import { DriverDashboardMapPreview } from "@/features/driver/components/DriverDashboardMapPreview";
-import { DriverExpenseCaptureFab } from "@/features/driver/components/DriverExpenseCaptureFab";
-import { DriverJobCard } from "@/features/driver/job-card/DriverJobCard";
-import { isCommerceDriverTrip } from "@/features/trips/domain/driverTripExperience";
-import type { DriverRoutePlanMap } from "@/features/driver/job-card/driverRoutePlanMap";
-import {
-  buildDriverRoutePlanMap,
-  buildTripRowRoutePlanMap,
-  clusterRoutePlanStops,
-  routeClusterCopy,
-  routePlanLeafletMarkerId,
-  routePlanPolyline,
-  routePlanStopCaption,
-} from "@/features/driver/job-card/driverRoutePlanMap";
-import { RoutePlanMapPin } from "@/features/driver/job-card/parts/RoutePlanMapPin";
-import { fetchDriverStopExecution } from "@/features/driver/execution/fetchDriverStopExecution";
-import {
-  startDriverAssignerFollowupReads,
-  startDriverAssignerIdentityReads,
-} from "@/features/driver/services/driverDashboardAssignerReads";
-import { PilotRelationshipSummary } from "@/features/driver/components/PilotRelationshipSummary";
+import { LiveRouteInfoCard } from "@/components/driver/LiveRouteInfoCard";
+import { JobRequestCard } from "@/components/JobRequestCard";
+import { ThemedAlertModal } from "@/components/ThemedAlertModal";
+import { ThemedConfirmModal } from "@/components/ThemedConfirmModal";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
-import { useDriverHomeInvites } from "@/features/driver/hooks/useDriverHomeInvites";
+import { useOptionalDriverAvatar } from "@/contexts/DriverAvatarContext";
 import {
-  useDriverTheme,
-  useDriverThemeColors,
+    useDriverTheme,
+    useDriverThemeColors,
 } from "@/contexts/DriverThemeContext";
-import { computeDriverTripEstEarningsInr } from "@/features/finance/selectors/assetTripProvisionSelectors";
 import {
-  useDriverCommunication,
-  useDriverLocationStream,
+    useDriverCommunication,
+    useDriverLocationStream,
 } from "@/features/driver/communication";
-import { useDriverMapLivePositionWatch } from "@/features/driver/hooks/useDriverMapLivePositionWatch";
+import { DriverDailySummaryCard } from "@/features/driver/components/DriverDailySummaryCard";
+import { DriverDashboardMapPreview } from "@/features/driver/components/DriverDashboardMapPreview";
+import { DriverExpenseCaptureFab } from "@/features/driver/components/DriverExpenseCaptureFab";
+import { PilotRelationshipSummary } from "@/features/driver/components/PilotRelationshipSummary";
+import { fetchDriverStopExecution } from "@/features/driver/execution/fetchDriverStopExecution";
+import { useDriverHomeInvites } from "@/features/driver/hooks/useDriverHomeInvites";
 import { useDriverHomePerfMarks } from "@/features/driver/hooks/useDriverHomePerfMarks";
-import { markDriverPerfPhase } from "@/lib/driverPerfMetrics";
-import { claimTripByOtp } from "@/features/trips/services/tripOtp.service";
-import { useDriverHomeDriversQuery } from "@/lib/queries/useDriverHomeDriversQuery";
-import { useInvalidateDriverHomeDashboard } from "@/lib/queries/useInvalidateDriverHomeDashboard";
-import { useDriverUiTripsQuery } from "@/lib/queries/useDriverUiTripsQuery";
-import { usePendingOtpTripsQuery } from "@/lib/queries/usePendingOtpTripsQuery";
-import { insertTripAssignmentAudit } from "@/features/trips/services/trip-assignment-audit.service";
-import { useDriverAvatarUri } from "@/lib/avatarUpload";
+import { useDriverMapLivePositionWatch } from "@/features/driver/hooks/useDriverMapLivePositionWatch";
+import { DriverJobCard } from "@/features/driver/job-card/DriverJobCard";
+import type { DriverRoutePlanMap } from "@/features/driver/job-card/driverRoutePlanMap";
 import {
-    buildAssignerDisplayForTrip,
-    buildJobCardAssignerPayload,
-    findDriverInviteForTripOrgs,
-    resolveAssignerUserId,
-} from "@/features/trips/utils/driverAssignerDisplay.util";
-import { boundsFromCoordinates, inflateMapBounds } from "@/features/trips/utils/mapRouteViewport.util";
+    buildDriverRoutePlanMap,
+    buildTripRowRoutePlanMap,
+    clusterRoutePlanStops,
+    routeClusterCopy,
+    routePlanLeafletMarkerId,
+    routePlanPolyline,
+    routePlanStopCaption,
+} from "@/features/driver/job-card/driverRoutePlanMap";
+import { RoutePlanMapPin } from "@/features/driver/job-card/parts/RoutePlanMapPin";
+import {
+    startDriverAssignerFollowupReads,
+    startDriverAssignerIdentityReads,
+} from "@/features/driver/services/driverDashboardAssignerReads";
+import { executeDriverCommand } from "@/features/driver/services/driverExecution.service";
+import * as driverLocationService from "@/features/driver/services/driverLocation.service";
 import {
     DRIVER_NOTIFY_ONLY_AFTER_MISSION_KEY,
     DRIVER_POST_MISSION_PENDING_SNAPSHOT_KEY,
@@ -78,6 +63,9 @@ import {
     buildDriverTripNumberMap,
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
+import { DriverFleetHome } from "@/features/drivers/components/DriverFleetHome";
+import { DriverTripEmptyHourglass } from "@/features/drivers/components/DriverTripEmptyHourglass";
+import * as driversService from "@/features/drivers/services/drivers.service";
 import {
     buildOfferText,
     canShowDriverTripEstEarnings,
@@ -89,25 +77,69 @@ import {
     isCompletedStatus,
     isRosterTrip,
 } from "@/features/drivers/utils/driverUtils.util";
+import { computeDriverTripEstEarningsInr } from "@/features/finance/selectors/assetTripProvisionSelectors";
+import {
+    bearingDegrees,
+    deriveTripStage,
+    distanceMeters,
+    formatEtaArrivalClock,
+    formatEtaFromRouteSeconds,
+    formatRoadDistanceM,
+    formatTripDistance,
+    getTripStageGuidance,
+    getTripStopCoordinate,
+    subsampleRouteCoordinates,
+    type TripStage,
+} from "@/features/trips/domain";
+import { isCommerceDriverTrip } from "@/features/trips/domain/driverTripExperience";
+import { fetchRouteExtraStopsForTrips } from "@/features/trips/services/routeExtraStops.service";
+import { insertTripAssignmentAudit } from "@/features/trips/services/trip-assignment-audit.service";
+import { claimTripByOtp } from "@/features/trips/services/tripOtp.service";
+import * as tripsService from "@/features/trips/services/trips.service";
+import {
+    buildAssignerDisplayForTrip,
+    buildJobCardAssignerPayload,
+    findDriverInviteForTripOrgs,
+    resolveAssignerUserId,
+} from "@/features/trips/utils/driverAssignerDisplay.util";
+import { boundsFromCoordinates, inflateMapBounds } from "@/features/trips/utils/mapRouteViewport.util";
+import { useDriverAvatarUri } from "@/lib/avatarUpload";
+import {
+    setDriverLivePosition,
+    shouldCommitDriverMapPosition,
+    subscribeDriverLivePosition,
+} from "@/lib/driverLivePositionBus";
+import {
+    fetchUsableRouteForKey,
+    routeMidpoint,
+    shouldShowDriverApproachRoute,
+    shouldShowDriverToDropRoute,
+} from "@/lib/driverMapRoute.util";
+import { markDriverPerfPhase } from "@/lib/driverPerfMetrics";
+import { isExpoGo } from "@/lib/expoGoMaps";
 import { formatINR } from "@/lib/format";
 import { formatEstimatedDuration } from "@/lib/formatEstimatedDuration";
 import {
-  setDriverLivePosition,
-  shouldCommitDriverMapPosition,
-  subscribeDriverLivePosition,
-} from "@/lib/driverLivePositionBus";
+    effectiveKeyboardInset,
+    useKeyboardVisible,
+} from "@/lib/hooks/useKeyboardVisible";
 import { darkMapStyle } from "@/lib/mapStyles";
-import { subscribeSignificantAppResume } from "@/lib/significantAppResume";
 import type { MapViewRef } from "@/lib/mapViewRef.types";
+import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
+import { useDriverHomeDriversQuery } from "@/lib/queries/useDriverHomeDriversQuery";
+import { useDriverUiTripsQuery } from "@/lib/queries/useDriverUiTripsQuery";
+import { useInvalidateDriverHomeDashboard } from "@/lib/queries/useInvalidateDriverHomeDashboard";
+import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import { usePendingOtpTripsQuery } from "@/lib/queries/usePendingOtpTripsQuery";
 import MapView, {
     Callout,
     Marker,
     Polyline,
 } from "@/lib/reactNativeMapsCompat";
-import { supabase } from "@/lib/supabase";
-import { withWebSafeShadows } from "@/lib/platformViewStyle.util";
-import * as driverLocationService from "@/features/driver/services/driverLocation.service";
-import * as driversService from "@/features/drivers/services/drivers.service";
+import {
+    reverseGeocodeCityStateLabel,
+} from "@/lib/reverseGeocodePlace.util";
+import { ROUTES } from "@/lib/routes";
 import {
     buildRouteFetchKey,
     getOptimalRoute,
@@ -115,29 +147,11 @@ import {
     type RouteResult,
 } from "@/lib/routingService";
 import {
-    fetchUsableRouteForKey,
-    routeMidpoint,
-    shouldShowDriverApproachRoute,
-    shouldShowDriverToDropRoute,
-} from "@/lib/driverMapRoute.util";
-import * as tripsService from "@/features/trips/services/trips.service";
-import { executeDriverCommand } from "@/features/driver/services/driverExecution.service";
-import {
-  deriveTripStage,
-  getTripStageGuidance,
-  getTripStopCoordinate,
-  distanceMeters,
-  bearingDegrees,
-  subsampleRouteCoordinates,
-  formatRoadDistanceM,
-  formatEtaFromRouteSeconds,
-  formatEtaArrivalClock,
-  formatTripDistance,
-  type TripStage,
-} from "@/features/trips/domain";
-import {
-  reverseGeocodeCityStateLabel,
-} from "@/lib/reverseGeocodePlace.util";
+  startForegroundPositionWatch,
+  webGeolocationPermission,
+} from "@/lib/safeForegroundPositionWatch";
+import { subscribeSignificantAppResume } from "@/lib/significantAppResume";
+import { supabase } from "@/lib/supabase";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import BottomSheet, {
     BottomSheetScrollView,
@@ -146,32 +160,31 @@ import BottomSheet, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import Constants from "expo-constants";
-import { isExpoGo } from "@/lib/expoGoMaps";
 import * as ExpoLocation from "expo-location";
-import { startForegroundPositionWatch } from "@/lib/safeForegroundPositionWatch";
-import { useRouter, type Href } from "expo-router";
-import { ROUTES } from "@/lib/routes";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type MutableRefObject,
+    Fragment,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ComponentType,
+    type MutableRefObject,
 } from "react";
 import {
     ActivityIndicator,
     Alert,
     Animated,
     Dimensions,
+    Image,
     Keyboard,
     KeyboardAvoidingView,
     Modal,
     Platform,
     RefreshControl,
     ScrollView,
+    Share,
     StyleSheet,
     Text,
     TextInput,
@@ -185,12 +198,7 @@ import Reanimated, {
     useSharedValue,
     withTiming,
 } from "react-native-reanimated";
-import {
-  effectiveKeyboardInset,
-  useKeyboardVisible,
-} from "@/lib/hooks/useKeyboardVisible";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { fetchRouteExtraStopsForTrips } from "@/features/trips/services/routeExtraStops.service";
 
 /** Default map region when driver location is not yet available (India center). */
 const DEFAULT_MAP_REGION = {
@@ -218,7 +226,7 @@ function mapControlsTopInset(
   safeTop: number,
 ): number {
   return (
-    (controlsVariant === "embedded" ? safeTop + 96 : safeTop + 10) +
+    (controlsVariant === "embedded" ? safeTop + 68 : safeTop + 10) +
     MAP_CONTROLS_BAR_HEIGHT +
     MAP_CONTROLS_BELOW_TOP
   );
@@ -289,6 +297,7 @@ export default function DriverRadarScreen() {
   const jobRequestSheetMuted = isDark ? Theme.textOnDarkMuted : Theme.textMuted;
   const { profile } = useAuth();
   const uid = profile?.uid ?? null;
+  const { isDco, modeLoading } = useDriverOperatingModeQuery(uid);
   const invalidateDriverHome = useInvalidateDriverHomeDashboard();
   const refreshDashboard = useCallback(() => {
     if (uid) void invalidateDriverHome(uid);
@@ -456,6 +465,8 @@ export default function DriverRadarScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
+  /** Stop key that has already shown the arrival truck. Stays with the driver after. */
+  const [arrivalTruckStopKey, setArrivalTruckStopKey] = useState<string | null>(null);
 
   // Reanimated-smoothed "You" marker (Ola-style: avoid teleport between GPS fixes).
   const youLatSv = useSharedValue<number>(DEFAULT_MAP_REGION.latitude);
@@ -536,8 +547,8 @@ export default function DriverRadarScreen() {
   const fullMapLastFitKeyRef = useRef<string | null>(null);
   /** Real rendered height of the mission sheet (measured via onLayout), not a screen-fraction guess. */
   const [measuredSheetHeight, setMeasuredSheetHeight] = useState(0);
-  /** 0 = stage peek ("Deliver to Delhi"), 1 = full mission card. */
-  const [missionSheetIndex, setMissionSheetIndex] = useState(1);
+  /** 0 = map peek, 1 = delivery details. Opens on the map. */
+  const [missionSheetIndex, setMissionSheetIndex] = useState(0);
   const [deliveryDetailsNonce, setDeliveryDetailsNonce] = useState(0);
   const expandedSheetHeightRef = useRef(0);
   /** Suppressed once the driver manually pans/pinches, until a meaningful context change or "Center" re-enables it. */
@@ -925,6 +936,11 @@ export default function DriverRadarScreen() {
   const fetchLocation = useCallback(async () => {
     markDriverPerfPhase("gps_request_start");
     try {
+      if (Platform.OS === "web" && (await webGeolocationPermission()) === "denied") {
+        setLocationStatus("error");
+        setLocationLabel(null);
+        return;
+      }
       const expoLocation = await getExpoLocation();
       if (!expoLocation) {
         setLocationStatus("error");
@@ -2279,8 +2295,39 @@ export default function DriverRadarScreen() {
         isCommerceDriverTrip(effectiveFirstIncoming)),
   );
   useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const id = "pulse-driver-sheet-scrollbar";
+    if (document.getElementById(id)) return;
+    const el = document.createElement("style");
+    el.id = id;
+    el.textContent = `
+      [data-testid="driver-mission-sheet-scroll"],
+      [data-testid="driver-mission-sheet-scroll"] > div {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(15, 23, 42, 0.35) transparent;
+      }
+      [data-testid="driver-mission-sheet-scroll"]::-webkit-scrollbar,
+      [data-testid="driver-mission-sheet-scroll"] *::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      [data-testid="driver-mission-sheet-scroll"]::-webkit-scrollbar-track,
+      [data-testid="driver-mission-sheet-scroll"] *::-webkit-scrollbar-track {
+        background: transparent;
+        margin: 12px 0;
+      }
+      [data-testid="driver-mission-sheet-scroll"]::-webkit-scrollbar-thumb,
+      [data-testid="driver-mission-sheet-scroll"] *::-webkit-scrollbar-thumb {
+        background: rgba(15, 23, 42, 0.32);
+        border-radius: 999px;
+      }
+    `;
+    document.head.appendChild(el);
+  }, []);
+
+  useEffect(() => {
     if (!canMinimizeMissionSheet) return;
-    const start = 1;
+    const start = 0;
     setMissionSheetIndex(start);
     const t = setTimeout(() => {
       try {
@@ -2375,6 +2422,53 @@ export default function DriverRadarScreen() {
         (hasSingleAssignableIncomingTrip || hasAssignableIncomingTrip)) ||
       assignmentFeedback != null,
   );
+  const { openMap: openMapParam, tripId: openMapTripParam } = useLocalSearchParams<{
+    openMap?: string;
+    tripId?: string;
+  }>();
+  const consumedLiveMapKey = useRef<string | null>(null);
+  useEffect(() => {
+    const openMap = Array.isArray(openMapParam) ? openMapParam[0] : openMapParam;
+    const requestedTripId = Array.isArray(openMapTripParam)
+      ? openMapTripParam[0]
+      : openMapTripParam;
+    if (openMap !== "1") {
+      consumedLiveMapKey.current = null;
+      return;
+    }
+    const key = `${openMap}:${requestedTripId ?? ""}`;
+    if (consumedLiveMapKey.current === key) return;
+    if (!shouldShowMap) return;
+    const wanted = requestedTripId ? String(requestedTripId).toLowerCase() : "";
+    const liveId = String(activeMission?.id ?? activeGuidanceTrip?.id ?? "").toLowerCase();
+    if (wanted && !liveId) return;
+    if (wanted && liveId && wanted !== liveId) {
+      consumedLiveMapKey.current = key;
+      return;
+    }
+    consumedLiveMapKey.current = key;
+    setIsFollowingLocation(true);
+    setIsFullMapVisible(true);
+    router.setParams({ openMap: "", tripId: "" });
+  }, [
+    openMapParam,
+    openMapTripParam,
+    shouldShowMap,
+    activeMission?.id,
+    activeGuidanceTrip?.id,
+    router,
+  ]);
+  /**
+   * Trip-first dashboard: delivery cards first, map opens from "View map".
+   * Non-DCO assignments use that same page. OTP entry keeps the map sheet.
+   */
+  const nonDcoAssignmentPage = Boolean(
+    !modeLoading && !isDco && showNewAssignmentCard && !otpClaimTripId,
+  );
+  const showTripFirstMission = Boolean(
+    shouldShowMap && (canMinimizeMissionSheet || nonDcoAssignmentPage),
+  );
+  const useMissionMapShell = Boolean(shouldShowMap && !showTripFirstMission);
 
   /** Idle dashboard map card — preview current area when not in trip map mode. */
   const showDashboardMapPreview = !shouldShowMap && Boolean(driver);
@@ -2428,7 +2522,8 @@ export default function DriverRadarScreen() {
   // stuff this into MapView mapPadding (Expo Go / Apple Maps double-counts and
   // pins the route under the header).
   const screenHeight = Dimensions.get("window").height;
-  const MISSION_SHEET_PEEK_HEIGHT = 86;
+  /** One compact row above the tab bar — the rest of the screen stays map. */
+  const MISSION_SHEET_PEEK_HEIGHT = 76;
   const olaMapBottomPaddingPx = (() => {
     if (missionSheetCollapsed) {
       return Math.min(MISSION_SHEET_PEEK_HEIGHT + 28, Math.round(screenHeight * 0.28));
@@ -2441,9 +2536,10 @@ export default function DriverRadarScreen() {
   })();
   const sheetSnapPoints = useMemo(() => {
     if (canPeekSheetForMap && commerceOnMap) {
-      const peek = 96;
+      const peek = MISSION_SHEET_PEEK_HEIGHT;
       const dashboard = Math.max(
-        peek + 200,
+        Math.round(screenHeight * 0.72),
+        peek + 280,
         screenHeight - insets.top - 72 - driverSheetBottomInset,
       );
       return [peek, dashboard];
@@ -3054,6 +3150,9 @@ export default function DriverRadarScreen() {
       try {
         if (Platform.OS === "web") {
           if (typeof navigator === "undefined" || !navigator.geolocation) return;
+          // Do not prompt here. A dismissed prompt becomes a hard block, and
+          // calling getCurrentPosition reprints Chrome's geolocation error.
+          if ((await webGeolocationPermission()) !== "granted" || cancelled) return;
           navigator.geolocation.getCurrentPosition(
             (pos) => {
               if (cancelled) return;
@@ -3070,9 +3169,9 @@ export default function DriverRadarScreen() {
               if (!cancelled) commitMapPosition(null, { force: true });
             },
             {
-              enableHighAccuracy: true,
-              maximumAge: 0,
-              timeout: 15000,
+              enableHighAccuracy: false,
+              maximumAge: 60_000,
+              timeout: 8000,
             },
           );
           return;
@@ -3177,6 +3276,11 @@ export default function DriverRadarScreen() {
   useEffect(() => {
     setShowRouteSummary(false);
   }, [activeMission?.id]);
+
+  useEffect(() => {
+    if (canMinimizeMissionSheet) return;
+    setIsFullMapVisible(false);
+  }, [canMinimizeMissionSheet]);
 
   /** Default camera to driver-tracking for the active leg (long-press "Tracking" to pan the map freely). */
   useEffect(() => {
@@ -3376,6 +3480,12 @@ export default function DriverRadarScreen() {
           bounds.sw,
           leafPad,
           isTightStopFit ? DRIVER_MAP_MY_LOCATION_ZOOM : DRIVER_MAP_OVERVIEW_MAX_ZOOM,
+          {
+            top: Math.max(topPadding + 36, topPadding * 1.2),
+            bottom: Math.max(160, bottomPadding + 40),
+            left: isFullScreen ? 72 : 88,
+            right: isFullScreen ? 72 : 88,
+          },
         );
         lastFitKeyRef.current = fitKey;
         return;
@@ -3455,17 +3565,27 @@ export default function DriverRadarScreen() {
     [],
   );
   const handleViewTripPlan = useCallback(() => {
+    inlineMapUserInteractedRef.current = false;
+    fullMapUserInteractedRef.current = false;
+    setIsFollowingLocation(false);
+    if (showTripFirstMission) {
+      setIsFullMapVisible(true);
+      return;
+    }
     setMissionSheetIndex(0);
     try {
       bottomSheetRef.current?.snapToIndex(0);
     } catch {
       /* ignore */
     }
+    scheduleFit(mapRef, { force: true }, 220);
+  }, [scheduleFit, showTripFirstMission]);
+  const openMissionMap = useCallback(() => {
     inlineMapUserInteractedRef.current = false;
     fullMapUserInteractedRef.current = false;
-    setIsFollowingLocation(false);
-    scheduleFit(mapRef, { force: true }, 220);
-  }, [scheduleFit]);
+    setIsFollowingLocation(true);
+    setIsFullMapVisible(true);
+  }, []);
   useEffect(
     () => () => {
       if (pendingFitTimerRef.current) clearTimeout(pendingFitTimerRef.current);
@@ -3789,6 +3909,67 @@ export default function DriverRadarScreen() {
     }
   }, [driver?.organization_id, driver?.id]);
 
+  const handleGoOnline = useCallback(() => {
+    setIsOnline(true);
+    triggerSuccess("You are online now.");
+    if (uid) void invalidateDriverHome(uid);
+    setLocationStatus("loading");
+    fetchLocation();
+    if (driver?.organization_id && driver?.id) {
+      void driversService
+        .updateDriver(driver.organization_id, driver.id, { status: "online" })
+        .then(({ error }) => {
+          if (error) {
+            setIsOnline(false);
+            setAcceptError("Could not go online. Check connection and retry.");
+          }
+        })
+        .catch(() => {
+          setIsOnline(false);
+          setAcceptError("Could not go online. Check connection and retry.");
+        });
+    }
+  }, [driver?.id, driver?.organization_id, fetchLocation, uid]);
+
+  const DRIVER_ARRIVAL_TRUCK_METERS = 280;
+  const arrivalYou = driverMapPosition ?? truckPosition ?? navStartCoordinate;
+  const arrivalPlanStop = routePlanMap?.stops?.find((stop) => stop.isCurrent) ?? null;
+  const arrivalTarget = arrivalPlanStop
+    ? { latitude: arrivalPlanStop.latitude, longitude: arrivalPlanStop.longitude }
+    : activeGuidanceStep === "reached" || shouldShowDriverToDropRoute(activeGuidanceStep)
+      ? routeContextTrip
+        ? getTripStopCoordinate(routeContextTrip, "drop")
+        : null
+      : shouldShowDriverApproachRoute(activeGuidanceStep) && routeContextTrip
+        ? getTripStopCoordinate(routeContextTrip, "pickup")
+        : null;
+  const arrivalStopKey =
+    arrivalTarget && routeContextTrip
+      ? `${routeContextTrip.id}:${arrivalTarget.latitude.toFixed(5)}:${arrivalTarget.longitude.toFixed(5)}`
+      : null;
+  const showArrivalTruck = Boolean(
+    arrivalYou && arrivalStopKey && arrivalTruckStopKey === arrivalStopKey,
+  );
+  useEffect(() => {
+    if (!arrivalStopKey || !arrivalYou || !arrivalTarget) return;
+    if (arrivalTruckStopKey === arrivalStopKey) return;
+    const reached =
+      activeGuidanceStep === "reached" ||
+      distanceMeters(
+        arrivalYou.latitude,
+        arrivalYou.longitude,
+        arrivalTarget.latitude,
+        arrivalTarget.longitude,
+      ) <= DRIVER_ARRIVAL_TRUCK_METERS;
+    if (reached) setArrivalTruckStopKey(arrivalStopKey);
+  }, [
+    activeGuidanceStep,
+    arrivalStopKey,
+    arrivalTarget,
+    arrivalTruckStopKey,
+    arrivalYou,
+  ]);
+
   const renderDriverMap = (
     targetRef: MutableRefObject<MapViewRef | null>,
     options?: { fullScreen?: boolean; controlsVariant?: "modal" | "embedded" },
@@ -3842,6 +4023,7 @@ export default function DriverRadarScreen() {
         avatarUri,
         avatarSeed: driverAvatarSeed,
         isOnline,
+        showArrivalTruck,
         onPress: () => {
           setIsFollowingLocation(false);
           setShowTrackingInfoCard(false);
@@ -4350,6 +4532,7 @@ export default function DriverRadarScreen() {
                       avatarSeed={driverAvatarSeed}
                       isOnline={isOnline}
                       size={48}
+                      showArrivalTruck={showArrivalTruck}
                       onPressStatus={handleZoomToDriver}
                     />
                   )}
@@ -4390,22 +4573,17 @@ export default function DriverRadarScreen() {
                 anchor={{ x: 0.5, y: 1 }}
               >
                 {isExpoGo() ? (
-                  <View
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: 11,
-                      backgroundColor: Theme.driverEmerald,
-                      borderWidth: 3,
-                      borderColor: isOnline ? Theme.darkGreen : Theme.teslaRed,
-                    }}
-                  />
+                  <View style={styles.youLocationPuck}>
+                    <View style={styles.youLocationHalo} />
+                    <View style={styles.youLocationDot} />
+                  </View>
                 ) : (
                   <DriverMapAvatarMarker
                     avatarUri={avatarUri}
                     avatarSeed={driverAvatarSeed}
                     isOnline={isOnline}
                     size={48}
+                    showArrivalTruck={showArrivalTruck}
                     onPressStatus={handleZoomToDriver}
                   />
                 )}
@@ -4591,7 +4769,7 @@ export default function DriverRadarScreen() {
                 {
                   top:
                     controlsVariant === "embedded"
-                      ? insets.top + 96
+                      ? insets.top + 68
                       : insets.top + 10,
                 },
               ]}
@@ -4711,7 +4889,7 @@ export default function DriverRadarScreen() {
                   {
                     top:
                       controlsVariant === "embedded"
-                        ? insets.top + 168
+                        ? insets.top + 140
                         : insets.top + 88,
                     left: 16,
                     right: 88,
@@ -4995,37 +5173,39 @@ export default function DriverRadarScreen() {
         invites.filter((i) => i.status === "pending").length === 0 &&
         !showDriverTripDashboard &&
         !loading && (
-        <View
-          style={[
-            styles.centerCardWrap,
-            styles.noDriverWrap,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <View
+        <View style={styles.noDriverWrap}>
+          <Image
+            source={require("../../../assets/images/no-org-linked.png")}
+            style={styles.noOrgArt}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+          <Text
             style={[
-              styles.offlineIconWrap,
-              { backgroundColor: colors.whiteMuted },
+              styles.noOrgTitle,
+              { color: isDark ? colors.text : Theme.textPrimaryDark },
             ]}
           >
-            <FontAwesome
-              name="envelope-open"
-              size={40}
-              color={colors.textMuted}
-            />
-          </View>
-          <Text style={[styles.offlineCardTitle, { color: colors.text }]}>
             No organisation linked
           </Text>
-          <Text
-            style={[styles.offlineCardSubtitle, { color: colors.textMuted }]}
-          >
+          <Text style={[styles.noOrgSubtitle, { color: colors.textMuted }]}>
             Request an invitation from your organisation. Once accepted, your
             assigned trips will appear here.
           </Text>
+          <TouchableOpacity
+            style={styles.noOrgButton}
+            activeOpacity={0.88}
+            onPress={() => {
+              Share.share({
+                message:
+                  "Please send me a Pulse driver invitation so I can join your organisation and receive trip assignments.",
+              }).catch(() => {});
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Request Invitation"
+          >
+            <Text style={styles.noOrgButtonText}>Request Invitation</Text>
+          </TouchableOpacity>
         </View>
       )}
       {showDriverTripDashboard ? (
@@ -5080,7 +5260,7 @@ export default function DriverRadarScreen() {
                     collapsed: missionSheetCollapsed,
                     onToggleCollapse: expandMissionSheetFromPeek,
                   }
-                : {})}
+                : { fillParentWidth: true })}
               onExpense={() => {
                 router.push(ROUTES.tripOtherExpenseEntry(activeMission.id) as Href);
               }}
@@ -5132,7 +5312,7 @@ export default function DriverRadarScreen() {
                     collapsed: missionSheetCollapsed,
                     onToggleCollapse: expandMissionSheetFromPeek,
                   }
-                : {})}
+                : { fillParentWidth: true })}
               onExpense={() => {
                 router.push(
                   ROUTES.tripOtherExpenseEntry(effectiveFirstIncoming.id) as Href,
@@ -5190,6 +5370,7 @@ export default function DriverRadarScreen() {
           </View>
         ) : !isOnline && !hasIncomingTrip && !mergedIncomingTrips.length ? (
           <View style={[styles.centerCardWrap, styles.offlineCardContent]}>
+            <DriverTripEmptyHourglass />
             <Text style={[styles.offlineCardTitle, { color: colors.text }]}>
               You are currently offline
             </Text>
@@ -5395,6 +5576,7 @@ export default function DriverRadarScreen() {
             onOtpCancel={closeOtpClaim}
             edgeToEdge={mapSheet}
             variant={mapSheet ? "page" : "card"}
+            presentation={mapSheet ? "sheet" : "dashboard"}
             assignedBy={jobCardAssigner}
             assignedByLine={assignerLineForJobCard}
             OtpInputComponent={mapSheet ? OtpInputComponent : undefined}
@@ -5481,72 +5663,7 @@ export default function DriverRadarScreen() {
         ) : showSearchingOverlay ? (
           <View style={styles.driverSearchingEmptyWrap}>
             <View style={styles.driverSearchingEmptyContent}>
-              <View style={styles.driverSearchingVisualWrap}>
-                <Animated.View
-                  style={[
-                    styles.driverSearchingRingOuter,
-                    {
-                      backgroundColor: colors.emerald,
-                      opacity: searchPulseAnim.interpolate({
-                        inputRange: [0, 0.5, 1],
-                        outputRange: [0.05, 0.15, 0.05],
-                      }),
-                    },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.driverSearchingRingMid,
-                    {
-                      backgroundColor: colors.emerald,
-                      opacity: searchPulseAnim.interpolate({
-                        inputRange: [0, 0.5, 1],
-                        outputRange: [0.1, 0.25, 0.1],
-                      }),
-                    },
-                  ]}
-                />
-                <Animated.View
-                  style={[
-                    styles.driverSearchingRingInner,
-                    {
-                      backgroundColor: colors.emerald,
-                      opacity: searchPulseAnim.interpolate({
-                        inputRange: [0, 0.6, 1],
-                        outputRange: [0.2, 0.5, 0.2],
-                      }),
-                    },
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.driverSearchingVisualInner,
-                    { backgroundColor: colors.emerald },
-                  ]}
-                >
-                  <FontAwesome name="truck" size={40} color={colors.surface} />
-                  <View style={styles.driverSearchingDots}>
-                    <View
-                      style={[
-                        styles.driverSearchingDot,
-                        { backgroundColor: colors.surface },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.driverSearchingDot,
-                        { backgroundColor: colors.surface, opacity: 0.7 },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.driverSearchingDot,
-                        { backgroundColor: colors.surface, opacity: 0.4 },
-                      ]}
-                    />
-                  </View>
-                </View>
-              </View>
+              <DriverTripEmptyHourglass />
 
               <Text
                 style={[styles.driverSearchingTitle, { color: colors.text }]}
@@ -5585,6 +5702,7 @@ export default function DriverRadarScreen() {
           </View>
         ) : (
           <View style={[styles.centerCardWrap, styles.offlineCardContent]}>
+            <DriverTripEmptyHourglass />
             <Text style={[styles.offlineCardTitle, { color: colors.text }]}>
               {isOnline ? "Ready for the next trip" : "You are currently offline"}
             </Text>
@@ -5628,6 +5746,20 @@ export default function DriverRadarScreen() {
     </>
   );
 
+  const fleetHomeIdle = Boolean(
+    !loading &&
+      showDriverTripDashboard &&
+      !showNewAssignmentCard &&
+      !shouldShowMap &&
+      !showTripFirstMission &&
+      !useMissionMapShell &&
+      !activeMission &&
+      !otpClaimTrip &&
+      pendingOtpTripsRequiringOtp.length === 0 &&
+      !assignmentFeedback &&
+      !isAcceptedIncomingFlow,
+  );
+
   return (
     <View
       style={[
@@ -5663,7 +5795,7 @@ export default function DriverRadarScreen() {
 
       {/* When the map is visible, the footer dock is semi-transparent.
           Add a solid backdrop behind the footer so the map doesn't show through. */}
-      {shouldShowMap ? (
+      {useMissionMapShell || isFullMapVisible ? (
         <View
           pointerEvents="none"
           style={[
@@ -5677,8 +5809,104 @@ export default function DriverRadarScreen() {
         />
       ) : null}
 
+      {/* Trip-first active mission: delivery cards first; map is optional. */}
+      {showTripFirstMission ? (
+        <View
+          style={[
+            styles.tripFirstRoot,
+            { backgroundColor: Theme.driverEmeraldWash },
+          ]}
+        >
+          <View
+            style={[
+              styles.tripFirstHeader,
+              {
+                paddingTop: insets.top + 8,
+                backgroundColor: Theme.driverHeaderPanel,
+                borderBottomColor: Theme.borderMedium,
+              },
+            ]}
+          >
+            <DriverHeader
+              colors={colors}
+              avatarUri={avatarUri}
+              driverName={driverName}
+              isOnline
+              variant="assigned"
+              style={styles.tripFirstHeaderInner}
+            />
+          </View>
+          <ScrollView
+            style={styles.tripsScroll}
+            contentContainerStyle={[
+              styles.tripFirstScrollContent,
+              { paddingBottom: driverTabBarClearance + 28 },
+            ]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={colors.emerald}
+              />
+            }
+          >
+            <TouchableOpacity
+              style={[
+                styles.viewMapCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                },
+              ]}
+              onPress={openMissionMap}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="View map"
+            >
+              <View
+                style={[
+                  styles.viewMapIconWrap,
+                  { backgroundColor: colors.emeraldMuted },
+                ]}
+              >
+                <FontAwesome name="map" size={16} color={colors.emerald} />
+              </View>
+              <View style={styles.viewMapCopy}>
+                <Text style={[styles.viewMapTitle, { color: colors.text }]}>
+                  View map
+                </Text>
+                <Text
+                  style={[styles.viewMapSubtitle, { color: colors.textMuted }]}
+                  numberOfLines={1}
+                >
+                  {distanceToTargetKmGlobal != null
+                    ? `${distanceToTargetKmGlobal.toFixed(1)} km · route and live location`
+                    : "Route, live location and navigation"}
+                </Text>
+              </View>
+              <FontAwesome
+                name="chevron-right"
+                size={14}
+                color={colors.emerald}
+              />
+            </TouchableOpacity>
+            {tripsSyncing && !assignmentFeedback ? (
+              <ActivityIndicator
+                style={{ marginTop: 24 }}
+                size="large"
+                color={colors.primary}
+              />
+            ) : (
+              renderDriverDashboardTripInner(false)
+            )}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* Ola-style persistent Operations Panel (bottom sheet) */}
-      {shouldShowMap ? (
+      {useMissionMapShell ? (
         <GestureHandlerRootView style={styles.olaDriverRoot}>
           <KeyboardAvoidingView
             style={styles.olaDriverKeyboardAvoid}
@@ -5707,42 +5935,17 @@ export default function DriverRadarScreen() {
                 variant="assigned"
                 style={[
                   styles.assignedStaticHeader,
+                  styles.assignedHeaderFloat,
                   {
-                    paddingTop: insets.top + 20,
-                    paddingBottom: 12,
-                    paddingHorizontal: 20,
+                    top: insets.top + 6,
+                    paddingTop: 8,
+                    paddingBottom: 8,
+                    paddingHorizontal: 12,
                     backgroundColor: colors.surface,
-                    borderBottomWidth: 1,
-                    borderBottomColor: colors.border,
                   },
                 ]}
               />
             )}
-
-            {shouldShowMap &&
-              !showNewAssignmentCard &&
-              (activeMission ||
-                (effectiveFirstIncoming &&
-                  effectiveFirstIncoming.id === acceptedTripId)) && (
-                <DriverHeader
-                  colors={colors}
-                  avatarUri={avatarUri}
-                  driverName={driverName}
-                  isOnline
-                  variant="assigned"
-                  style={[
-                    styles.assignedStaticHeader,
-                    {
-                      paddingTop: insets.top + 20,
-                      paddingBottom: 12,
-                      paddingHorizontal: 20,
-                      backgroundColor: colors.surface,
-                      borderBottomWidth: 1,
-                      borderBottomColor: colors.border,
-                    },
-                  ]}
-                />
-              )}
 
             {/* Do not wrap MapView in TouchableWithoutFeedback — it steals the responder
                 and prevents pan/pinch on the map. Dismiss keyboard via BottomSheet onChange. */}
@@ -5764,6 +5967,15 @@ export default function DriverRadarScreen() {
                       ? 0
                       : 1
               }
+              animateOnMount
+              animationConfigs={{
+                damping: 26,
+                stiffness: 260,
+                mass: 0.7,
+                overshootClamping: false,
+                restDisplacementThreshold: 0.4,
+                restSpeedThreshold: 0.4,
+              }}
               animatedPosition={missionSheetAnimatedPosition}
               enablePanDownToClose={false}
               enableHandlePanningGesture={
@@ -5783,6 +5995,10 @@ export default function DriverRadarScreen() {
               keyboardBehavior={otpClaimTripId ? "extend" : "interactive"}
               keyboardBlurBehavior="restore"
               android_keyboardInputMode="adjustResize"
+              onAnimate={(_fromIndex, toIndex) => {
+                if (!canPeekSheetForMap || toIndex < 0) return;
+                setMissionSheetIndex((current) => (current === toIndex ? current : toIndex));
+              }}
               onChange={(index) => {
                 if (canPeekSheetForMap && index >= 0) {
                   setMissionSheetIndex(index);
@@ -5827,18 +6043,29 @@ export default function DriverRadarScreen() {
                  * icons never receive taps. Scrolling keeps every row hittable.
                  */
                 <BottomSheetScrollView
+                  testID="driver-mission-sheet-scroll"
                   keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
+                  showsVerticalScrollIndicator
+                  indicatorStyle="black"
+                  decelerationRate="normal"
+                  scrollEventThrottle={16}
+                  nestedScrollEnabled
                   contentContainerStyle={[
                     styles.olaSheetContent,
                     {
-                      paddingBottom: 8,
+                      paddingBottom: missionSheetCollapsed
+                        ? 0
+                        : driverTabBarClearance + 24,
                       paddingHorizontal: 0,
-                      // Fill the snap so the map does not show through under a short card.
-                      flexGrow: 1,
+                      flexGrow: missionSheetCollapsed ? 0 : 1,
                       backgroundColor: colors.surface,
                     },
                   ]}
+                  style={
+                    Platform.OS === "web"
+                      ? ({ scrollbarWidth: "thin" } as object)
+                      : undefined
+                  }
                 >
                   <View
                     style={[
@@ -5997,24 +6224,89 @@ export default function DriverRadarScreen() {
             style={[styles.fullMapCloseWrap, { top: insets.top + 10 }]}
             pointerEvents="box-none"
           >
-            <TouchableOpacity
-              style={[
-                styles.mapTopIconBtn,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-              onPress={() => setIsFullMapVisible(false)}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Close map"
-              hitSlop={Layout.touchTargetHitSlop}
-            >
-              <FontAwesome name="times" size={16} color={colors.text} />
-            </TouchableOpacity>
+            {showTripFirstMission ? (
+              <TouchableOpacity
+                style={[
+                  styles.backToTripBtn,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                  },
+                ]}
+                onPress={() => setIsFullMapVisible(false)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Back to trip"
+                hitSlop={Layout.touchTargetHitSlop}
+              >
+                <FontAwesome
+                  name="chevron-left"
+                  size={14}
+                  color={colors.text}
+                />
+                <Text style={[styles.backToTripText, { color: colors.text }]}>
+                  Back to trip
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.mapTopIconBtn,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+                onPress={() => setIsFullMapVisible(false)}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Close map"
+                hitSlop={Layout.touchTargetHitSlop}
+              >
+                <FontAwesome name="times" size={16} color={colors.text} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
 
-      {!showNewAssignmentCard && !shouldShowMap && (
+      {fleetHomeIdle ? (
+        <DriverFleetHome
+          avatarUri={avatarUri}
+          driverName={driverName}
+          isOnline={isOnline}
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          onGoOnline={handleGoOnline}
+          onGoOffline={handleSetOffline}
+        >
+          {showDeferredInviteCard && pendingInvite ? (
+            <DriverInviteCard
+              invite={pendingInvite}
+              colors={colors}
+              offerText={buildOfferText(pendingInvite)}
+              busy={inviteActionId === pendingInvite.id}
+              fallbackAvatarUri={avatarUri}
+              onClose={() => setInvitationDismissed(true)}
+              onIgnore={async () => {
+                setInviteActionId(pendingInvite.id);
+                await driversService.rejectDriverInvite(pendingInvite.id);
+                setInviteActionId(null);
+                setInvitationDeclined(true);
+                if (uid) void invalidateDriverHome(uid);
+              }}
+              onAccept={async () => {
+                setInviteActionId(pendingInvite.id);
+                const { error } = await driversService.acceptDriverInvite(pendingInvite.id);
+                setInviteActionId(null);
+                if (!error) {
+                  setInvitationAccepted(true);
+                  if (uid) void invalidateDriverHome(uid);
+                }
+              }}
+            />
+          ) : null}
+        </DriverFleetHome>
+      ) : null}
+
+      {!fleetHomeIdle && !showNewAssignmentCard && !shouldShowMap && (
         <>
           <View style={[styles.assignedStaticHeader]}>
             <View style={styles.assignedStaticHeaderContent}>
@@ -6024,6 +6316,7 @@ export default function DriverRadarScreen() {
                 driverName={driverName}
                 isOnline={isOnline}
                 onPressOtpClaim={handleOpenOtpClaimFromHeader}
+                style={styles.idleHeader}
               />
               {driver?.organization_id ? (
                 <TouchableOpacity
@@ -6467,12 +6760,44 @@ const styles = withWebSafeShadows(
   },
   noDriverWrap: {
     width: "100%",
-    maxWidth: 400, // Add max width for better layout
-    padding: 28,
-    borderRadius: 20,
-    borderWidth: 1,
+    maxWidth: 360,
+    paddingTop: 28,
+    paddingHorizontal: 28,
     alignItems: "center",
-    alignSelf: "center", // Add this for proper centering
+    alignSelf: "center",
+  },
+  noOrgArt: {
+    width: 228,
+    height: 168,
+    marginBottom: 4,
+  },
+  noOrgTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    textAlign: "center",
+  },
+  noOrgSubtitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 280,
+  },
+  noOrgButton: {
+    marginTop: 18,
+    minHeight: 48,
+    paddingHorizontal: 28,
+    borderRadius: 999,
+    backgroundColor: Theme.buttonDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noOrgButtonText: {
+    color: Theme.buttonDarkText,
+    fontSize: 15,
+    fontWeight: "700",
   },
   invitesScroll: { width: "100%" },
   invitesScrollContent: { paddingTop: 8, paddingBottom: 12, gap: 14 },
@@ -7464,7 +7789,7 @@ const styles = withWebSafeShadows(
     position: "absolute",
     left: 0,
     right: 0,
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 6,
@@ -7522,6 +7847,87 @@ const styles = withWebSafeShadows(
     left: Layout.screenPaddingHorizontal,
     zIndex: 80,
     elevation: 12,
+  },
+  backToTripBtn: {
+    minHeight: 40,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  backToTripText: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: -0.1,
+  },
+  tripFirstRoot: {
+    flex: 1,
+    minHeight: 0,
+  },
+  tripFirstHeader: {
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    zIndex: 20,
+  },
+  tripFirstHeaderInner: {
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    backgroundColor: "transparent",
+    borderBottomWidth: 0,
+  },
+  tripFirstScrollContent: {
+    width: "100%",
+    maxWidth: "100%",
+    alignSelf: "stretch",
+    alignItems: "stretch",
+    paddingHorizontal: Layout.screenPaddingHorizontal,
+    paddingTop: 10,
+    gap: 10,
+  },
+  viewMapCard: {
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  viewMapIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewMapCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  viewMapTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+  },
+  viewMapSubtitle: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   fullMapContainer: {
     flex: 1,
@@ -7749,15 +8155,15 @@ const styles = withWebSafeShadows(
     letterSpacing: 0.2,
   },
   mapTopRightGroup: {
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
-    gap: 5,
+    gap: 8,
     flexShrink: 0,
   },
   mapTopIconBtn: {
-    width: MAP_CONTROLS_BAR_HEIGHT,
-    height: MAP_CONTROLS_BAR_HEIGHT,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
@@ -8197,12 +8603,51 @@ const styles = withWebSafeShadows(
     letterSpacing: -0.2,
     textAlign: "left",
   },
+  idleHeader: {
+    backgroundColor: Theme.driverHeaderPanel,
+    borderBottomWidth: 0,
+  },
   assignedStaticHeader: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     zIndex: 60,
+    backgroundColor: Theme.driverHeaderPanel,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.borderMedium,
+  },
+  assignedHeaderFloat: {
+    left: 10,
+    right: 10,
+    borderRadius: 18,
+    borderBottomWidth: 0,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  youLocationPuck: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  youLocationHalo: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(26,115,232,0.22)",
+  },
+  youLocationDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#1A73E8",
+    borderWidth: 2,
+    borderColor: "#ffffff",
   },
   assignedStaticHeaderContent: {
     alignItems: "stretch",

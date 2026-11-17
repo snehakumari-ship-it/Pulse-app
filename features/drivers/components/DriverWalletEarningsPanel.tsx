@@ -3,55 +3,55 @@
  * earned vs received for trips completed in that month (not cash-in dates).
  */
 import { NativeHtmlWebView } from "@/components/NativeHtmlWebView";
-import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
-import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import {
-  driverBodySecondary,
-  driverUIBold,
-  driverUIExtraBold,
-  driverUISemiBold,
-  DriverFontFamily,
+    driverBodySecondary,
+    DriverFontFamily,
+    driverUIBold,
+    driverUIExtraBold,
+    driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Layout from "@/constants/Layout";
 import Theme from "@/constants/Theme";
 import { buildTripClaimWhatsappMessage } from "@/features/driver/utils/driverCommunication.util";
 import {
-  buildBulkEarningsPaymentFollowUpHtml,
-  buildEarningsPaymentFollowUpHtml,
+    buildBulkEarningsPaymentFollowUpHtml,
+    buildEarningsPaymentFollowUpHtml,
 } from "@/features/driver/utils/driverPaymentRequestPreviewHtml.util";
+import { DriverCapturePaymentButton } from "@/features/drivers/components/DriverCapturePaymentButton";
+import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { tripNeedsPartyTag } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
-import { LinearGradient } from "expo-linear-gradient";
 import {
-  ArrowRight,
-  Bell,
-  Building2,
-  CalendarDays,
-  CheckSquare,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
-  Filter,
-  IndianRupee,
-  MessageCircle,
-  Route,
-  Square,
-  Tag,
-  X,
+    ArrowDown,
+    ArrowRight,
+    Bell,
+    Building2,
+    CalendarDays,
+    CheckSquare,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    ChevronUp,
+    Filter,
+    MessageCircle,
+    Route,
+    Square,
+    Tag,
+    X,
 } from "lucide-react-native";
 import { memo, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Rect } from "react-native-svg";
 
 export type WalletEarningsFleetOption = {
   orgId: string;
@@ -176,6 +176,96 @@ function routeEnds(
   return { single: (a || b || route || "Trip").trim() };
 }
 
+const ARC_STROKE = 8;
+
+/** Keeps a longer rupee string inside its slot. Extra-bold digits are ~0.64em wide. */
+function fittedAmountSize(text: string, slotWidth: number, maxSize: number, minSize: number): number {
+  const len = Math.max(text.replace(/\s/g, "").length, 1);
+  const fitted = Math.floor(slotWidth / (len * 0.64));
+  return Math.max(minSize, Math.min(maxSize, fitted));
+}
+
+function EarningsArc({ progress, width }: { progress: number; width: number }) {
+  const r = Math.max(56, (width - ARC_STROKE) / 2);
+  const height = Math.ceil(r + ARC_STROKE);
+  const cx = width / 2;
+  const cy = r + ARC_STROKE / 2;
+  const half = Math.PI * r;
+  const p = Math.max(0, Math.min(1, progress));
+  return (
+    <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+      <Circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        stroke="rgba(148,163,184,0.35)"
+        strokeWidth={ARC_STROKE}
+        fill="none"
+        strokeDasharray={`${half} ${half}`}
+        strokeLinecap="round"
+        transform={`rotate(-180 ${cx} ${cy})`}
+      />
+      {p > 0.01 ? (
+        <Circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          stroke={Theme.driverEmerald}
+          strokeWidth={ARC_STROKE}
+          fill="none"
+          strokeDasharray={`${half * p} ${half * 2}`}
+          strokeLinecap="round"
+          transform={`rotate(-180 ${cx} ${cy})`}
+        />
+      ) : null}
+    </Svg>
+  );
+}
+
+function EarningsCalendarArt() {
+  const cells = [
+    Theme.driverEmeraldMuted,
+    "#A7F3D0",
+    Theme.driverEmerald,
+    Theme.driverEmeraldMuted,
+    Theme.warningMuted,
+    "#ECFDF5",
+    "#A7F3D0",
+    Theme.warningMuted,
+    Theme.driverEmerald,
+    Theme.driverEmeraldMuted,
+    "#A7F3D0",
+    "#ECFDF5",
+    Theme.driverGold,
+    Theme.driverEmeraldMuted,
+    "#A7F3D0",
+  ];
+  return (
+    <Svg width={76} height={76} viewBox="0 0 76 76">
+      <Rect x="10" y="16" width="56" height="50" rx="12" fill={Theme.cardWhite} stroke={Theme.driverEmeraldBorderSoft} />
+      <Rect x="10" y="16" width="56" height="16" rx="12" fill={Theme.tripsMint} />
+      <Rect x="10" y="24" width="56" height="8" fill={Theme.tripsMint} />
+      <Circle cx="24" cy="16" r="3" fill={Theme.driverCtaFill} />
+      <Circle cx="52" cy="16" r="3" fill={Theme.driverCtaFill} />
+      {cells.map((fill, index) => {
+        const col = index % 5;
+        const row = Math.floor(index / 5);
+        return (
+          <Rect
+            key={index}
+            x={18 + col * 9}
+            y={38 + row * 8}
+            width={7}
+            height={6}
+            rx={1.5}
+            fill={fill}
+          />
+        );
+      })}
+    </Svg>
+  );
+}
+
 const REMINDER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 function reminderCooldown(lastReminderAt: string | null | undefined): {
@@ -276,6 +366,7 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   const insets = useSafeAreaInsets();
   const [tagTrip, setTagTrip] = useState<TripRow | null>(null);
   const [monthKey, setMonthKey] = useState(() => monthKeyFromDate(new Date()));
+  const [heroTrackWidth, setHeroTrackWidth] = useState(0);
   const [fleetOrgId, setFleetOrgId] = useState<string>("all");
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
   const [dueOnly, setDueOnly] = useState(false);
@@ -718,6 +809,10 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
   };
 
   const cardBorder = isDark ? colors.borderSubtle : "rgba(226,232,240,0.95)";
+  const amountLabel = `₹${earnedTotal.toLocaleString("en-IN")}`;
+  const arcWidth = heroTrackWidth > 0 ? Math.min(heroTrackWidth, 240) : 200;
+  const arcHeight = Math.ceil((arcWidth - ARC_STROKE) / 2 + ARC_STROKE);
+  const amountSize = fittedAmountSize(amountLabel, arcWidth - 48, 32, 15);
   const cardShadow = isDark ? "#000" : "rgba(15,23,42,0.08)";
   const isPulseBusy =
     bulkPulseBusy ||
@@ -880,128 +975,166 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
         </ScrollView>
       ) : null}
 
-      {/* Hero summary — aligns with wallet “TO COLLECT” emerald card */}
-      <LinearGradient
-        colors={
-          isDark
-            ? [Theme.driverEmeraldDark, "#022c22"]
-            : [Theme.driverEmerald, Theme.driverEmeraldDark]
-        }
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.heroCard, { shadowColor: isDark ? "#000" : Theme.driverEmeraldDark }]}
+      {/* Hero — white gauge card. Page wash stays the screen background. */}
+      <View
+        style={[
+          styles.heroCard,
+          {
+            backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+            borderColor: cardBorder,
+            shadowColor: cardShadow,
+          },
+        ]}
       >
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroBadge}>
-            <IndianRupee size={12} color="#ecfdf5" strokeWidth={2.4} />
-            <Text style={styles.heroBadgeText}>Earned this month</Text>
+        <View
+          style={styles.gaugeStage}
+          onLayout={(event) => {
+            const next = Math.round(event.nativeEvent.layout.width);
+            setHeroTrackWidth((current) => (current === next ? current : next));
+          }}
+        >
+          <View style={[styles.gaugeBowl, { width: arcWidth, height: arcHeight }]}>
+            <EarningsArc progress={collectedPct / 100} width={arcWidth} />
+            <Text
+              style={[
+                styles.heroAmount,
+                {
+                  color: isDark ? colors.text : Theme.textPrimary,
+                  fontSize: amountSize,
+                  lineHeight: amountSize + 4,
+                  letterSpacing: amountSize >= 28 ? -0.8 : -0.3,
+                },
+              ]}
+              numberOfLines={1}
+              allowFontScaling={false}
+            >
+              {amountLabel}
+            </Text>
           </View>
-          <Text style={styles.heroTripCount}>
-            {scopedTrips.length} trip{scopedTrips.length === 1 ? "" : "s"}
-          </Text>
         </View>
-
-        <View style={styles.heroAmountRow}>
-          <Text style={styles.heroRupee}>₹</Text>
-          <Text
-            style={styles.heroAmount}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}
+        {scopedTrips.length === 0 ? (
+          <View
+            style={[
+              styles.emptyMonthCard,
+              {
+                backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+                borderColor: isDark ? colors.borderSubtle : Theme.borderLight,
+              },
+            ]}
           >
-            {earnedTotal.toLocaleString("en-IN")}
-          </Text>
-        </View>
-
-        <View style={styles.progressPairRow}>
-          <View style={styles.progressPairCol}>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${collectedPct}%` }]} />
+            <View style={[styles.emptyMonthIcon, { backgroundColor: Theme.driverEmeraldMuted }]}>
+              <ArrowDown size={14} color={colors.emerald} strokeWidth={2.4} />
             </View>
-            <Text style={styles.progressCaption} numberOfLines={2}>
-              {collectedPct}% received · ₹{pendingTotal.toLocaleString("en-IN")} pending
-            </Text>
+            <Text style={[styles.emptyMonthCardText, { color: colors.text }]}>No transactions this month</Text>
           </View>
-          {showMonthPnl ? (
-            <View style={styles.progressPairCol}>
-              <View style={styles.pnlBarTrack}>
-                {monthPnl.spent > 0 ? (
-                  <View
-                    style={[
-                      styles.pnlBarSpent,
-                      { width: `${monthPnl.isLoss ? 100 : monthPnl.spentShare}%` },
-                    ]}
-                  />
-                ) : null}
-                {!monthPnl.isLoss && (monthPnl.marginShare > 0 || monthPnl.spent === 0) ? (
-                  <View
-                    style={[
-                      styles.pnlBarKeep,
-                      { width: `${monthPnl.spent === 0 ? 100 : monthPnl.marginShare}%` },
-                    ]}
-                  />
-                ) : null}
-              </View>
-              <Text style={[styles.progressCaption, styles.progressCaptionEnd]} numberOfLines={2}>
-                {monthPnl.spentShare}% spent · ₹
-                {Math.abs(monthPnl.margin).toLocaleString("en-IN")}{" "}
-                {monthPnl.isLoss ? "loss" : "margin"}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        ) : null}
+      </View>
 
-        <View style={styles.heroMetricRow}>
-          <View style={styles.heroMetric}>
-            <Text style={styles.heroMetricLabel}>Received</Text>
-            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-              ₹{receivedTotal.toLocaleString("en-IN")}
-            </Text>
+      <View
+        style={[
+          styles.metricCard,
+          {
+            backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+            borderColor: cardBorder,
+            shadowColor: cardShadow,
+          },
+        ]}
+      >
+        {(
+          [
+            [
+              {
+                key: "received",
+                label: "Received",
+                value: `₹${receivedTotal.toLocaleString("en-IN")}`,
+                color: Theme.driverCtaFill,
+              },
+              {
+                key: "pending",
+                label: "Pending",
+                value: `₹${pendingTotal.toLocaleString("en-IN")}`,
+                color: isDark ? colors.text : Theme.textPrimary,
+              },
+            ],
+            ...(showMonthPnl
+              ? [
+                  [
+                    {
+                      key: "spent",
+                      label: "Spent",
+                      value: `₹${monthPnl.spent.toLocaleString("en-IN")}`,
+                      color: Theme.driverGold,
+                    },
+                    {
+                      key: "margin",
+                      label: `${monthPnl.isLoss ? "Loss" : "Margin"} ${monthPnl.isLoss ? "" : "+"}${monthPnl.marginPct}%`,
+                      value: `${monthPnl.isLoss ? "−" : ""}₹${Math.abs(monthPnl.margin).toLocaleString("en-IN")}`,
+                      color: monthPnl.isLoss
+                        ? Theme.negative
+                        : isDark
+                          ? colors.text
+                          : Theme.textPrimary,
+                    },
+                  ],
+                ]
+              : []),
+          ]
+        ).map((row, rowIndex) => (
+          <View key={row.map((cell) => cell.key).join("-")}>
+            {rowIndex > 0 ? (
+              <View style={[styles.metricHRule, { backgroundColor: cardBorder }]} />
+            ) : null}
+            <View style={styles.metricRow}>
+              {row.map((item, index) => (
+                <View key={item.key} style={styles.metricCellWrap}>
+                  {index > 0 ? (
+                    <View style={[styles.metricVRule, { backgroundColor: cardBorder }]} />
+                  ) : null}
+                  <View style={styles.metricCell}>
+                    <Text style={[styles.metricLabel, { color: colors.textMuted }]} numberOfLines={1}>
+                      {item.label}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.metricValue,
+                        {
+                          color: item.color,
+                          fontSize: fittedAmountSize(item.value, 108, 15, 11),
+                          lineHeight: fittedAmountSize(item.value, 108, 15, 11) + 3,
+                        },
+                      ]}
+                      numberOfLines={1}
+                      allowFontScaling={false}
+                    >
+                      {item.value}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
           </View>
-          <View style={styles.heroMetricDivider} />
-          <View style={styles.heroMetric}>
-            <Text style={styles.heroMetricLabel}>Pending</Text>
-            <Text style={styles.heroMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-              ₹{pendingTotal.toLocaleString("en-IN")}
-            </Text>
-          </View>
-          {showMonthPnl ? (
-            <>
-              <View style={styles.heroMetricDivider} />
-              <View style={styles.heroMetric}>
-                <Text style={styles.heroMetricLabel}>Spent</Text>
-                <Text
-                  style={[styles.heroMetricValue, styles.pnlSpentValue]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.65}
-                >
-                  ₹{monthPnl.spent.toLocaleString("en-IN")}
-                </Text>
-              </View>
-              <View style={styles.heroMetricDivider} />
-              <View style={styles.heroMetric}>
-                <Text style={styles.heroMetricLabel}>
-                  {monthPnl.isLoss ? "Loss" : "Margin"}
-                  {` ${monthPnl.isLoss ? "" : "+"}${monthPnl.marginPct}%`}
-                </Text>
-                <Text
-                  style={[
-                    styles.heroMetricValue,
-                    monthPnl.isLoss ? styles.pnlLossValue : null,
-                  ]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.65}
-                >
-                  {monthPnl.isLoss ? "−" : ""}₹
-                  {Math.abs(monthPnl.margin).toLocaleString("en-IN")}
-                </Text>
-              </View>
-            </>
-          ) : null}
-        </View>
-      </LinearGradient>
+        ))}
+      </View>
+
+      <View
+        style={[
+          styles.metricStrip,
+          { backgroundColor: isDark ? colors.surfaceElevated : Theme.surfaceGray },
+        ]}
+      >
+        <Text style={[styles.metricStripText, { color: colors.textMuted }]}>
+          {[
+            `Received ₹${receivedTotal.toLocaleString("en-IN")}`,
+            `Pending ₹${pendingTotal.toLocaleString("en-IN")}`,
+            ...(showMonthPnl
+              ? [
+                  `Spent ₹${monthPnl.spent.toLocaleString("en-IN")}`,
+                  `${monthPnl.isLoss ? "Loss" : "Margin"} ${monthPnl.isLoss ? "" : "+"}${monthPnl.marginPct}%`,
+                ]
+              : []),
+          ].join("   ")}
+        </Text>
+      </View>
 
       {/* Due filter + multi-select — directly under green earned card */}
       <View style={styles.toolsSection}>
@@ -1046,12 +1179,16 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
             style={[
               styles.toolChipGrow,
               {
-                borderColor: selectMode ? Theme.driverEmeraldBorder : cardBorder,
+                borderColor: selectMode
+                  ? Theme.driverEmerald
+                  : isDark
+                    ? colors.borderSubtle
+                    : Theme.driverEmeraldBorderSoft,
                 backgroundColor: selectMode
                   ? colors.emerald
                   : isDark
-                    ? colors.surfaceElevated
-                    : colors.surface,
+                    ? "rgba(4,120,87,0.18)"
+                    : Theme.driverEmeraldMuted,
               },
             ]}
           >
@@ -1148,28 +1285,10 @@ export const DriverWalletEarningsPanel = memo(function DriverWalletEarningsPanel
       </View>
 
       {displayDayBuckets.length === 0 ? (
-        <View
-          style={[
-            styles.emptyCard,
-            {
-              backgroundColor: colors.surface,
-              borderColor: cardBorder,
-              shadowColor: cardShadow,
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.emptyIconWrap,
-              {
-                backgroundColor: isDark ? "rgba(4,120,87,0.14)" : Theme.driverEmeraldMuted,
-              },
-            ]}
-          >
-            <CalendarDays size={22} color={colors.emerald} strokeWidth={2.2} />
-          </View>
+        <View style={styles.emptyCard}>
+          <EarningsCalendarArt />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            {dueOnly || selectMode ? "No due trips" : "No earnings yet"}
+            {dueOnly || selectMode ? "No due trips" : "Daily Breakdown"}
           </Text>
           <Text style={[styles.emptyText, { color: colors.textMuted }]}>
             {dueOnly || selectMode
@@ -2144,20 +2263,127 @@ const styles = StyleSheet.create({
     color: Theme.textOnPrimary,
   },
   heroCard: {
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    gap: 10,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 12,
+    alignItems: "center",
     overflow: "hidden",
     ...Platform.select({
       ios: {
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.22,
-        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 14,
       },
-      android: { elevation: 6 },
+      android: { elevation: 2 },
+      web: { boxShadow: "0 8px 24px rgba(15,23,42,0.06)" } as object,
       default: {},
     }),
+  },
+  gaugeStage: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  gaugeBowl: {
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 2,
+  },
+  emptyMonthCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+    alignSelf: "stretch",
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 2,
+    borderLeftColor: Theme.driverEmerald,
+  },
+  emptyMonthIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyMonthCardText: {
+    ...driverUIBold,
+    flex: 1,
+    fontSize: 12,
+  },
+  metricCard: {
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+      },
+      android: { elevation: 1 },
+      web: { boxShadow: "0 6px 18px rgba(15,23,42,0.05)" } as object,
+      default: {},
+    }),
+  },
+  metricRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  metricCellWrap: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  metricHRule: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 12,
+  },
+  metricVRule: {
+    width: StyleSheet.hairlineWidth,
+    marginVertical: 6,
+  },
+  metricCell: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  metricLabel: {
+    ...driverUIBold,
+    fontSize: 9,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    textAlign: "center",
+  },
+  metricValue: {
+    ...driverUIExtraBold,
+    fontSize: 15,
+    letterSpacing: -0.3,
+    textAlign: "center",
+    width: "100%",
+  },
+  metricStrip: {
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  metricStripText: {
+    ...driverUIBold,
+    fontSize: 9,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+    textAlign: "center",
+    lineHeight: 13,
   },
   heroTopRow: {
     flexDirection: "row",
@@ -2199,11 +2425,10 @@ const styles = StyleSheet.create({
   },
   heroAmount: {
     fontFamily: DriverFontFamily.extraBold,
-    fontSize: 36,
-    letterSpacing: -1,
-    color: "#ffffff",
-    lineHeight: 42,
-    flexShrink: 1,
+    textAlign: "center",
+    width: "78%",
+    fontVariant: ["tabular-nums"],
+    includeFontPadding: false,
   },
   progressPairRow: {
     flexDirection: "row",
@@ -2316,21 +2541,10 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   emptyCard: {
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 32,
+    paddingTop: 28,
     paddingHorizontal: 20,
     alignItems: "center",
     gap: 8,
-    ...Platform.select({
-      ios: {
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-      android: { elevation: 1 },
-      default: {},
-    }),
   },
   emptyIconWrap: {
     width: 48,

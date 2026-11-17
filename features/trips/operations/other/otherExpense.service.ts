@@ -91,8 +91,10 @@ export async function updateTripOtherExpense(
   }
   const paymentOwner: OperationalPaymentOwner =
     input.paymentOwner ?? existing.entry.payment_owner ?? "unknown";
-  const paymentMode: OperationalPaymentMode =
-    input.paymentMode ?? existing.entry.payment_mode ?? "unknown";
+  const paymentMode =
+    input.paymentMode === undefined
+      ? existing.entry.payment_mode
+      : input.paymentMode;
   const payload: Record<string, unknown> = {
     expense_category: input.expenseCategory,
     amount_inr: Math.max(0, Number(input.amountInr) || 0),
@@ -136,8 +138,12 @@ export async function createTripOtherExpense(
   },
 ): Promise<{ error: Error | null; entry: TripOtherExpenseEntry | null }> {
   const paymentOwner = resolvePaymentOwnerForSave(input);
-  const paymentMode: OperationalPaymentMode =
-    input.paymentMode ?? (input.actorRole === "driver" ? "cash" : "unknown");
+  const paymentMode =
+    input.paymentMode === undefined
+      ? input.actorRole === "driver"
+        ? "cash"
+        : "unknown"
+      : input.paymentMode;
   const approvalState: OperationalApprovalState =
     input.actorRole === "driver" ? "reported" : "review_pending";
   const payload = {

@@ -47,6 +47,7 @@ describe("supabaseHttp origin-down vs transient", () => {
     expect(isOriginDownHttpStatus(500)).toBe(true);
     expect(shouldOpenOriginCircuitForHttpFailure(500, false)).toBe(true);
     expect(shouldOpenOriginCircuitForHttpFailure(500, true)).toBe(false);
+    expect(shouldOpenOriginCircuitForHttpFailure(500, false, true)).toBe(false);
     expect(shouldOpenOriginCircuitForHttpFailure(503, true)).toBe(true);
   });
 
@@ -133,6 +134,35 @@ describe("data fetch concurrency gate", () => {
       shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/resubmit_trip_compliance", {
         method: "POST",
       }),
+    ).toBe(false);
+  });
+
+  it("does not queue driver boot reads behind the shared fetch gate", () => {
+    expect(
+      shouldQueueDataFetch(
+        "https://x.supabase.co/rest/v1/rpc/get_my_driver_operating_mode",
+        { method: "POST" },
+      ),
+    ).toBe(false);
+    expect(
+      shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/get_pending_otp_trips", {
+        method: "POST",
+      }),
+    ).toBe(false);
+    expect(
+      shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/get_driver_invites_received", {
+        method: "POST",
+      }),
+    ).toBe(false);
+    expect(
+      shouldQueueDataFetch("https://x.supabase.co/rest/v1/rpc/is_driver_available", {
+        method: "POST",
+      }),
+    ).toBe(false);
+    expect(
+      shouldQueueDataFetch(
+        "https://x.supabase.co/rest/v1/drivers?select=id&user_id=eq.abc&limit=20",
+      ),
     ).toBe(false);
   });
 
@@ -395,6 +425,18 @@ describe("hub RPC timeout (temporary stabilization, max 45s)", () => {
         "https://nafxpivddesgsrthmosv.supabase.co/rest/v1/rpc/get_network_feed",
       ),
     ).toBe(45_000);
+    expect(
+      supabaseRequestTimeoutMs(
+        "https://nafxpivddesgsrthmosv.supabase.co/rest/v1/rpc/get_my_driver_operating_mode",
+        { method: "POST" },
+      ),
+    ).toBe(HUB_RPC_TIMEOUT_MS);
+    expect(
+      supabaseRequestTimeoutMs(
+        "https://nafxpivddesgsrthmosv.supabase.co/rest/v1/rpc/get_pending_otp_trips",
+        { method: "POST" },
+      ),
+    ).toBe(HUB_RPC_TIMEOUT_MS);
   });
 
   it("does not raise hub timeout above 45s", () => {

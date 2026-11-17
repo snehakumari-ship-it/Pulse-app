@@ -21,6 +21,8 @@ type Props = {
   backIcon?: 'chevron' | 'arrow';
   /** Optional trailing control (e.g. Add). Keeps 44pt side column balanced. */
   right?: ReactNode;
+  /** Page wash behind the bar. Defaults to the shared light header. */
+  backgroundColor?: string;
 };
 
 export function DriverSubScreenHeader({
@@ -30,6 +32,7 @@ export function DriverSubScreenHeader({
   backAccessibilityLabel = 'Go back',
   backIcon = 'chevron',
   right,
+  backgroundColor,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useDriverTheme();
@@ -47,7 +50,7 @@ export function DriverSubScreenHeader({
           paddingBottom: subtitle ? 10 : 12,
           paddingHorizontal: Layout.screenPaddingHorizontal,
           borderBottomColor: colors.border,
-          backgroundColor: isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.85)',
+          backgroundColor: backgroundColor ?? (isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.85)'),
         },
       ]}
     >

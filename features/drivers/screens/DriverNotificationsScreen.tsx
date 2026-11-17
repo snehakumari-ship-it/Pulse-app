@@ -3,9 +3,9 @@
  * Tapping a row returns to the dashboard with that trip selected.
  */
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
 import {
     DRIVER_DETAIL_HORIZONTAL_PAD,
-    DriverSubScreenHeader,
     driverDetailPageBackground,
 } from '@/components/driver/DriverSubScreenHeader';
 import Theme from '@/constants/Theme';
@@ -40,15 +40,17 @@ import {
     isCompletedStatus,
     isRosterTrip,
 } from '@/features/drivers/utils/driverUtils.util';
+import { useDriverAvatarUri } from '@/lib/avatarUpload';
 import { formatINR } from '@/lib/format';
 import { supabase } from '@/lib/supabase';
 import { fetchOrgBrandingByIds } from '@/lib/orgBrandingFetch';
 import * as driversService from '@/features/drivers/services/drivers.service';
 import * as tripsService from '@/features/trips/services/trips.service';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { EmptyNotificationBell } from '@/features/drivers/components/EmptyNotificationBell';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { type Href, useRouter } from 'expo-router';
+import { X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     RefreshControl,
@@ -63,6 +65,25 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 const DRIVER_ACCEPTED_TRIP_ID_KEY = 'driver_accepted_trip_id';
 const DRIVER_NOTIFICATION_FOCUS_TRIP_KEY = 'driver_notification_focus_trip_id';
 
+function isTerminalDriverTrip(trip: tripsService.TripRow): boolean {
+  const status = String(trip.status ?? '').toLowerCase();
+  if (isCompletedStatus(status)) return true;
+  if (status === 'cancelled' || status === 'canceled') return true;
+  return Boolean(trip.completed_at && String(trip.completed_at).trim() !== '');
+}
+
+/** On the road now. A leftover started_at on an assigned or cancelled trip is not active. */
+function isLiveDriverMission(trip: tripsService.TripRow): boolean {
+  if (isTerminalDriverTrip(trip)) return false;
+  return isActiveMission(String(trip.status ?? ''));
+}
+
+function isWaitingAssignment(trip: tripsService.TripRow): boolean {
+  if (isTerminalDriverTrip(trip) || isLiveDriverMission(trip)) return false;
+  const status = String(trip.status ?? '').toLowerCase();
+  return isAssignedNotStarted(status) || status === 'pending_acceptance';
+}
+
 export default function DriverNotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -71,6 +92,7 @@ export default function DriverNotificationsScreen() {
   const colors = useDriverThemeColors();
   const pageBg = driverDetailPageBackground(isDark, colors.background);
   const { profile } = useAuth();
+  const { avatarUri } = useDriverAvatarUri();
 
   const [allTrips, setAllTrips] = useState<tripsService.TripRow[]>([]);
   const [pendingOtpTrips, setPendingOtpTrips] = useState<tripsService.TripRow[]>([]);
@@ -141,7 +163,8 @@ export default function DriverNotificationsScreen() {
     if (opts?.pull) setRefreshing(true);
     else if (!hasCompletedInitialFetch.current) setLoading(true);
     const acceptedRaw = await AsyncStorage.getItem(DRIVER_ACCEPTED_TRIP_ID_KEY);
-    setAcceptedTripId(acceptedRaw && acceptedRaw !== '' ? acceptedRaw : null);
+    const storedAcceptedId =
+      acceptedRaw && acceptedRaw.trim() !== '' ? acceptedRaw.trim() : null;
     const notifyRaw = await AsyncStorage.getItem(
       DRIVER_NOTIFY_ONLY_AFTER_MISSION_KEY,
     );
@@ -175,16 +198,27 @@ export default function DriverNotificationsScreen() {
         pendingTripsRes?.error ? [] : (pendingTripsRes?.trips ?? []),
       );
       const drivers = (driversRes.drivers ?? []).filter((d) => !d.left_at);
+      let trips: tripsService.TripRow[] = [];
       if (drivers.length > 0) {
         const primaryDriver = drivers[0];
         setDriver(primaryDriver);
         const driverIds = drivers.map((d) => d.id);
         const tRes = await tripsService.getDriverUiTripsByDriverIds(driverIds);
-        setAllTrips(tRes.trips ?? []);
+        trips = tRes.trips ?? [];
+        setAllTrips(trips);
       } else {
         setDriver(null);
         setAllTrips([]);
         setPendingOtpTrips([]);
+      }
+      const acceptedTrip = storedAcceptedId
+        ? trips.find((trip) => trip.id === storedAcceptedId) ?? null
+        : null;
+      if (storedAcceptedId && (!acceptedTrip || isTerminalDriverTrip(acceptedTrip))) {
+        await AsyncStorage.removeItem(DRIVER_ACCEPTED_TRIP_ID_KEY);
+        setAcceptedTripId(null);
+      } else {
+        setAcceptedTripId(storedAcceptedId);
       }
     } finally {
       setLoading(false);
@@ -200,7 +234,7 @@ export default function DriverNotificationsScreen() {
   );
 
   const incomingTrips = useMemo(
-    () => allTrips.filter((t) => isAssignedNotStarted(t.status)),
+    () => allTrips.filter((trip) => isWaitingAssignment(trip)),
     [allTrips],
   );
 
@@ -641,20 +675,22 @@ export default function DriverNotificationsScreen() {
     void fetch({ pull: true });
   };
 
-  /** True while any trip is live on the road (matches dashboard active mission). */
+  /** True only when a current trip is actually on the road. */
   const hasInProgressMission = useMemo(
-    () =>
-      allTrips.some((t) => {
-        if (isCompletedStatus(String(t.status ?? ''))) return false;
-        return (
-          isActiveMission(String(t.status ?? '')) || !!t.started_at
-        );
-      }),
+    () => allTrips.some((trip) => isLiveDriverMission(trip)),
     [allTrips],
   );
 
+  const acceptedTrip = useMemo(
+    () =>
+      acceptedTripId
+        ? allTrips.find((trip) => trip.id === acceptedTripId) ?? null
+        : null,
+    [acceptedTripId, allTrips],
+  );
+
   const hasActiveAcceptedTrip = Boolean(
-    acceptedTripId && String(acceptedTripId).trim() !== '',
+    acceptedTrip && isLiveDriverMission(acceptedTrip),
   );
 
   /** During an active trip, or post-trip notify-only: list is read-only (no Accept). */
@@ -694,11 +730,61 @@ export default function DriverNotificationsScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: pageBg }]}>
-      <DriverSubScreenHeader
-        title="Notifications"
-        subtitle={listIntroSubtitle}
-        onBack={goBack}
-      />
+      <View
+        style={[
+          styles.topBar,
+          {
+            paddingTop: insets.top + 8,
+            backgroundColor: isDark ? colors.background : Theme.driverEmeraldWash,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={goBack}
+          hitSlop={10}
+          style={[
+            styles.closeBtn,
+            {
+              backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+              borderColor: isDark ? colors.border : Theme.driverEmeraldBorderSoft,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <X size={18} color={isDark ? colors.text : Theme.driverCtaFill} strokeWidth={2.4} />
+        </TouchableOpacity>
+        <View style={styles.topText}>
+          <Text
+            style={[styles.topTitle, { color: isDark ? colors.text : Theme.driverCtaFill }]}
+            numberOfLines={1}
+          >
+            Notifications
+          </Text>
+          <Text
+            style={[
+              styles.topSubtitle,
+              { color: isDark ? colors.textMuted : Theme.driverEmeraldMutedText2 },
+            ]}
+            numberOfLines={2}
+          >
+            {listIntroSubtitle}
+          </Text>
+        </View>
+        <View style={styles.avatarSlot}>
+          <DriverSelfAvatar
+            size={36}
+            uri={avatarUri}
+            borderColor={isDark ? colors.border : Theme.cardWhite}
+          />
+          <View
+            style={[
+              styles.onlineDot,
+              { borderColor: isDark ? colors.background : Theme.cardWhite },
+            ]}
+          />
+        </View>
+      </View>
 
       {loading ? (
         <View style={styles.loadingWrap}>
@@ -727,14 +813,15 @@ export default function DriverNotificationsScreen() {
                 : 'Trips waiting for you to accept or verify with OTP. Open one to continue on the dashboard.'}
           </Text>
           {rowsForDisplay.length === 0 ? (
-            <View
-              style={[
-                styles.emptyCard,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <FontAwesome name="bell-slash" size={28} color={colors.textMuted} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            <View style={styles.emptyCard}>
+              {/* Bell animation only while empty — unmounts when notifications arrive */}
+              <EmptyNotificationBell size={96} />
+              <Text
+                style={[
+                  styles.emptyTitle,
+                  { color: isDark ? colors.text : Theme.driverCtaFill },
+                ]}
+              >
                 No pending trips
               </Text>
               <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
@@ -840,6 +927,57 @@ export default function DriverNotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
+    paddingBottom: 14,
+    gap: 12,
+  },
+  closeBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topText: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  topTitle: {
+    fontSize: 32,
+    lineHeight: 36,
+    fontWeight: '800',
+    fontStyle: 'italic',
+    letterSpacing: -1.1,
+    textTransform: 'uppercase',
+  },
+  topSubtitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  avatarSlot: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onlineDot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    backgroundColor: Theme.driverEmerald,
+  },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { paddingTop: 16, gap: 12 },
   intro: {
@@ -848,20 +986,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   emptyCard: {
-    borderRadius: 28,
-    borderWidth: 1,
-    padding: 24,
     alignItems: 'center',
-    gap: 10,
+    paddingTop: 48,
+    paddingHorizontal: 28,
+    gap: 8,
   },
   emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    textAlign: 'center',
+    marginTop: 8,
   },
   emptySubtitle: {
     fontSize: 13,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 19,
+    maxWidth: 300,
   },
   card: {
     borderRadius: 24,

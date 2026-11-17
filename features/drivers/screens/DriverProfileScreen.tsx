@@ -33,25 +33,23 @@ import { useDcoStatusQuery } from '@/lib/queries/useDcoStatusQuery';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import {
-  Camera,
+  AlertCircle,
+  ChevronDown,
   ChevronLeft,
+  Info,
+  Sparkles,
   ChevronRight,
   Crown,
-  Dna,
   Edit3,
   Fuel,
   Gavel,
-  Gauge,
   Globe,
-  History,
   LogOut,
   Milestone,
-  Quote,
   Share2,
   Shield,
   Star,
   Thermometer,
-  Trophy,
   Truck,
   UserPlus,
   Wrench
@@ -69,6 +67,7 @@ import {
   View,
   type ViewStyle,
 } from 'react-native';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -87,7 +86,6 @@ function driverTabBarScrollInset(bottomInset: number): number {
 
 /** Reference palette — heroes stay slate-900 for brand match; page bg uses theme. */
 const SLATE_900 = '#0f172a';
-const SLATE_50 = '#f8fafc';
 const AMBER_400 = '#fbbf24';
 const AMBER_500 = '#f59e0b';
 
@@ -133,6 +131,21 @@ function formatShortDate(iso?: string | null) {
   }
 }
 
+function FleetTruckArt() {
+  return (
+    <Svg width={108} height={72} viewBox="0 0 108 72">
+      <Circle cx="78" cy="40" r="28" fill={Theme.driverEmeraldMuted} />
+      <Rect x="8" y="28" width="52" height="26" rx="4" fill="#8FBF7A" />
+      <Path d="M58 36h16l10 10v8H58V36z" fill="#E7C48A" />
+      <Rect x="62" y="38" width="10" height="8" rx="1.5" fill="#F8FBFF" />
+      <Circle cx="24" cy="56" r="6" fill={Theme.textPrimaryDark} />
+      <Circle cx="24" cy="56" r="2.5" fill={Theme.cardWhite} />
+      <Circle cx="72" cy="56" r="6" fill={Theme.textPrimaryDark} />
+      <Circle cx="72" cy="56" r="2.5" fill={Theme.cardWhite} />
+    </Svg>
+  );
+}
+
 export default function DriverProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -147,6 +160,7 @@ export default function DriverProfileScreen() {
   const { avatarSeed, setAvatarSeed, setPreviewUri } = useDriverAvatar();
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileView, setProfileView] = useState<ProfileView>('main');
+  const [openVehicleSpec, setOpenVehicleSpec] = useState<string | null>(null);
   const [guideLevel, setGuideLevel] = useState<ExperienceLevelConfig | null>(null);
   const [drivers, setDrivers] = useState<driversService.DriverRow[]>([]);
   const [driverIds, setDriverIds] = useState<string[]>([]);
@@ -400,7 +414,6 @@ export default function DriverProfileScreen() {
     [profile?.uid, user?.uid, tripsCount, kycStatus?.isVerified, driverRatings],
   );
   const {
-    currentLevel,
     currentLevelConfig,
     nextLevelConfig,
     experiencePct,
@@ -413,7 +426,12 @@ export default function DriverProfileScreen() {
       return;
     }
     if (kind === 'find_work') {
-      router.push(ROUTES.driverAvailableLoads());
+      // Market dock is DCO-only; send regular drivers to request/status instead.
+      if (dcoStatus === 'APPROVED' || dcoStatus === 'SUSPENDED') {
+        router.push(ROUTES.driverAvailableLoads());
+      } else {
+        router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0]);
+      }
     }
   };
 
@@ -492,7 +510,7 @@ export default function DriverProfileScreen() {
     });
   };
 
-  const pageBg = isDark ? colors.background : SLATE_50;
+  const pageBg = isDark ? colors.background : Theme.driverEmeraldWash;
   const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)';
   const muted = colors.textMuted;
 
@@ -597,80 +615,92 @@ export default function DriverProfileScreen() {
 
   const VehicleTechnicalView = () => (
     <View style={styles.subPage}>
-      <View style={styles.subHeaderRow}>
-        <TouchableOpacity style={[styles.iconPill, { borderColor: cardBorder, backgroundColor: colors.surface }]} onPress={() => setProfileView('main')}>
-          <ChevronLeft size={20} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.subTitle, { color: colors.text }]}>FLEET VEHICLE</Text>
-      </View>
+      <Text style={styles.fleetPageTitle}>Fleet vehicle</Text>
 
-      <View style={styles.heroDark}>
-        <View style={[styles.heroWatermark, { padding: 28 }]}>
-          <Truck size={120} color="rgba(255,255,255,0.1)" />
-        </View>
-        <View style={styles.vehicleHeroTop}>
-          <View style={styles.fleetBadge}>
-            <Text style={styles.fleetBadgeText}>{vehicleDisplay.fleetId}</Text>
+      <View style={[styles.fleetHero, { backgroundColor: isDark ? colors.surface : Theme.cardWhite, borderColor: cardBorder }]}>
+        <View style={styles.fleetHeroCopy}>
+          <View style={styles.fleetTag}>
+            <Text style={styles.fleetTagText}>Fleet</Text>
           </View>
+          <Text style={[styles.fleetHeroTitle, { color: colors.text }]}>{vehicleDisplay.model}</Text>
+          <Text style={styles.fleetHeroPlate}>{vehicleDisplay.plate}</Text>
+          <View style={styles.supervisorBox}>
+            <Text style={styles.supervisorKicker}>Supervisor</Text>
+            <Text style={[styles.supervisorName, { color: colors.text }]}>{vehicleDisplay.supervisor}</Text>
+          </View>
+        </View>
+        <View style={styles.fleetHeroArt}>
           <View style={styles.connectedRow}>
             <View style={styles.pulseDot} />
             <Text style={styles.connectedText}>Connected</Text>
           </View>
+          <FleetTruckArt />
         </View>
-        <Text style={styles.vehicleModel}>{vehicleDisplay.model}</Text>
-        <Text style={styles.vehiclePlate}>{vehicleDisplay.plate}</Text>
-        <View style={styles.vehicleGrid2}>
-          <View style={styles.vehicleStatDark}>
-            <Text style={styles.vehicleStatLabel}>ASSIGNED ON</Text>
-            <Text style={styles.vehicleStatValue}>{vehicleDisplay.assignedOn}</Text>
+      </View>
+
+      <View style={styles.fleetGaugeRow}>
+        <View style={[styles.fleetGauge, { backgroundColor: isDark ? colors.surface : Theme.cardWhite, borderColor: cardBorder }]}>
+          <View style={[styles.fleetGaugeIcon, { backgroundColor: Theme.driverEmeraldMuted }]}>
+            <Fuel size={18} color={Theme.driverCtaFill} strokeWidth={2.2} />
           </View>
-          <View style={styles.vehicleStatDark}>
-            <Text style={styles.vehicleStatLabel}>SUPERVISOR</Text>
-            <Text style={styles.vehicleStatValue}>{vehicleDisplay.supervisor}</Text>
+          <View>
+            <Text style={[styles.fleetGaugeVal, { color: colors.text }]}>{vehicleDisplay.fuel}</Text>
+            <Text style={styles.fleetGaugeLbl}>Fuel</Text>
+          </View>
+        </View>
+        <View style={[styles.fleetGauge, { backgroundColor: isDark ? colors.surface : Theme.cardWhite, borderColor: cardBorder }]}>
+          <View style={[styles.fleetGaugeIcon, { backgroundColor: "rgba(232,33,39,0.1)" }]}>
+            <Thermometer size={18} color={Theme.negative} strokeWidth={2.2} />
+          </View>
+          <View>
+            <Text style={[styles.fleetGaugeVal, { color: colors.text }]}>{vehicleDisplay.engineTemp}</Text>
+            <Text style={styles.fleetGaugeLbl}>Temp</Text>
           </View>
         </View>
       </View>
 
-      <View style={styles.triGaugeRow}>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Fuel size={20} color={Theme.driverEmerald} />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.fuel}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>FUEL</Text>
-        </View>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Gauge size={20} color="#3b82f6" />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.odometer}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>KM</Text>
-        </View>
-        <View style={[styles.gaugeCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-          <Thermometer size={20} color="#f43f5e" />
-          <Text style={[styles.gaugeVal, { color: colors.text }]}>{vehicleDisplay.engineTemp}</Text>
-          <Text style={[styles.gaugeLbl, { color: muted }]}>TEMP</Text>
-        </View>
-      </View>
-
-      <View style={[styles.whiteCardLg, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
+      <View style={[styles.whiteCardLg, { backgroundColor: isDark ? colors.surface : Theme.cardWhite, borderColor: cardBorder }]}>
         <View style={styles.cardHeadRow}>
-          <Dna size={16} color={muted} />
-          <Text style={[styles.cardHeadTitle, { color: muted }]}>TECH SPECS</Text>
+          <Sparkles size={14} color={Theme.textMuted} strokeWidth={2.2} />
+          <Text style={[styles.cardHeadTitle, { color: muted, flex: 1 }]}>Tech specs</Text>
+          <AlertCircle size={16} color={Theme.textPrimaryDark} strokeWidth={2.2} />
         </View>
-        {vehicleDisplay.specs.map((spec, i) => (
-          <View key={spec.label} style={[styles.specRow, i < vehicleDisplay.specs.length - 1 && styles.specRowBorder]}>
-            <Text style={[styles.specLabel, { color: muted }]}>{spec.label}</Text>
-            <Text style={[styles.specValue, { color: colors.text }]}>{spec.value}</Text>
-          </View>
-        ))}
+        {vehicleDisplay.specs.map((spec, i) => {
+          const open = openVehicleSpec === spec.label;
+          return (
+            <View key={spec.label} style={i < vehicleDisplay.specs.length - 1 ? styles.specRowBorder : null}>
+              <Pressable
+                style={styles.specRow}
+                onPress={() => setOpenVehicleSpec(open ? null : spec.label)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: open }}
+              >
+                <Text style={[styles.specLabel, { color: colors.text }]}>{spec.label}</Text>
+                <ChevronDown
+                  size={16}
+                  color={Theme.textMuted}
+                  strokeWidth={2.2}
+                  style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}
+                />
+              </Pressable>
+              {open ? (
+                <Text style={[styles.specValue, { color: colors.text }]}>{spec.value}</Text>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
 
-      <View style={[styles.whiteCardLg, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
+      <View style={styles.healthCard}>
         <View style={styles.cardHeadRow}>
-          <Wrench size={16} color={muted} />
-          <Text style={[styles.cardHeadTitle, { color: muted }]}>HEALTH DIAGNOSTICS</Text>
+          <Wrench size={14} color={Theme.driverCtaFill} strokeWidth={2.2} />
+          <Text style={[styles.cardHeadTitle, { color: Theme.driverCtaFill, flex: 1 }]}>Health diagnostics</Text>
+          <Info size={16} color={Theme.driverCtaFill} strokeWidth={2.2} />
         </View>
         {vehicleDisplay.health.map((h) => (
-          <View key={h.label} style={[styles.healthRow, { backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc' }]}>
+          <View key={h.label} style={styles.healthLine}>
             <Text style={[styles.healthLabel, { color: colors.text }]}>{h.label}</Text>
-            <Text style={[styles.healthValue, { color: h.color }]}>{h.value}</Text>
+            <Text style={[styles.healthValue, { color: h.value === "—" ? Theme.textMuted : h.color }]}>{h.value}</Text>
           </View>
         ))}
       </View>
@@ -686,22 +716,18 @@ export default function DriverProfileScreen() {
             paddingTop: insets.top + Layout.driverHeaderTopOffset,
             paddingBottom: Layout.driverHeaderBottomPadding,
             borderBottomColor: cardBorder,
-            backgroundColor: isDark ? 'rgba(15,23,42,0.92)' : 'rgba(255,255,255,0.85)',
+            backgroundColor: isDark ? 'rgba(15,23,42,0.92)' : Theme.driverEmeraldWash,
           },
         ]}
       >
-        <TouchableOpacity style={styles.topIconBtn} onPress={handleBack} hitSlop={12}>
-          <ChevronLeft size={22} color={colors.text} />
+        <TouchableOpacity style={styles.topBackBtn} onPress={handleBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back">
+          <ChevronLeft size={20} color={Theme.textPrimary} strokeWidth={2.4} />
+          {profileView === 'vehicle' ? <Text style={styles.topBackText}>Back</Text> : null}
         </TouchableOpacity>
-        <View style={styles.titleCenter}>
-          <Text style={[styles.headerName, { color: colors.text }]} numberOfLines={1}>
-            {displayName}
-          </Text>
-          <View style={styles.liveDot} />
-        </View>
+        <View style={styles.titleCenter} />
         <View style={styles.topActions}>
           <TouchableOpacity
-            style={styles.topIconBtn}
+            style={[styles.topIconBtn, profileView === 'vehicle' && styles.topIconBtnSoft]}
             onPress={handleInviteDrivers}
             hitSlop={12}
             accessibilityRole="button"
@@ -710,7 +736,7 @@ export default function DriverProfileScreen() {
             <UserPlus size={Layout.driverHeaderActionIconSize} color={muted} />
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.topIconBtn}
+            style={[styles.topIconBtn, profileView === 'vehicle' && styles.topIconBtnSoft]}
             onPress={handleShareProfile}
             hitSlop={12}
             accessibilityRole="button"
@@ -734,91 +760,92 @@ export default function DriverProfileScreen() {
         <>
             {profileView === 'main' && (
               <View style={{ gap: 14 }}>
-                <LinearGradient colors={['#0f172a', '#020617']} style={styles.profileHero}>
-                  <View style={styles.heroGlow} />
-                  <TouchableOpacity style={styles.avatarCluster} onPress={() => setShowEditProfileModal(true)} activeOpacity={0.9}>
-                    <LinearGradient colors={[Theme.driverPrimary, Theme.driverEmeraldDark, '#0f766e']} style={styles.avatarRing}>
-                      <View style={styles.avatarInner}>
-                        {displayAvatarSource ? (
-                          <Image source={displayAvatarSource} style={styles.avatarImg} resizeMode="cover" />
-                        ) : (
-                          <View
-                            style={[
-                              styles.avatarImg,
-                              {
-                                backgroundColor: displayAvatarColor,
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                              },
-                            ]}
-                          >
-                            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 24 }}>
-                              {displayAvatarInitials}
-                            </Text>
-                          </View>
-                        )}
-                        <View style={styles.camOverlay} pointerEvents="none">
-                          <Camera size={18} color="#fff" />
-                        </View>
+                <View style={styles.identityRow}>
+                  <TouchableOpacity
+                    style={styles.identityAvatar}
+                    onPress={() => setShowEditProfileModal(true)}
+                    activeOpacity={0.9}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit profile photo"
+                  >
+                    {displayAvatarSource ? (
+                      <Image source={displayAvatarSource} style={styles.identityAvatarImg} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.identityAvatarImg, styles.identityAvatarFallback, { backgroundColor: displayAvatarColor }]}>
+                        <Text style={styles.identityInitials}>{displayAvatarInitials}</Text>
                       </View>
-                    </LinearGradient>
-                    <View style={styles.levelBadge}>
-                      <Trophy size={12} color="#fff" />
-                      <Text style={styles.levelBadgeText}>Lvl {currentLevel}</Text>
-                    </View>
+                    )}
                   </TouchableOpacity>
-                  <Text style={styles.profileNameHero}>{displayName}</Text>
-                  <Text style={styles.tierSmall}>{currentLevelConfig.tier} rank · {currentLevelConfig.name}</Text>
-
-                  <TouchableOpacity style={styles.xpCard} onPress={() => setProfileView('levels')} activeOpacity={0.88}>
-                    <View style={styles.xpTop}>
-                      <Text style={styles.xpEyebrow}>EXPERIENCE PROGRESS</Text>
-                      <Text style={styles.xpPct}>{experiencePct}%</Text>
-                    </View>
-                    <View style={styles.progressTrackDark}>
-                      <LinearGradient
-                        colors={[Theme.driverEmerald, Theme.driverPrimary]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={[styles.progressFillEm, { width: `${experiencePct}%` }]}
-                      />
-                    </View>
-                    <View style={styles.xpFooter}>
-                      <Text style={styles.xpFooterTxt}>
-                        {experience.currentCount.done}/{experience.currentCount.target} · {tripsCount} trips
+                  <View style={styles.identityCopy}>
+                    <View style={styles.identityNameRow}>
+                      <Text style={[styles.identityName, { color: colors.text }]} numberOfLines={1}>
+                        {displayName}
                       </Text>
-                      <Text style={styles.xpFooterTxt}>{nextLevelConfig?.name ?? 'Max'} next</Text>
+                      <View style={styles.liveDot} />
                     </View>
-                  </TouchableOpacity>
-                </LinearGradient>
-
-                <View style={[styles.bioStatementCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-                  <View style={styles.bioStatementHeader}>
-                    <View style={styles.bioStatementTitleRow}>
-                      <View style={[styles.quoteIconWrap, { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.38)' }]}>
-                        <Quote size={15} color={Theme.driverEmerald} strokeWidth={2.2} />
+                    <View style={styles.identityChips}>
+                      <View style={[styles.metaChip, { backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc', borderColor: cardBorder }]}>
+                        <Star size={12} color="#d97706" fill="#d97706" />
+                        <Text style={[styles.metaChipText, { color: colors.text }]} numberOfLines={1}>
+                          {loadingDriverRatings && driverRatings.length === 0
+                            ? '—'
+                            : driverRatingAvg != null
+                              ? `${driverRatingAvg.toFixed(1)} (${driverRatingCount} ${driverRatingCount === 1 ? 'review' : 'reviews'})`
+                              : 'No reviews'}
+                        </Text>
                       </View>
-                      <Text style={[styles.bioStatementEyebrow, { color: muted }]}>Pilot statement</Text>
+                      <Pressable
+                        style={[styles.metaChip, { backgroundColor: isDark ? colors.surfaceElevated : '#f8fafc', borderColor: cardBorder }]}
+                        onPress={() => router.push('/(driver)/trip-history')}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open trip history"
+                      >
+                        <Text style={[styles.metaChipText, { color: colors.text }]}>
+                          {!tripsLoaded && loadingTrips ? '—' : `${tripsCount} Trips`}
+                        </Text>
+                      </Pressable>
                     </View>
                     <TouchableOpacity
-                      style={[styles.bioEditBtn, { backgroundColor: isDark ? colors.whiteMuted : '#f1f5f9' }]}
+                      style={styles.editProfileLink}
                       onPress={() => setShowEditProfileModal(true)}
-                      hitSlop={12}
                       accessibilityRole="button"
-                      accessibilityLabel="Edit bio"
+                      accessibilityLabel="Edit profile"
                     >
-                      <Edit3 size={16} color={muted} strokeWidth={2.2} />
+                      <Edit3 size={13} color={muted} strokeWidth={2.2} />
+                      <Text style={[styles.editProfileText, { color: muted }]}>Edit Profile</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={[styles.bioStatementBody, { color: colors.text }]}>
-                    {(profile?.status_text ?? '').trim().length > 0
-                      ? `"${(profile?.status_text ?? '').trim()}"`
-                      : 'Add a short bio — visible to passengers and fleet managers. Tap edit to update.'}
-                  </Text>
                 </View>
 
+                <TouchableOpacity onPress={() => setProfileView('levels')} activeOpacity={0.9} accessibilityRole="button" accessibilityLabel="Experience progress">
+                  <LinearGradient
+                    colors={[Theme.driverEmerald, Theme.driverEmeraldDark]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.milestoneCard}
+                  >
+                    <Text style={styles.milestoneTitle}>{currentLevelConfig.name} Milestone</Text>
+                    <View style={styles.milestoneInner}>
+                      <View style={styles.xpTop}>
+                        <Text style={styles.milestoneEyebrow}>Experience progress</Text>
+                        <Text style={styles.milestonePct}>{experiencePct}%</Text>
+                      </View>
+                      <View style={styles.milestoneTrack}>
+                        <View style={[styles.milestoneFill, { width: `${experiencePct}%` }]} />
+                      </View>
+                      <Text style={styles.milestoneFoot} numberOfLines={1}>
+                        {nextLevelConfig
+                          ? `Trusted next · ${Math.max(0, experience.currentCount.target - experience.currentCount.done)} trips to ${nextLevelConfig.name}`
+                          : 'Trusted next · final milestone'}
+                      </Text>
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+
+                <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
+
                 <TouchableOpacity
-                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
+                  style={[styles.menuRow, webPress]}
                   onPress={() =>
                     router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
                   }
@@ -852,52 +879,12 @@ export default function DriverProfileScreen() {
                       </Text>
                     </View>
                   </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
+                  <View style={styles.chevPill}>
                     <ChevronRight size={18} color={muted} />
                   </View>
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]}
-                  onPress={() =>
-                    router.push(ROUTES.driverDcoStatus() as Parameters<typeof router.push>[0])
-                  }
-                  activeOpacity={0.88}
-                  accessibilityRole="button"
-                  accessibilityLabel="DCO status"
-                >
-                  <View style={styles.rowCardLeft}>
-                    <View style={[styles.blueIcon, { backgroundColor: isDark ? colors.emeraldMuted : 'rgba(167,243,208,0.45)' }]}>
-                      <Gavel size={20} color={colors.emerald} />
-                    </View>
-                    <View style={styles.rowCardText}>
-                      <Text style={[styles.rowEyebrow, { color: muted }]}>
-                        {dcoStatus === 'APPROVED' ? 'DCO' : 'INDEPENDENT OWNER-OPERATOR'}
-                      </Text>
-                      <Text style={[styles.rowTitle, { color: colors.text }]}>
-                        {dcoStatus === 'NONE'
-                          ? 'Become a DCO'
-                          : dcoStatus === 'PENDING'
-                            ? 'DCO — Under review'
-                            : dcoStatus === 'APPROVED'
-                              ? 'DCO status'
-                              : dcoStatus === 'REJECTED'
-                                ? 'DCO — Request again'
-                                : 'DCO — Suspended'}
-                      </Text>
-                      <Text style={[styles.rowSub, { color: muted }]} numberOfLines={2}>
-                        {dcoStatus === 'APPROVED'
-                          ? 'Bid in the marketplace as an independent owner-operator'
-                          : 'Admin-approved independent owner-operator status'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
-                    <ChevronRight size={18} color={muted} />
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.rowCard, webPress, { backgroundColor: colors.surface, borderColor: cardBorder }]} onPress={() => setProfileView('vehicle')} activeOpacity={0.88}>
+                <TouchableOpacity style={[styles.menuRow, styles.menuRowDivider, webPress, { borderTopColor: cardBorder }]} onPress={() => setProfileView('vehicle')} activeOpacity={0.88}>
                   <View style={styles.rowCardLeft}>
                     <View style={styles.blueIcon}>
                       <Truck size={20} color="#3b82f6" />
@@ -907,16 +894,17 @@ export default function DriverProfileScreen() {
                       <Text style={[styles.rowTitle, { color: colors.text }]}>{vehicleDisplay.model}</Text>
                     </View>
                   </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
+                  <View style={styles.chevPill}>
                     <ChevronRight size={18} color={muted} />
                   </View>
                 </TouchableOpacity>
 
                 <Pressable
                   style={({ pressed }) => [
-                    styles.rowCard,
+                    styles.menuRow,
+                    styles.menuRowDivider,
                     webPress,
-                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                    { borderTopColor: cardBorder, opacity: pressed ? 0.88 : 1 },
                   ]}
                   onPress={() => router.push('/(driver)/documents')}
                   accessibilityRole="button"
@@ -940,6 +928,13 @@ export default function DriverProfileScreen() {
                           </View>
                         ) : null}
                       </View>
+                      {!kycStatus?.isVerified &&
+                      kycUploadedCount > 0 &&
+                      kycStatus?.reviewStatus !== 'rejected' ? (
+                        <View style={styles.pendingPill}>
+                          <Text style={styles.pendingPillText}>Verification pending</Text>
+                        </View>
+                      ) : null}
                       <Text
                         style={[
                           styles.rowSub,
@@ -959,16 +954,17 @@ export default function DriverProfileScreen() {
                       </Text>
                     </View>
                   </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
+                  <View style={styles.chevPill}>
                     <ChevronRight size={18} color={muted} />
                   </View>
                 </Pressable>
 
                 <Pressable
                   style={({ pressed }) => [
-                    styles.rowCard,
+                    styles.menuRow,
+                    styles.menuRowDivider,
                     webPress,
-                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
+                    { borderTopColor: cardBorder, opacity: pressed ? 0.88 : 1 },
                   ]}
                   onPress={() =>
                     router.push(
@@ -990,61 +986,19 @@ export default function DriverProfileScreen() {
                       </Text>
                     </View>
                   </View>
-                  <View style={[styles.chevPill, { backgroundColor: isDark ? colors.surfaceElevated : '#f1f5f9' }]}>
+                  <View style={styles.chevPill}>
                     <ChevronRight size={18} color={muted} />
                   </View>
                 </Pressable>
-
-                <View style={styles.statsRow}>
-                  <View style={[styles.statBox, { backgroundColor: colors.surface, borderColor: cardBorder }]}>
-                    <View style={styles.amberIcon}>
-                      <Star size={18} color="#d97706" fill="#d97706" />
-                    </View>
-                    <Text style={[styles.statNum, { color: colors.text }]}>
-                      {loadingDriverRatings && driverRatings.length === 0
-                        ? '–'
-                        : driverRatingAvg != null
-                          ? driverRatingAvg.toFixed(1)
-                          : '—'}
-                    </Text>
-                    <Text style={[styles.statLbl, { color: muted }]}>AVG RATING</Text>
-                    {!loadingDriverRatings && driverRatingCount > 0 ? (
-                      <Text style={[styles.statHint, { color: muted }]} numberOfLines={1}>
-                        {driverRatingCount} {driverRatingCount === 1 ? 'review' : 'reviews'}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.statBox,
-                      webPress,
-                      { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.88 : 1 },
-                    ]}
-                    onPress={() => router.push('/(driver)/trip-history')}
-                    accessibilityRole="button"
-                    accessibilityLabel="Open trip history"
-                  >
-                    <View style={styles.blueIconSm}>
-                      <History size={18} color="#3b82f6" />
-                    </View>
-                    <Text style={[styles.statNum, { color: colors.text }]}>
-                      {!tripsLoaded && loadingTrips ? '–' : tripsCount}
-                    </Text>
-                    <Text style={[styles.statLbl, { color: muted }]}>TRIPS</Text>
-                  </Pressable>
                 </View>
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.signOutCard,
-                    webPress,
-                    { backgroundColor: colors.surface, borderColor: cardBorder, opacity: pressed ? 0.85 : 1 },
-                  ]}
+                  style={({ pressed }) => [styles.signOutLink, { opacity: pressed ? 0.7 : 1 }]}
                   onPress={handleSignOut}
                   accessibilityRole="button"
                   accessibilityLabel="Sign out"
                 >
-                  <LogOut size={18} color="#f43f5e" />
+                  <LogOut size={16} color="#f43f5e" />
                   <Text style={styles.signOutLbl}>Sign out</Text>
                 </Pressable>
               </View>
@@ -1118,11 +1072,225 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  topBackBtn: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingRight: 8,
+  },
+  topBackText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Theme.textPrimary,
+  },
+  topIconBtnSoft: {
+    borderRadius: 20,
+    backgroundColor: 'rgba(11,21,40,0.05)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(148,163,184,0.45)',
+  },
+  fleetPageTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    color: Theme.textPrimary,
+    marginTop: 2,
+  },
+  fleetHero: {
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    minHeight: 148,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  fleetHeroCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  fleetTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(11,21,40,0.06)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  fleetTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: Theme.textPrimary,
+  },
+  fleetHeroTitle: {
+    marginTop: 10,
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  fleetHeroPlate: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.textMuted,
+  },
+  supervisorBox: {
+    alignSelf: 'flex-start',
+    marginTop: 14,
+    backgroundColor: Theme.surfaceGray,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderMedium,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  supervisorKicker: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: Theme.textMuted,
+  },
+  supervisorName: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  fleetHeroArt: {
+    width: 118,
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  fleetGaugeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  fleetGauge: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  fleetGaugeIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fleetGaugeVal: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  fleetGaugeLbl: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: Theme.textMuted,
+  },
+  healthCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    backgroundColor: Theme.cardWhite,
+    padding: 16,
+  },
+  healthLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
   titleCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   headerName: { fontSize: 14, fontWeight: '700', maxWidth: 200 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: Theme.driverEmerald },
   scroll: { flex: 1 },
 
+  identityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  identityAvatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    overflow: 'hidden',
+    flexShrink: 0,
+    backgroundColor: '#e2e8f0',
+  },
+  identityAvatarImg: { width: '100%', height: '100%' },
+  identityAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  identityInitials: { color: '#fff', fontWeight: '700', fontSize: 22 },
+  identityCopy: { flex: 1, minWidth: 0, gap: 6 },
+  identityNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  identityName: { fontSize: 22, fontWeight: '800', letterSpacing: -0.4, flexShrink: 1 },
+  identityChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  metaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    minHeight: 26,
+    maxWidth: '100%',
+  },
+  metaChipText: { fontSize: 11, fontWeight: '700' },
+  editProfileLink: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 28, alignSelf: 'flex-start' },
+  editProfileText: { fontSize: 13, fontWeight: '600' },
+  milestoneCard: {
+    borderRadius: 18,
+    padding: 14,
+    gap: 10,
+  },
+  milestoneTitle: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+  milestoneInner: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  milestoneEyebrow: { color: 'rgba(255,255,255,0.86)', fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
+  milestonePct: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  milestoneTrack: { height: 6, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.28)', overflow: 'hidden' },
+  milestoneFill: { height: '100%', borderRadius: 999, backgroundColor: '#fff' },
+  milestoneFoot: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '600' },
+  menuCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 44,
+    gap: 10,
+  },
+  menuRowDivider: { borderTopWidth: StyleSheet.hairlineWidth },
+  signOutLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 44,
+    marginTop: 28,
+  },
   profileHero: {
     borderRadius: 20,
     paddingHorizontal: 16,
@@ -1281,6 +1449,15 @@ const styles = StyleSheet.create({
   rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   verifiedPill: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
   verifiedPillText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  pendingPill: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Theme.warningMuted,
+  },
+  pendingPillText: { fontSize: 11, fontWeight: '700', color: Theme.warning },
   rowSub: { marginTop: 4, fontSize: 11, fontWeight: '500', lineHeight: 15 },
   chevPill: { padding: 8, borderRadius: 12 },
   statsRow: { flexDirection: 'row', gap: 10 },
@@ -1423,11 +1600,12 @@ const styles = StyleSheet.create({
   gaugeLbl: { fontSize: 8, fontWeight: '700', letterSpacing: 1.2 },
   whiteCardLg: { borderRadius: 16, padding: 14, borderWidth: 1 },
   cardHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  cardHeadTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
+  cardHeadTitle: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase' },
   specRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
   specRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(226,232,240,0.8)' },
   specLabel: { fontSize: 12, fontWeight: '600' },
-  specValue: { fontSize: 12, fontWeight: '700' },
+  specValue: { fontSize: 13, fontWeight: '700', paddingBottom: 10 },
+  healthValue: { fontSize: 14, fontWeight: '800' },
   healthRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1435,6 +1613,5 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginBottom: 8,
   },
-  healthLabel: { fontSize: 12, fontWeight: '600' },
-  healthValue: { fontSize: 10, fontWeight: '700' },
+  healthLabel: { fontSize: 13, fontWeight: '600' },
 });

@@ -15,6 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { History, Sparkles, Wallet, X } from "lucide-react-native";
 import { Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Ellipse, Path, Rect } from "react-native-svg";
 
 export type PreDcoFleetCard = {
   orgId: string;
@@ -66,10 +67,57 @@ type Props = {
   onClose: () => void;
   onOpenPassbook: (orgId: string, orgName: string) => void;
   onOpenTrip: (tripId: string) => void;
+  /** Settlements keeps its own header. This view fills the space below it. */
+  embedded?: boolean;
 };
 
 function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
+}
+
+function EmployerIllustration() {
+  return (
+    <Svg width={92} height={78} viewBox="0 0 92 78">
+      <Ellipse cx="18" cy="66" rx="16" ry="8" fill={Theme.driverEmeraldMuted} />
+      <Ellipse cx="74" cy="66" rx="14" ry="7" fill={Theme.driverEmeraldMuted} />
+      <Rect x="28" y="16" width="36" height="48" rx="4" fill={Theme.driverEmeraldWash} stroke={Theme.driverCtaFill} strokeWidth="1.6" />
+      <Rect x="40" y="46" width="12" height="18" rx="1.5" fill={Theme.cardWhite} stroke={Theme.driverCtaFill} strokeWidth="1.2" />
+      <Rect x="34" y="24" width="8" height="7" rx="1" fill={Theme.cardWhite} stroke={Theme.driverEmerald} strokeWidth="1" />
+      <Rect x="50" y="24" width="8" height="7" rx="1" fill={Theme.cardWhite} stroke={Theme.driverEmerald} strokeWidth="1" />
+      <Rect x="34" y="36" width="8" height="7" rx="1" fill={Theme.cardWhite} stroke={Theme.driverEmerald} strokeWidth="1" />
+      <Rect x="50" y="36" width="8" height="7" rx="1" fill={Theme.cardWhite} stroke={Theme.driverEmerald} strokeWidth="1" />
+      <Path d="M24 16 L46 6 L68 16" fill={Theme.driverEmeraldWash} stroke={Theme.driverCtaFill} strokeWidth="1.6" strokeLinejoin="round" />
+      <Circle cx="16" cy="60" r="7" fill={Theme.driverEmerald} opacity={0.85} />
+      <Circle cx="76" cy="60" r="6" fill={Theme.driverEmerald} opacity={0.7} />
+    </Svg>
+  );
+}
+
+function RouteIllustration() {
+  return (
+    <Svg width={92} height={78} viewBox="0 0 92 78">
+      <Path
+        d="M16 62 C28 62 30 28 46 28 C62 28 60 50 76 22"
+        fill="none"
+        stroke={Theme.driverEmerald}
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+      <Path
+        d="M18 68 C34 66 40 48 54 50 C68 52 70 40 82 36"
+        fill="none"
+        stroke={Theme.driverEmeraldMutedText}
+        strokeWidth="2"
+        strokeDasharray="3 4"
+        strokeLinecap="round"
+      />
+      <Circle cx="16" cy="62" r="7" fill={Theme.driverEmerald} />
+      <Circle cx="16" cy="62" r="3" fill={Theme.cardWhite} />
+      <Circle cx="76" cy="22" r="7" fill={Theme.driverGold} />
+      <Circle cx="76" cy="22" r="3" fill={Theme.cardWhite} />
+      <Circle cx="48" cy="40" r="4" fill={Theme.driverCtaFill} opacity={0.35} />
+    </Svg>
+  );
 }
 
 function formatPeriod(from: string, to?: string | null): string {
@@ -86,12 +134,26 @@ export function DriverPreDcoFleetHistoryView({
   onClose,
   onOpenPassbook,
   onOpenTrip,
+  embedded = false,
 }: Props) {
   const insets = useSafeAreaInsets();
   const toCollect = fleets.reduce((sum, f) => sum + Math.max(0, f.pending), 0);
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+    <View
+      style={[
+        styles.root,
+        {
+          backgroundColor: embedded
+            ? isDark
+              ? colors.background
+              : Theme.driverEmeraldWash
+            : colors.background,
+          paddingTop: embedded ? 0 : insets.top,
+        },
+      ]}
+    >
+      {embedded ? null : (
       <View
         style={[
           styles.header,
@@ -118,6 +180,7 @@ export function DriverPreDcoFleetHistoryView({
         </View>
         <History size={18} color={colors.emerald} strokeWidth={2.2} />
       </View>
+      )}
 
       <ScrollView
         style={{ flex: 1 }}
@@ -128,36 +191,43 @@ export function DriverPreDcoFleetHistoryView({
         }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.heroTitle, { color: colors.emerald }]}>SALARY.</Text>
-        <Text style={[styles.heroSub, { color: Theme.textSecondary }]}>
-          Financial audit & settlements · former employer
-        </Text>
+        {embedded ? null : <Text style={styles.heroTitle}>SALARY.</Text>}
+        <Text style={styles.heroSub}>Financial audit & settlements · former employer</Text>
 
-        <TouchableOpacity activeOpacity={1} style={styles.walletCardWrap}>
+        <View style={styles.walletCardWrap}>
           <LinearGradient
             colors={
               isDark
-                ? ["#022c22", Theme.driverEmeraldDark]
-                : [Theme.driverEmeraldDark, Theme.driverEmerald]
+                ? [Theme.driverEmeraldDark, colors.surface]
+                : [Theme.cardWhite, Theme.cardWhite]
             }
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.walletCard}
+            style={[
+              styles.walletCard,
+              {
+                borderWidth: 1,
+                borderColor: isDark ? colors.border : Theme.borderMedium,
+              },
+            ]}
           >
             <View style={styles.walletWatermark} pointerEvents="none">
-              <Wallet size={92} color="#059669" strokeWidth={1.4} />
+              <Wallet size={108} color={Theme.driverCtaFill} strokeWidth={1.2} />
             </View>
             <View style={styles.walletCardContent}>
               <View style={styles.walletLabelRow}>
-                <Sparkles size={15} color="rgba(236,253,245,0.95)" strokeWidth={2.5} />
-                <Text style={styles.walletLabel}>TO COLLECT</Text>
+                <Sparkles size={12} color={isDark ? colors.text : Theme.textSecondary} strokeWidth={2.4} />
+                <Text style={[styles.walletLabel, { color: isDark ? colors.textMuted : Theme.textSecondary }]}>
+                  TO COLLECT
+                </Text>
               </View>
               <View style={styles.walletBalanceRow}>
-                <Text style={styles.walletRupee}>₹</Text>
+                <Text style={[styles.walletRupee, { color: isDark ? colors.text : Theme.textPrimary }]}>₹</Text>
                 <Text
                   style={[
                     styles.walletBalance,
                     Platform.OS === "android" && styles.walletBalanceAndroid,
+                    { color: isDark ? colors.text : Theme.textPrimary },
                   ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
@@ -166,24 +236,33 @@ export function DriverPreDcoFleetHistoryView({
                   {Math.round(toCollect).toLocaleString("en-IN")}
                 </Text>
               </View>
-              <Text style={styles.walletSub}>pending from fleet before conversion</Text>
+              <View
+                style={[
+                  styles.walletPill,
+                  { backgroundColor: isDark ? colors.surface : Theme.driverEmeraldWash },
+                ]}
+              >
+                <Text style={[styles.walletSub, { color: isDark ? colors.textMuted : Theme.textSecondary }]}>
+                  pending from fleet before conversion
+                </Text>
+              </View>
             </View>
           </LinearGradient>
-        </TouchableOpacity>
+        </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Former employer</Text>
+        <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Former employer</Text>
         {fleets.length === 0 ? (
           <View
             style={[
               styles.emptyCard,
               {
                 backgroundColor: colors.surface,
-                borderColor: isDark ? colors.borderSubtle : "rgba(226,232,240,0.9)",
+                borderColor: isDark ? colors.borderSubtle : Theme.borderLight,
               },
             ]}
           >
-            <FontAwesome name="building" size={22} color={colors.textMuted} />
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+            <EmployerIllustration />
+            <Text style={[styles.emptyText, { color: colors.text }]}>
               No fleet employment on file from before DCO conversion.
             </Text>
           </View>
@@ -313,13 +392,24 @@ export function DriverPreDcoFleetHistoryView({
           })
         )}
 
-        <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 18 }]}>
+        <Text style={[styles.sectionTitle, { color: colors.textMuted, marginTop: 18 }]}>
           Transactions
         </Text>
         {trips.length === 0 ? (
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-            No fleet trips recorded before conversion.
-          </Text>
+          <View
+            style={[
+              styles.emptyCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: isDark ? colors.borderSubtle : Theme.borderLight,
+              },
+            ]}
+          >
+            <RouteIllustration />
+            <Text style={[styles.emptyText, { color: colors.text }]}>
+              No fleet trips recorded before conversion.
+            </Text>
+          </View>
         ) : (
           trips.map((line, idx) => (
             <TouchableOpacity
@@ -401,68 +491,74 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     fontSize: 36,
-    fontWeight: "900",
-    letterSpacing: -1.6,
-    fontStyle: "italic",
+    fontWeight: "800",
+    letterSpacing: -1.2,
+    color: Theme.driverCtaFill,
     textTransform: "uppercase",
   },
   heroSub: {
     fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
     textTransform: "uppercase",
     marginTop: 4,
-    marginBottom: 12,
+    marginBottom: 14,
+    color: Theme.driverEmeraldMutedText2,
   },
-  walletCardWrap: { marginBottom: 16 },
+  walletCardWrap: { marginBottom: 8 },
   walletCard: {
-    borderRadius: 22,
-    paddingVertical: 20,
+    borderRadius: 24,
+    paddingVertical: 22,
     paddingHorizontal: 20,
     overflow: "hidden",
-    minHeight: 132,
+    minHeight: 148,
   },
   walletWatermark: {
     position: "absolute",
-    top: 6,
-    right: -4,
+    right: 8,
+    top: 18,
+    opacity: 0.35,
   },
-  walletCardContent: { alignItems: "center" },
+  walletCardContent: {
+    alignItems: "flex-start",
+    maxWidth: "72%",
+  },
   walletLabelRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
   walletLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    color: "rgba(167,243,208,0.88)",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.1,
   },
   walletBalanceRow: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 4,
-    marginTop: 4,
+    marginTop: 8,
   },
   walletRupee: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#fff",
+    fontSize: 22,
+    fontWeight: "800",
     marginBottom: 4,
   },
   walletBalance: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: "#fff",
+    fontSize: 36,
+    fontWeight: "900",
     letterSpacing: -1,
   },
   walletBalanceAndroid: { includeFontPadding: false },
+  walletPill: {
+    marginTop: 14,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
   walletSub: {
-    marginTop: 4,
     fontSize: 11,
     fontWeight: "600",
-    color: "rgba(167,243,208,0.7)",
   },
   sectionTitle: {
     ...driverUISemiBold,
@@ -472,17 +568,20 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptyCard: {
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
+    flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
   },
   emptyText: {
-    ...driverBodySecondary,
-    fontSize: 12,
-    textAlign: "center",
-    lineHeight: 16,
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
   },
   fleetCard: {
     borderRadius: 16,

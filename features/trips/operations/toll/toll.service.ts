@@ -83,8 +83,10 @@ export async function updateTripTollEntry(
   }
   const paymentOwner: OperationalPaymentOwner =
     input.paymentOwner ?? existing.entry.payment_owner ?? "unknown";
-  const paymentMode: OperationalPaymentMode =
-    input.paymentMode ?? existing.entry.payment_mode ?? "unknown";
+  const paymentMode =
+    input.paymentMode === undefined
+      ? existing.entry.payment_mode
+      : input.paymentMode;
   const payload: Record<string, unknown> = {
     amount_inr: Math.max(0, Number(input.amountInr) || 0),
     plaza_name: toNullableText(input.plazaName),
@@ -129,8 +131,12 @@ export async function createTripTollEntry(
   },
 ): Promise<{ error: Error | null; entry: TripTollEntry | null; alreadyExists?: boolean }> {
   const paymentOwner = resolvePaymentOwnerForSave(input);
-  const paymentMode: OperationalPaymentMode =
-    input.paymentMode ?? (input.actorRole === "driver" ? "cash" : "unknown");
+  const paymentMode =
+    input.paymentMode === undefined
+      ? input.actorRole === "driver"
+        ? "cash"
+        : "unknown"
+      : input.paymentMode;
   const approvalState: OperationalApprovalState =
     input.actorRole === "driver" ? "reported" : "review_pending";
   const payload = {

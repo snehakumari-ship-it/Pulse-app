@@ -1,29 +1,7 @@
-import { DriverBrandMark } from '@/components/driver/DriverBrandMark';
-import { PartySpeedDialFab, type PartySpeedDialAction } from '@/components/PartySpeedDialFab';
-import { SearchBar } from '@/components/SearchBar';
-import { DriverWalletEarningsPanel } from '@/features/drivers/components/DriverWalletEarningsPanel';
-import { DriverSelfLedgerPanel } from '@/features/drivers/components/DriverSelfLedgerPanel';
-import { DriverSelfReceivablesPanel } from '@/features/drivers/components/DriverSelfReceivablesPanel';
-import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/DriverPreDcoFleetHistoryView';
-import {
-  UNTAGGED_PARTY_ID,
-  buildDriverPartyReceivables,
-} from '@/features/drivers/utils/driverPartyReceivables.util';
-import {
-  publishSelectableShippers,
-  selectableShippersFromReceivables,
-} from '@/features/drivers/utils/driverSelectableParties.util';
-import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
-import { useCoalescedLoader, type CoalescedRunScope } from '@/features/drivers/hooks/useCoalescedLoader';
-import { receivedByTripFromDriverBooks } from '@/features/drivers/services/driverCapturePayment.service';
-import {
-  buildDriverWalletTransactions,
-  filterDriverWalletTransactions,
-  groupDriverWalletTransactions,
-  walletTxnPartyFallback,
-  type DriverWalletTxn,
-} from '@/features/drivers/utils/driverWalletTransactions.util';
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { PartyAddChip } from '@/components/PartyAddChip';
+import { type PartySpeedDialAction } from '@/components/PartySpeedDialFab';
+import { SearchBar } from '@/components/SearchBar';
 import { ThemedConfirmModal } from '@/components/ThemedConfirmModal';
 import {
     driverBodyPrimary,
@@ -36,13 +14,14 @@ import Theme from '@/constants/Theme';
 import Typography from '@/constants/Typography';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOptionalDriverInviteModal } from '@/contexts/DriverInviteModalContext';
-import { useDriverAvatar } from '@/contexts/DriverAvatarContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import { DriverSelfAvatar } from '@/components/driver/DriverSelfAvatar';
-import { useDriverAvatarUri } from '@/lib/avatarUpload';
-import { driverWalletBookTabLabel } from '@/features/drivers/domain/driverOperatingMode';
-import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
-import { confirmDialog } from '@/lib/confirmDialog';
+import {
+    buildDriverLedgerReceiptDetails,
+    buildDriverTripSettlementView,
+    buildMarkPaidConfirmMessage,
+    deriveDriverPaymentMode,
+    extractDriverPaymentUtr,
+} from "@/features/driver/tripSettlement/driverTripSettlement.util";
 import {
     buildBulkTripClaimWhatsappMessage,
     buildSettlementShareMessage,
@@ -52,46 +31,64 @@ import {
     phonePeMetaDate
 } from '@/features/driver/utils/driverGpayTransactions.util';
 import {
-  buildDriverTripNumberMap,
-  getDriverTripDisplayNumber,
+    buildDriverTripNumberMap,
+    getDriverTripDisplayNumber,
 } from '@/features/driver/utils/driverTripSequence.util';
+import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
+import { DriverPreDcoFleetHistoryView } from '@/features/drivers/components/DriverPreDcoFleetHistoryView';
+import { DriverSelfLedgerPanel } from '@/features/drivers/components/DriverSelfLedgerPanel';
+import { DriverSelfReceivablesPanel } from '@/features/drivers/components/DriverSelfReceivablesPanel';
+import { DriverWalletEarningsPanel } from '@/features/drivers/components/DriverWalletEarningsPanel';
+import { IndependentTransactionsEmptyArt } from "@/features/drivers/components/IndependentTransactionsEmptyArt";
+import { driverWalletBookTabLabel } from '@/features/drivers/domain/driverOperatingMode';
+import { useCoalescedLoader, type CoalescedRunScope } from '@/features/drivers/hooks/useCoalescedLoader';
+import { receivedByTripFromDriverBooks } from '@/features/drivers/services/driverCapturePayment.service';
+import * as driversService from '@/features/drivers/services/drivers.service';
+import { listDriverTripExpensesByTripIds } from '@/features/drivers/services/driverTripExpenses.service';
+import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
+import { buildDriverInviteSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
 import {
-  resolveDriverTripPayoutTerms,
-  tripEarningsForDriver,
+    UNTAGGED_PARTY_ID,
+    buildDriverPartyReceivables,
+} from '@/features/drivers/utils/driverPartyReceivables.util';
+import {
+    publishSelectableShippers,
+    selectableShippersFromReceivables,
+} from '@/features/drivers/utils/driverSelectableParties.util';
+import {
+    resolveDriverTripPayoutTerms,
+    tripEarningsForDriver,
 } from '@/features/drivers/utils/driverUtils.util';
 import {
-  buildDriverLedgerReceiptDetails,
-  buildDriverTripSettlementView,
-  buildMarkPaidConfirmMessage,
-  deriveDriverPaymentMode,
-  extractDriverPaymentUtr,
-} from "@/features/driver/tripSettlement/driverTripSettlement.util";
-import { DriverLedgerReceiptPreviewModal, type DriverLedgerReceiptPreview } from "@/features/drivers/components/DriverLedgerReceiptPreviewModal";
+    buildDriverWalletTransactions,
+    filterDriverWalletTransactions,
+    groupDriverWalletTransactions,
+    walletTxnPartyFallback,
+    type DriverWalletTxn,
+} from '@/features/drivers/utils/driverWalletTransactions.util';
 import { resolveDriverOrgAvatarUri } from '@/features/drivers/utils/resolveDriverOrgAvatar.util';
-import { fetchOrgBrandingByIds, type OrgBrandingRow } from '@/lib/orgBrandingFetch';
-import { buildDriverInviteSalaryLines } from '@/features/drivers/utils/driverInviteOffer.util';
-import { usePreventScreenCapture } from '@/lib/usePreventScreenCapture';
-import { useLayoutInsets } from '@/lib/layoutInsets';
-import { ROUTES } from '@/lib/routes';
-import * as driversService from '@/features/drivers/services/drivers.service';
-import * as salaryRequestsService from '@/features/drivers/services/salaryRequests.service';
 import * as tripsService from '@/features/trips/services/trips.service';
+import { confirmDialog } from '@/lib/confirmDialog';
+import { useLayoutInsets } from '@/lib/layoutInsets';
+import { fetchOrgBrandingByIds, type OrgBrandingRow } from '@/lib/orgBrandingFetch';
+import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
+import { injectPulseWatermarkIntoHtml } from '@/lib/reportWatermark.util';
+import { ROUTES } from '@/lib/routes';
+import { usePreventScreenCapture } from '@/lib/usePreventScreenCapture';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Print from 'expo-print';
-import { injectPulseWatermarkIntoHtml } from '@/lib/reportWatermark.util';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { History, Sparkles, Wallet } from 'lucide-react-native';
+import { ChevronLeft, History, Wallet } from 'lucide-react-native';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Image,
     Linking,
-    Modal,
     Platform,
     ScrollView,
     Share,
@@ -99,8 +96,9 @@ import {
     Text,
     TouchableOpacity,
     View,
+    useWindowDimensions,
 } from 'react-native';
-import Animated, {
+import {
     Easing,
     useAnimatedStyle,
     useSharedValue,
@@ -190,6 +188,7 @@ function formatEmploymentPeriod(from: string, to?: string | null): string {
 export default function DriverWalletScreen() {
   usePreventScreenCapture();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { theme } = useDriverTheme();
   const colors = useDriverThemeColors();
   const isDark = theme === 'dark';
@@ -201,13 +200,12 @@ export default function DriverWalletScreen() {
   const layout = useLayoutInsets();
   const fleetConnectionRevision =
     useOptionalDriverInviteModal()?.fleetConnectionRevision ?? 0;
-  useDriverAvatar();
-  const { avatarUri } = useDriverAvatarUri();
   const {
     isDco,
     canManageIndieBook,
     canManageDcoSelfBook,
     canTagOfflineParty,
+    modeLoading,
     operatingMode,
     invalidate: invalidateOperatingMode,
   } = useDriverOperatingModeQuery(profile?.uid ?? null);
@@ -2680,9 +2678,9 @@ export default function DriverWalletScreen() {
     [],
   );
 
-  if (loading) {
+  if (loading || modeLoading) {
     return (
-      <View style={[styles.loadingWrap, { paddingTop: insets.top, backgroundColor: colors.background }]}>
+      <View style={[styles.loadingWrap, { paddingTop: insets.top, backgroundColor: isDark ? colors.background : Theme.driverEmeraldWash }]}>
         <LoadingIndicator size="large" color={colors.emerald} />
         <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading…</Text>
       </View>
@@ -2692,162 +2690,183 @@ export default function DriverWalletScreen() {
   return (
     <>
     <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
+      style={[styles.container, { backgroundColor: isDark ? colors.background : Theme.driverEmeraldWash }]}
       contentContainerStyle={{
         paddingBottom: insets.bottom + 100 + Layout.tabBarHeight,
       }}
       showsVerticalScrollIndicator={false}
     >
-      <View style={[styles.header, { paddingTop: insets.top + Layout.driverHeaderTopOffset, backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            onPress={() => router.push('/(driver)/profile')}
-            style={styles.avatarBtn}
-            activeOpacity={0.8}
-          >
-            <DriverSelfAvatar size={36} uri={avatarUri} borderColor={colors.emerald} />
-          </TouchableOpacity>
-          <View style={styles.headerTextWrap}>
-            <DriverBrandMark color={colors.textMuted} />
-            <Text style={[styles.welcomeTitle, { color: colors.text }]} numberOfLines={1}>
-              {mainTab === "earnings" ? "Earnings" : mainTab === "cash" ? "Transactions" : walletBookLabel}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.creditsSection}>
+      {isDco ? (
+      <View
+        style={{
+          paddingTop: insets.top,
+          backgroundColor: isDark ? colors.background : Theme.driverEmeraldWash,
+        }}
+      >
+      <View style={[styles.creditsSection, { paddingTop: 12 }]}>
         <View style={styles.creditsTitleRow}>
-          <Text style={[styles.creditsTitle, { color: EMERALD_500, flex: 1, minWidth: 0 }]}>SALARY.</Text>
+          {formerFleetHistoryOpen ? (
+            <TouchableOpacity
+              onPress={() => setFormerFleetHistoryOpen(false)}
+              style={styles.historyBackBtn}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Back to settlements"
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+            >
+              <ChevronLeft size={20} color={Theme.driverCtaFill} strokeWidth={2.4} />
+            </TouchableOpacity>
+          ) : null}
+          <Text style={[styles.creditsTitle, styles.bookTitle, { color: Theme.driverCtaFill }]}>
+            {formerFleetHistoryOpen ? "Salary." : "Settlements"}
+          </Text>
+          {addClientPartyActions[0] && !formerFleetHistoryOpen ? (
+            <PartyAddChip
+              label={addClientPartyActions[0].label}
+              icon={addClientPartyActions[0].icon}
+              onPress={addClientPartyActions[0].onPress}
+              accessibilityLabel={addClientPartyActions[0].accessibilityLabel}
+              expandOnHover
+              collapsedGlyph="icon"
+              align="center"
+            />
+          ) : null}
           {isDco ? (
             <TouchableOpacity
               style={[
                 styles.formerFleetHistoryBtn,
                 {
-                  backgroundColor: isDark ? colors.surfaceElevated : Theme.driverEmeraldMuted,
-                  borderColor: isDark ? colors.borderSubtle : Theme.driverEmeraldBorderSoft,
+                  backgroundColor: formerFleetHistoryOpen
+                    ? Theme.driverEmerald
+                    : isDark
+                      ? colors.surfaceElevated
+                      : Theme.cardWhite,
+                  borderColor: formerFleetHistoryOpen
+                    ? Theme.driverEmerald
+                    : isDark
+                      ? colors.borderSubtle
+                      : Theme.borderMedium,
                 },
               ]}
-              onPress={() => setFormerFleetHistoryOpen(true)}
+              onPress={() => setFormerFleetHistoryOpen((open) => !open)}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel="Pre-DCO fleet earnings history"
+              accessibilityState={{ selected: formerFleetHistoryOpen }}
+              accessibilityLabel={
+                formerFleetHistoryOpen ? "Close fleet earnings history" : "Pre-DCO fleet earnings history"
+              }
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <History size={14} color={colors.emerald} strokeWidth={2.2} />
-              <Text style={[styles.formerFleetHistoryLabel, { color: colors.emerald }]}>History</Text>
+              <History
+                size={14}
+                color={formerFleetHistoryOpen ? Theme.buttonDarkText : colors.text}
+                strokeWidth={2.2}
+              />
+              <Text
+                style={[
+                  styles.formerFleetHistoryLabel,
+                  { color: formerFleetHistoryOpen ? Theme.buttonDarkText : colors.text },
+                ]}
+              >
+                History
+              </Text>
             </TouchableOpacity>
           ) : null}
         </View>
-        <Text style={[styles.creditsSubtitle, { color: GRAY_700 }]}>Financial audit & settlements.</Text>
       </View>
-
-      {!isDco ? (
-      <View style={styles.walletCardWrap}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => router.push('/(driver)/pending-earnings')}
-        >
-        <LinearGradient
-          colors={
-            isDark
-              ? [EMERALD_950, Theme.driverEmeraldDark]
-              : [Theme.driverEmeraldDark, Theme.driverEmerald]
-          }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[
-            styles.walletCard,
-            {
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
-              shadowColor: isDark ? 'rgba(2,44,34,0.85)' : 'rgba(6,95,70,0.38)',
-              shadowOffset: { width: 0, height: 20 },
-              shadowOpacity: 1,
-              shadowRadius: 40,
-              elevation: 8,
-            },
-          ]}
-        >
-          <Animated.View
-            style={[styles.walletCardWatermarkWrap, cashWatermarkAnimStyle, { pointerEvents: 'none' }]}
-          >
-            <Wallet size={112} color={EMERALD_400} strokeWidth={1.4} />
-          </Animated.View>
-          <View style={styles.walletCardContent}>
-            <View style={styles.walletCardLabelRow}>
-              <Animated.View style={cashSparkleAnimStyle}>
-                <Sparkles size={17} color="rgba(236,253,245,0.95)" strokeWidth={2.5} />
-              </Animated.View>
-              <Text style={[styles.walletCardLabel, { color: EMERALD_200_90 }]}>TO COLLECT</Text>
-            </View>
-            <View style={styles.walletCardBalanceRow}>
-              <Text style={[styles.walletCardBalanceRupee, { color: '#ffffff' }]}>₹</Text>
-              <Text
-                style={[
-                  styles.walletCardBalanceNumber,
-                  isAndroid && styles.walletCardBalanceNumberAndroid,
-                  { color: '#ffffff' },
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-              >
-                {pendingTotal.toLocaleString('en-IN')}
-              </Text>
-            </View>
-            <Text style={[styles.walletCardPendingSubLabel, { color: 'rgba(167,243,208,0.7)' }]}>pending earnings</Text>
-            <TouchableOpacity
-              style={[
-                styles.walletCardWithdrawBtn,
-                {
-                  backgroundColor: 'rgba(248,250,252,0.96)',
-                  borderColor: 'rgba(255,255,255,0.38)',
-                  shadowColor: '#000',
-                },
-              ]}
-              activeOpacity={0.85}
-              onPress={() => router.push('/(driver)/salary-request')}
-              accessibilityLabel="Salary request"
-              accessibilityHint="Request salary from your fleet"
-            >
-              <Text style={[styles.walletCardWithdrawText, { color: Theme.textPrimaryDark }]}>
-                SALARY REQUEST
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
-        </TouchableOpacity>
       </View>
-      ) : null}
+      ) : canManageIndieBook ? (
+      <View style={[styles.creditsSection, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.creditsTitleRow}>
+          <Text style={[styles.creditsTitle, styles.bookTitle, { color: Theme.driverCtaFill }]}>
+            {walletBookLabel}
+          </Text>
+        </View>
+      </View>
+      ) : (
+      <View
+        style={{
+          paddingTop: insets.top,
+          backgroundColor: isDark ? colors.background : Theme.driverEmeraldWash,
+        }}
+      >
+      <View style={[styles.creditsSection, { paddingTop: 12 }]}>
+        <View style={styles.creditsTitleRow}>
+          <Text style={[styles.creditsTitle, styles.bookTitle, { color: Theme.driverCtaFill }]}>
+            Salary.
+          </Text>
+        </View>
+      </View>
+      </View>
+      )}
 
+      {isDco && formerFleetHistoryOpen ? (
+        <View
+          style={{
+            height: Math.max(360, windowHeight - insets.top - 96 - insets.bottom - Layout.tabBarHeight),
+          }}
+        >
+          <DriverPreDcoFleetHistoryView
+            embedded
+            colors={colors}
+            isDark={isDark}
+            fleets={preDcoFleetHistoryCards}
+            trips={preDcoFleetHistoryTrips}
+            orgAvatarById={orgAvatarById}
+            onClose={() => setFormerFleetHistoryOpen(false)}
+            onOpenPassbook={(orgId, orgName) => {
+              setFormerFleetHistoryOpen(false);
+              router.push({
+                pathname: `/(driver)/passbook/${orgId}`,
+                params: { orgName, from: 'wallet' },
+              } as Parameters<typeof router.push>[0]);
+            }}
+            onOpenTrip={(tripId) => {
+              setFormerFleetHistoryOpen(false);
+              router.push(`/driver-trip/${tripId}`);
+            }}
+          />
+        </View>
+      ) : (
+      <>
       <View
         style={[
           styles.mainTabsWrap,
           {
-            backgroundColor: isDark ? colors.surfaceElevated : 'rgba(226,232,240,0.55)',
-            borderColor: isDark ? colors.borderSubtle : 'rgba(255,255,255,0.7)',
+            height: 44,
+            marginTop: 4,
+            borderRadius: 22,
+            padding: 4,
+            borderWidth: 0,
+            alignItems: 'stretch',
+            backgroundColor: isDark ? colors.surfaceElevated : Theme.surfaceGray,
           },
         ]}
       >
         <TouchableOpacity
           style={[
             styles.mainTab,
-            mainTab === 'fleet' && [
-              styles.mainTabActive,
-              { backgroundColor: colors.surface, borderColor: isDark ? colors.borderSubtle : colors.border },
-            ],
+            styles.dcoMainTab,
+            mainTab === 'fleet' && styles.dcoMainTabActive,
           ]}
           onPress={() => setMainTab('fleet')}
-          activeOpacity={0.92}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ selected: mainTab === 'fleet' }}
         >
           <FontAwesome
             name={canManageDcoSelfBook || canManageIndieBook ? 'user' : 'users'}
-            size={12}
-            color={mainTab === 'fleet' ? colors.emerald : colors.textMuted}
+            size={11}
+            color={mainTab === 'fleet' ? Theme.buttonDarkText : colors.textMuted}
           />
           <Text
-            style={[styles.mainTabText, mainTab === 'fleet' ? { color: colors.emerald } : { color: colors.textMuted }]}
+            style={[
+              styles.mainTabText,
+              styles.dcoMainTabText,
+              mainTab === 'fleet'
+                ? { color: Theme.buttonDarkText }
+                : { color: colors.textMuted },
+            ]}
             numberOfLines={1}
           >
             {walletBookLabel}
@@ -2856,17 +2875,27 @@ export default function DriverWalletScreen() {
         <TouchableOpacity
           style={[
             styles.mainTab,
-            mainTab === 'earnings' && [
-              styles.mainTabActive,
-              { backgroundColor: colors.surface, borderColor: isDark ? colors.borderSubtle : colors.border },
-            ],
+            styles.dcoMainTab,
+            mainTab === 'earnings' && styles.dcoMainTabActive,
           ]}
           onPress={() => setMainTab('earnings')}
-          activeOpacity={0.92}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ selected: mainTab === 'earnings' }}
         >
-          <FontAwesome name="line-chart" size={12} color={mainTab === 'earnings' ? colors.emerald : colors.textMuted} />
+          <FontAwesome
+            name="line-chart"
+            size={11}
+            color={mainTab === 'earnings' ? Theme.buttonDarkText : colors.textMuted}
+          />
           <Text
-            style={[styles.mainTabText, mainTab === 'earnings' ? { color: colors.emerald } : { color: colors.textMuted }]}
+            style={[
+              styles.mainTabText,
+              styles.dcoMainTabText,
+              mainTab === 'earnings'
+                ? { color: Theme.buttonDarkText }
+                : { color: colors.textMuted },
+            ]}
             numberOfLines={1}
           >
             Earnings
@@ -2875,17 +2904,27 @@ export default function DriverWalletScreen() {
         <TouchableOpacity
           style={[
             styles.mainTab,
-            mainTab === 'cash' && [
-              styles.mainTabActive,
-              { backgroundColor: colors.surface, borderColor: isDark ? colors.borderSubtle : colors.border },
-            ],
+            styles.dcoMainTab,
+            mainTab === 'cash' && styles.dcoMainTabActive,
           ]}
           onPress={() => setMainTab('cash')}
-          activeOpacity={0.92}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityState={{ selected: mainTab === 'cash' }}
         >
-          <FontAwesome name="list-alt" size={12} color={mainTab === 'cash' ? colors.emerald : colors.textMuted} />
+          <FontAwesome
+            name="list-alt"
+            size={11}
+            color={mainTab === 'cash' ? Theme.buttonDarkText : colors.textMuted}
+          />
           <Text
-            style={[styles.mainTabText, mainTab === 'cash' ? { color: colors.emerald } : { color: colors.textMuted }]}
+            style={[
+              styles.mainTabText,
+              styles.dcoMainTabText,
+              mainTab === 'cash'
+                ? { color: Theme.buttonDarkText }
+                : { color: colors.textMuted },
+            ]}
             numberOfLines={1}
           >
             Transactions
@@ -3015,6 +3054,7 @@ export default function DriverWalletScreen() {
               isFleetDispatched={isFleetDispatchedTrip}
               colors={colors}
               isDark={isDark}
+              variant="overview"
             />
             <DriverSelfLedgerPanel
               entries={ledgerEntries}
@@ -3026,15 +3066,53 @@ export default function DriverWalletScreen() {
           </View>
         ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: Layout.screenPaddingHorizontal }]}>
+          {!canManageIndieBook ? (
+            <View style={styles.salarySummaryRow}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => router.push('/(driver)/pending-earnings')}
+                accessibilityRole="button"
+                accessibilityLabel={`To collect ${pendingTotal.toLocaleString('en-IN')} rupees`}
+                style={styles.salarySummaryPress}
+              >
+                <LinearGradient
+                  colors={isDark ? [colors.surface, colors.surface] : [Theme.cardWhite, Theme.driverEmeraldWash]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.salarySummaryCard, styles.salarySummaryCardWide, { borderColor: isDark ? colors.borderSubtle : Theme.borderLight }]}
+                >
+                  <Text style={[styles.salarySummaryLabel, { color: colors.textMuted }]}>To collect</Text>
+                  <Text style={[styles.salarySummaryAmt, { color: pendingTotal > 0 ? Theme.negative : colors.emerald }]}>
+                    ₹{pendingTotal.toLocaleString('en-IN')}
+                  </Text>
+                  <Text style={[styles.salarySummaryHint, { color: colors.textMuted }]}>Pending earnings</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => router.push('/(driver)/salary-request')}
+                accessibilityRole="button"
+                accessibilityLabel="Salary request"
+                style={[styles.salarySummaryCard, { backgroundColor: colors.surface, borderColor: isDark ? colors.borderSubtle : Theme.borderLight }]}
+              >
+                <Text style={[styles.salarySummaryLabel, { color: colors.textMuted }]}>Request</Text>
+                <Text style={[styles.salarySummaryAmt, { color: Theme.driverCtaFill }]}>Salary</Text>
+                <Text style={[styles.salarySummaryHint, { color: colors.textMuted }]}>Ask your fleet</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
-          {/* ── CURRENT EMPLOYER ── */}
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Current employer</Text>
+          {/* ── CURRENT EMPLOYER — fleet login only. Independent uses their own book below. ── */}
+          {!canManageIndieBook ? (
+          <>
+          <Text style={[styles.salaryPageSection, { color: colors.text }]}>Current employer</Text>
           {currentEmployer ? (
             <View
               style={[
                 styles.fleetCard,
                 {
                   backgroundColor: colors.surface,
+                  borderRadius: 18,
                   borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)',
                   shadowColor: isDark ? '#000' : 'rgba(15,23,42,0.10)',
                 },
@@ -3327,16 +3405,18 @@ export default function DriverWalletScreen() {
               </View>
             );
           })()}
+          </>
+          ) : null}
 
           {/* ── OFFLINE TRIPS (direct / clients) ── */}
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text, marginTop: 16 }]}>Offline trips</Text>
+          <Text style={[styles.salaryPageSection, { color: colors.text, marginTop: 16 }]}>Offline trips</Text>
           <View
             style={[
               styles.fleetCard,
+              styles.offlineTripsCard,
               {
-                backgroundColor: colors.surface,
-                borderColor: isDark ? 'rgba(99,102,241,0.22)' : 'rgba(99,102,241,0.15)',
-                shadowColor: isDark ? '#000' : 'rgba(99,102,241,0.10)',
+                backgroundColor: isDark ? colors.surface : Theme.cardWhite,
+                borderColor: isDark ? colors.borderSubtle : 'rgba(15,23,42,0.06)',
               },
             ]}
           >
@@ -3348,18 +3428,12 @@ export default function DriverWalletScreen() {
               accessibilityLabel="Offline trip history"
             >
               <View style={styles.fleetCardTopLeft}>
-                <View
-                  style={[
-                    styles.fleetCardLogoNew,
-                    {
-                      backgroundColor: isDark ? 'rgba(99,102,241,0.14)' : 'rgba(99,102,241,0.08)',
-                      borderWidth: 1,
-                      borderColor: isDark ? 'rgba(99,102,241,0.28)' : 'rgba(99,102,241,0.18)',
-                    },
-                  ]}
-                >
-                  <FontAwesome name="road" size={14} color={Theme.primary} />
-                </View>
+                <Image
+                  source={require('../../../assets/images/offline-road-icon.png')}
+                  style={styles.offlineRoadIcon}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
+                />
                 <View style={styles.fleetCardBody}>
                   <Text style={[styles.fleetCardTitle, { color: colors.text }]} numberOfLines={1}>
                     Offline trips
@@ -3369,67 +3443,27 @@ export default function DriverWalletScreen() {
                   </Text>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.offlineDueChip,
-                  {
-                    backgroundColor: isDark ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.08)',
-                    borderColor: isDark ? 'rgba(99,102,241,0.30)' : 'rgba(99,102,241,0.18)',
-                  },
-                ]}
-              >
-                <Text style={[styles.offlineDueChipText, { color: '#4D3636' }]} numberOfLines={1}>
+              <View style={[styles.offlineDueChip, styles.offlineDueChipLavender]}>
+                <Text style={[styles.offlineDueChipText, styles.offlineDueChipTextLavender]} numberOfLines={1}>
                   ₹{directTripStats.pending.toLocaleString('en-IN')} due
                 </Text>
               </View>
             </TouchableOpacity>
 
             <View style={styles.fleetStatsGridNew}>
-              <View
-                style={[
-                  styles.fleetStatBox,
-                  {
-                    backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.85)',
-                    borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.8)',
-                  },
-                ]}
-              >
-                <Text style={[styles.fleetStatBoxLabel, { color: colors.textMuted }]}>Total earned</Text>
+              <View style={[styles.fleetStatBox, styles.offlineStatBox, { backgroundColor: isDark ? colors.surfaceElevated : '#F8FAFC', borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)' }]}>
+                <View style={styles.offlineStatLabelRow}>
+                  <Text style={[styles.fleetStatBoxLabel, { color: colors.textMuted }]}>Total earned</Text>
+                  <Wallet size={12} color={colors.textMuted} strokeWidth={2} />
+                </View>
                 <Text style={[styles.fleetStatBoxValue, { color: colors.text }]}>₹{directTripStats.earned.toLocaleString('en-IN')}</Text>
               </View>
-              <View
-                style={[
-                  styles.fleetStatBox,
-                  styles.fleetStatBoxPending,
-                  {
-                    backgroundColor: isDark ? colors.surfaceElevated : 'rgba(248,250,252,0.85)',
-                    borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.8)',
-                    borderLeftColor:
-                      directTripStats.pending > 0
-                        ? isDark
-                          ? 'rgba(129,140,248,0.65)'
-                          : Theme.primary
-                        : isDark
-                          ? colors.borderSubtle
-                          : 'rgba(226,232,240,0.8)',
-                  },
-                ]}
-              >
-                <Text style={[styles.fleetStatBoxLabel, { color: colors.textMuted }]}>To collect</Text>
-                <Text
-                  style={[
-                    styles.fleetStatBoxValue,
-                    styles.fleetStatBoxValuePending,
-                    {
-                      color:
-                        directTripStats.pending > 0
-                          ? isDark
-                            ? '#a5b4fc'
-                            : Theme.primary
-                          : colors.textMuted,
-                    },
-                  ]}
-                >
+              <View style={[styles.fleetStatBox, styles.offlineStatBox, { backgroundColor: isDark ? colors.surfaceElevated : '#F8FAFC', borderColor: isDark ? colors.borderSubtle : 'rgba(226,232,240,0.9)' }]}>
+                <View style={styles.offlineStatLabelRow}>
+                  <Text style={[styles.fleetStatBoxLabel, { color: colors.textMuted }]}>To collect</Text>
+                  <Wallet size={12} color={colors.textMuted} strokeWidth={2} />
+                </View>
+                <Text style={[styles.fleetStatBoxValue, { color: colors.text }]}>
                   ₹{directTripStats.pending.toLocaleString('en-IN')}
                 </Text>
               </View>
@@ -3474,10 +3508,7 @@ export default function DriverWalletScreen() {
             )}
 
             <TouchableOpacity
-              style={[
-                styles.fleetPrimaryButtonNew,
-                { backgroundColor: '#3730a3', shadowColor: isDark ? '#000' : 'rgba(55,48,163,0.35)' },
-              ]}
+              style={[styles.fleetPrimaryButtonNew, styles.offlineTripsButton]}
               activeOpacity={0.85}
               onPress={openOfflineTrips}
               accessibilityRole="button"
@@ -3487,19 +3518,12 @@ export default function DriverWalletScreen() {
                 <View style={[styles.fleetPrimaryRing, { borderColor: '#818cf8' }]}>
                   <View style={[styles.fleetPrimaryRingDot, { backgroundColor: '#818cf8' }]} />
                 </View>
-                <Text style={[styles.fleetPrimaryButtonText, { color: Theme.textOnPrimary }]}>View offline trips</Text>
+                <Text style={[styles.fleetPrimaryButtonText, styles.offlineActionText, { color: Theme.textOnPrimary }]}>View offline trips</Text>
               </View>
               <FontAwesome name="chevron-right" size={12} color={Theme.textOnPrimary} style={styles.fleetPrimaryButtonArrow} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={[
-                styles.fleetPrimaryButtonNew,
-                {
-                  marginTop: 8,
-                  backgroundColor: isDark ? 'rgba(16,185,129,0.22)' : 'rgba(16,185,129,0.12)',
-                  shadowColor: isDark ? '#000' : 'rgba(16,185,129,0.18)',
-                },
-              ]}
+              style={[styles.fleetPrimaryButtonNew, styles.offlineHistoryButton]}
               activeOpacity={0.85}
               onPress={openOfflineReceivable}
               accessibilityRole="button"
@@ -3509,7 +3533,7 @@ export default function DriverWalletScreen() {
                 <View style={[styles.fleetPrimaryRing, { borderColor: Theme.driverEmerald }]}>
                   <View style={[styles.fleetPrimaryRingDot, { backgroundColor: Theme.driverEmerald }]} />
                 </View>
-                <Text style={[styles.fleetPrimaryButtonText, { color: isDark ? Theme.textOnPrimary : Theme.driverEmerald }]}>
+                <Text style={[styles.fleetPrimaryButtonText, styles.offlineActionText, { color: isDark ? Theme.driverEmerald : Theme.driverEmerald }]}>
                   View receivable history
                 </Text>
               </View>
@@ -3531,6 +3555,7 @@ export default function DriverWalletScreen() {
               colors={colors}
               isDark={isDark}
               audience="offline"
+              variant="overview"
             />
           </View>
 
@@ -3683,13 +3708,25 @@ export default function DriverWalletScreen() {
         />
       ) : (
         <View style={[styles.ledgerSection, { paddingHorizontal: 12 }]}>
-          <Text style={[styles.transactionHistoryTitle, { color: colors.text }]}>Transactions</Text>
           {filteredTxnSections.length === 0 ? (
-            <View style={[styles.ledgerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={[styles.ledgerEmpty, { borderBottomWidth: 0 }]}>
-                <FontAwesome name="search" size={32} color={colors.textMuted} />
-                <Text style={[styles.ledgerEmptyText, { color: colors.textMuted }]}>No transactions yet</Text>
-              </View>
+            <View
+              style={[
+                styles.indieTxnEmpty,
+                {
+                  minHeight: Math.max(
+                    320,
+                    windowHeight - insets.top - 240 - Layout.tabBarHeight,
+                  ),
+                },
+              ]}
+            >
+              <IndependentTransactionsEmptyArt />
+              <Text style={styles.indieTxnEmptyTitle}>No transactions yet</Text>
+              {canManageIndieBook ? (
+                <Text style={styles.indieTxnEmptyBody}>
+                  Your search did not return any transactions. Try adjusting your search query or check back later.
+                </Text>
+              ) : null}
             </View>
           ) : (
             <View style={styles.cashPremiumWrap}>
@@ -3895,6 +3932,8 @@ export default function DriverWalletScreen() {
           )}
         </View>
       )}
+      </>
+      )}
     </ScrollView>
 
     <DriverLedgerReceiptPreviewModal
@@ -3902,45 +3941,6 @@ export default function DriverWalletScreen() {
       receipt={ledgerReceiptPreview}
       onClose={() => setLedgerReceiptPreview(null)}
     />
-
-    {canTagOfflineParty &&
-    (canManageDcoSelfBook || canManageIndieBook) &&
-    mainTab === 'fleet' &&
-    addClientPartyActions.length > 0 ? (
-      <PartySpeedDialFab
-        actions={addClientPartyActions}
-        bottom={layout.fabBottom()}
-        addPartyLabel={canManageIndieBook && !canManageDcoSelfBook ? 'Add customer' : 'Add party'}
-        closeLabel={canManageIndieBook && !canManageDcoSelfBook ? 'Close add customer' : 'Close add party'}
-      />
-    ) : null}
-
-    <Modal
-      visible={formerFleetHistoryOpen}
-      animationType="slide"
-      presentationStyle="fullScreen"
-      onRequestClose={() => setFormerFleetHistoryOpen(false)}
-    >
-      <DriverPreDcoFleetHistoryView
-        colors={colors}
-        isDark={isDark}
-        fleets={preDcoFleetHistoryCards}
-        trips={preDcoFleetHistoryTrips}
-        orgAvatarById={orgAvatarById}
-        onClose={() => setFormerFleetHistoryOpen(false)}
-        onOpenPassbook={(orgId, orgName) => {
-          setFormerFleetHistoryOpen(false);
-          router.push({
-            pathname: `/(driver)/passbook/${orgId}`,
-            params: { orgName, from: 'wallet' },
-          } as Parameters<typeof router.push>[0]);
-        }}
-        onOpenTrip={(tripId) => {
-          setFormerFleetHistoryOpen(false);
-          router.push(`/driver-trip/${tripId}`);
-        }}
-      />
-    </Modal>
 
     <ThemedConfirmModal
       variant="positive"
@@ -4066,6 +4066,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  historyBackBtn: {
+    width: 32,
+    height: 32,
+    marginLeft: -4,
+    marginRight: -2,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverEmeraldBorderSoft,
+  },
   formerFleetHistoryBtn: {
     minHeight: 32,
     paddingHorizontal: 10,
@@ -4140,6 +4152,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: -0.2,
   },
+  bookTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 32,
+    lineHeight: 36,
+  },
   creditsTitle: {
     fontSize: 42,
     fontWeight: '900',
@@ -4158,6 +4176,54 @@ const styles = StyleSheet.create({
   walletCardWrap: {
     paddingHorizontal: 20,
     paddingTop: 0,
+  },
+  salarySummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    marginBottom: 14,
+  },
+  salarySummaryPress: {
+    flex: 1.2,
+    minWidth: 0,
+  },
+  salarySummaryCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 78,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    justifyContent: 'center',
+  },
+  salarySummaryCardWide: {
+    width: '100%',
+    flexGrow: 1,
+  },
+  salarySummaryLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  salarySummaryAmt: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  salarySummaryHint: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  salaryPageSection: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    marginTop: 6,
+    marginBottom: 8,
   },
   walletCard: {
     borderRadius: 28,
@@ -4307,6 +4373,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+  },
+  dcoMainTab: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 0,
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  dcoMainTabActive: {
+    backgroundColor: Theme.buttonDark,
+  },
+  dcoMainTabText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0,
   },
   tripsItalicText: {
     fontStyle: 'italic',
@@ -4620,6 +4701,55 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 8,
     gap: 8,
+  },
+  offlineTripsCard: {
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 3,
+  },
+  offlineRoadIcon: {
+    width: 44,
+    height: 36,
+  },
+  offlineDueChipLavender: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#DDD6FE',
+  },
+  offlineDueChipTextLavender: {
+    color: '#5B21B6',
+  },
+  offlineStatBox: {
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  offlineStatLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  offlineTripsButton: {
+    minHeight: 48,
+    marginTop: 4,
+    backgroundColor: '#312E81',
+  },
+  offlineActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  offlineHistoryButton: {
+    minHeight: 48,
+    marginTop: 8,
+    backgroundColor: '#E7F6EF',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   offlineTripsHeader: {
     flexDirection: 'row',
@@ -6347,6 +6477,30 @@ const styles = StyleSheet.create({
     padding: 32,
     alignItems: 'center',
     gap: 12,
+  },
+  indieTxnEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 36,
+    paddingBottom: 24,
+    gap: 8,
+  },
+  indieTxnEmptyTitle: {
+    marginTop: 4,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: Theme.buttonDark,
+    textAlign: 'center',
+  },
+  indieTxnEmptyBody: {
+    maxWidth: 300,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '500',
+    color: Theme.textRouteCard,
+    textAlign: 'center',
   },
   ledgerEmptyText: {
     fontSize: 14,

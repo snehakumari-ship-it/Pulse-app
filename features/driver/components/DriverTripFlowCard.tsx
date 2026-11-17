@@ -109,7 +109,8 @@ import {
   PROOF_IMAGE_JPEG_QUALITY,
   PROOF_IMAGE_PICKER_QUALITY,
 } from '@/lib/media/compressLocalImage.util';
-import { ChevronUp } from 'lucide-react-native';
+import { Camera, ChevronUp, Package, Truck } from 'lucide-react-native';
+import { adaptShadowPropsForWeb } from '@/lib/platformViewStyle.util';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -272,6 +273,12 @@ async function pickAttachmentImageAsset(
  * derivation. 'lr' is a local-only sub-step of 'pickup' — no server column
  * represents it, so there's no shared-engine title to defer to here.
  */
+function shortPlace(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed === '—') return trimmed || '—';
+  return trimmed.split(',')[0]?.trim() || trimmed;
+}
+
 function titleForStep(step: StepId): string {
   if (step === 'lr') return 'Attach pickup proof';
   return getStageMetadata(step).title;
@@ -302,6 +309,11 @@ export interface DriverTripFlowCardProps {
   onTripCompleted?: () => void;
   /** When true, remove horizontal margins so the card fits inside edge-to-edge bottom sheet. */
   edgeToEdge?: boolean;
+  /**
+   * Trip-first home list. The parent scroll already applies the screen gutter
+   * (same inset as View map). The card fills that width instead of adding another margin.
+   */
+  fillParentWidth?: boolean;
   /** Structured assigner (matches JobRequestCard hero). */
   assignedBy?: JobCardAssignerPayload | null;
   /** Opens the same party sheet as the trip list when this trip still needs a party. */
@@ -1699,6 +1711,7 @@ export function DriverTripFlowCard({
       style={[
         styles.sheet,
         variant === 'page' || edgeToEdge ? styles.sheetEdgeToEdge : styles.sheetInset,
+        variant === 'card' ? styles.sheetRounded : null,
         variant !== 'page' ? styles.shadow : null,
       ]}
     >
@@ -1919,24 +1932,24 @@ export function DriverTripFlowCard({
 
           <View style={styles.actionIconsRow}>
             <TouchableOpacity
-              style={[styles.actionBtn, styles.actionBtnDisabled, { backgroundColor: Theme.surface, borderColor: Theme.border }]}
+              style={[styles.actionBtn, styles.actionBtnDisabled, { backgroundColor: Theme.cardWhite, borderColor: Theme.borderLight }]}
               activeOpacity={0.8}
               disabled
               accessibilityLabel="Call (not available)"
             >
               <FontAwesome name="phone" size={15} color={Theme.textPrimaryDark} />
-              <Text style={[styles.actionBtnText, { color: Theme.textPrimaryDark }]}>Call</Text>
+              <Text style={[styles.actionBtnText, { color: Theme.textPrimaryDark }]}>CALL</Text>
             </TouchableOpacity>
 
             <View style={styles.actionBtnWrap}>
               <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: Theme.surface, borderColor: Theme.border }]}
+                style={[styles.actionBtn, { backgroundColor: Theme.cardWhite, borderColor: Theme.borderLight }]}
                 activeOpacity={0.8}
                 onPress={() => router.push(`/(driver)/chat?tripId=${encodeURIComponent(localTrip.id)}`)}
                 accessibilityLabel="Open trip messages"
               >
                 <FontAwesome name="comment-o" size={15} color={Theme.textPrimaryDark} />
-                <Text style={[styles.actionBtnText, { color: Theme.textPrimaryDark }]}>Chat</Text>
+                <Text style={[styles.actionBtnText, { color: Theme.textPrimaryDark }]}>CHAT</Text>
               </TouchableOpacity>
               {tripChatUnread > 0 ? (
                 <View style={[styles.messageBadge, { backgroundColor: colors.emerald }]}>
@@ -1946,7 +1959,7 @@ export function DriverTripFlowCard({
             </View>
 
             <TouchableOpacity
-              style={[styles.actionBtn, { backgroundColor: Theme.surface, borderColor: Theme.border }]}
+              style={[styles.actionBtn, { backgroundColor: Theme.cardWhite, borderColor: Theme.borderLight }]}
               activeOpacity={0.8}
               onPress={step === 'reached' ? () => { void uploadPod(); } : () => { void uploadStagePhoto(); }}
               disabled={stagePhotoUploading || podUploading}
@@ -1957,7 +1970,7 @@ export function DriverTripFlowCard({
               ) : (
                 <FontAwesome name="camera" size={15} color={Theme.textPrimaryDark} />
               )}
-              <Text style={[styles.actionBtnText, { color: Theme.textPrimaryDark }]}>Camera</Text>
+              <Text style={[styles.actionBtnText, { color: Theme.textPrimaryDark }]}>CAMERA</Text>
             </TouchableOpacity>
           </View>
 
@@ -1969,7 +1982,7 @@ export function DriverTripFlowCard({
               activeOpacity={0.88}
             >
               <LinearGradient
-                colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                colors={[Theme.driverPrimary, Theme.driverEmerald]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.primaryGradient}
@@ -1991,7 +2004,7 @@ export function DriverTripFlowCard({
                     activeOpacity={0.88}
                   >
                     <LinearGradient
-                      colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                      colors={[Theme.driverPrimary, Theme.driverEmerald]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.primaryGradient}
@@ -2008,7 +2021,7 @@ export function DriverTripFlowCard({
                     activeOpacity={0.88}
                   >
                     <LinearGradient
-                      colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                      colors={[Theme.driverPrimary, Theme.driverEmerald]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.primaryGradient}
@@ -2020,6 +2033,112 @@ export function DriverTripFlowCard({
                 )}
               </View>
               {revokeButton}
+            </View>
+          ) : null}
+          {step === 'accepted' || step === 'pickup' || step === 'transit' ? (
+            <View style={styles.roadStack}>
+              <View style={styles.roadCard}>
+                <Text style={styles.roadCardTitle}>Route Progress</Text>
+                <View style={styles.roadTimeline}>
+                  <View style={styles.roadRail} pointerEvents="none">
+                    <View style={[styles.roadRailBase, { backgroundColor: Theme.borderLight }]} />
+                    <View
+                      style={[
+                        styles.roadRailFill,
+                        {
+                          width: step === 'transit' ? '50%' : '0%',
+                          backgroundColor: Theme.driverEmerald,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.roadStop}>
+                    <View style={[styles.roadDot, { backgroundColor: Theme.driverEmerald }]}>
+                      <FontAwesome
+                        name={step === 'transit' ? 'check' : 'map-marker'}
+                        size={12}
+                        color={Theme.textOnPrimary}
+                      />
+                    </View>
+                    <Text style={styles.roadStopTitle}>Pickup</Text>
+                    <Text style={[styles.roadStopSub, { color: Theme.driverEmerald }]}>
+                      {step === 'transit' ? 'Done' : 'Now'}
+                    </Text>
+                  </View>
+                  <View style={styles.roadStop}>
+                    <View
+                      style={[
+                        styles.roadDot,
+                        {
+                          backgroundColor:
+                            step === 'transit' ? Theme.driverEmerald : Theme.cardWhite,
+                          borderWidth: step === 'transit' ? 0 : 2,
+                          borderColor: Theme.driverEmeraldBorder,
+                        },
+                      ]}
+                    >
+                      <FontAwesome
+                        name="arrow-right"
+                        size={11}
+                        color={step === 'transit' ? Theme.textOnPrimary : Theme.driverEmerald}
+                      />
+                    </View>
+                    <View style={step === 'transit' ? styles.roadStopCurrent : undefined}>
+                      <Text style={styles.roadStopTitle}>In Transit</Text>
+                      <Text
+                        style={[
+                          styles.roadStopSub,
+                          { color: step === 'transit' ? Theme.driverEmerald : Theme.textMuted },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {step === 'transit'
+                          ? distanceToTargetKm != null
+                            ? `${distanceToTargetKm.toFixed(1)} km left`
+                            : 'On the way'
+                          : 'Next'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.roadStop}>
+                    <View
+                      style={[
+                        styles.roadDot,
+                        {
+                          backgroundColor: Theme.cardWhite,
+                          borderWidth: 1.5,
+                          borderColor: Theme.borderMedium,
+                        },
+                      ]}
+                    >
+                      <FontAwesome name="map-marker" size={12} color={Theme.textPrimaryDark} />
+                    </View>
+                    <Text style={styles.roadStopTitle}>Drop-off</Text>
+                    <Text style={styles.roadStopSub} numberOfLines={2}>
+                      {shortPlace(dropLabel)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.roadBento}>
+                <View style={styles.roadBentoCard}>
+                  <Text style={styles.roadBentoTitle}>
+                    {localTrip.load_type?.trim()
+                      ? `${localTrip.load_type.trim().toUpperCase()} • PHOTO POD REQUIRED`
+                      : 'PHOTO POD REQUIRED'}
+                  </Text>
+                  <View style={styles.roadBentoIcons}>
+                    <Package size={26} color={Theme.textPrimaryDark} strokeWidth={1.8} />
+                    <Camera size={26} color={Theme.textPrimaryDark} strokeWidth={1.8} />
+                  </View>
+                </View>
+                <View style={styles.roadBentoCard}>
+                  <Text style={styles.roadBentoTitle} numberOfLines={3}>
+                    {`UP NEXT: ${tripsService.resolveDriverFacingTripLabel(localTrip)}\n• ${shortPlace(dropLabel).toUpperCase()}`}
+                  </Text>
+                  <Truck size={26} color={Theme.textPrimaryDark} strokeWidth={1.8} />
+                </View>
+              </View>
             </View>
           ) : null}
         </View>
@@ -2038,7 +2157,7 @@ export function DriverTripFlowCard({
                   accessibilityLabel="Open pickup proof attachment page"
                 >
                   <LinearGradient
-                    colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                    colors={[Theme.driverPrimary, Theme.driverEmerald]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.primaryGradient}
@@ -2104,7 +2223,7 @@ export function DriverTripFlowCard({
                   accessibilityLabel="Open proof of delivery page"
                 >
                   <LinearGradient
-                    colors={[FLOW_EMERALD, FLOW_EMERALD_DARK]}
+                    colors={[Theme.driverPrimary, Theme.driverEmerald]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.primaryGradient}
@@ -2481,6 +2600,112 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
     marginBottom: 0,
   },
+  sheetRounded: {
+    borderRadius: 22,
+  },
+  roadStack: {
+    gap: 10,
+    marginTop: 4,
+  },
+  roadCard: {
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    borderRadius: 18,
+    backgroundColor: Theme.cardWhite,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  roadCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.2,
+  },
+  roadTimeline: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    position: 'relative',
+  },
+  roadRail: {
+    position: 'absolute',
+    left: '16%',
+    right: '16%',
+    top: 15,
+    height: 3,
+  },
+  roadRailBase: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 2,
+  },
+  roadRailFill: {
+    height: 3,
+    borderRadius: 2,
+  },
+  roadStop: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    gap: 4,
+    paddingTop: 0,
+    paddingHorizontal: 2,
+    paddingBottom: 4,
+    borderRadius: 14,
+  },
+  roadStopCurrent: {
+    alignItems: 'center',
+    backgroundColor: Theme.driverEmeraldMuted,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  roadDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roadStopTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Theme.textPrimaryDark,
+    textAlign: 'center',
+  },
+  roadStopSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Theme.textMuted,
+    textAlign: 'center',
+  },
+  roadBento: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  roadBentoCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 112,
+    borderWidth: 1,
+    borderColor: Theme.borderMedium,
+    borderRadius: 18,
+    backgroundColor: Theme.cardWhite,
+    padding: 12,
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  roadBentoTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    color: Theme.textPrimaryDark,
+    lineHeight: 16,
+  },
+  roadBentoIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
   /** Legacy — sheet chrome now lives on `sheet` for page/map mode too. */
   page: {
     marginHorizontal: 0,
@@ -2605,20 +2830,24 @@ const styles = StyleSheet.create({
   actionBtn: {
     flex: 1,
     flexDirection: 'row',
-    height: ACTION_BTN_HEIGHT,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
+    height: 46,
+    borderWidth: 1,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
-  actionBtnText: { fontSize: 14, fontWeight: '700', letterSpacing: -0.1 },
+  actionBtnText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
   actionBtnDisabled: { opacity: 0.45 },
-  primaryBtnWrap: {
+  primaryBtnWrap: adaptShadowPropsForWeb({
     marginTop: 2,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
+    borderRadius: 16,
+    shadowColor: Theme.driverEmerald,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 6,
+  }),
   stageActionRow: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -2631,14 +2860,15 @@ const styles = StyleSheet.create({
   },
   revokeBtn: {
     marginTop: 2,
-    width: 64,
-    minHeight: PRIMARY_BTN_HEIGHT,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
+    gap: 1,
+    paddingHorizontal: 4,
+    backgroundColor: Theme.cardWhite,
   },
   revokeBtnText: {
     fontSize: 11,
@@ -2726,13 +2956,21 @@ const styles = StyleSheet.create({
   },
   primaryGradient: {
     minHeight: PRIMARY_BTN_HEIGHT,
+    borderRadius: 16,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 14,
   },
-  primaryBtnText: { fontSize: 16, fontWeight: '800', letterSpacing: -0.2, color: Theme.buttonDarkText },
+  primaryBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    color: Theme.buttonDarkText,
+    textTransform: 'uppercase',
+  },
   primaryBtn: {
     marginTop: 6,
     minHeight: TRIP_SHEET_BTN_HEIGHT,

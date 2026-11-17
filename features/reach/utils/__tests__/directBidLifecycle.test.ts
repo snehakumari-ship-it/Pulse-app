@@ -1,9 +1,11 @@
 import {
+  bidStatusFilterLabel,
   compareLoadOpportunities,
   dedupeDriverReachStories,
   directBidUiBucket,
   isLoadOpportunity,
   matchesBidStatusFilter,
+  parseBidStatusFilterParam,
 } from '@/features/reach/utils/directBidLifecycle';
 import type { DriverReachStoryRow } from '@/features/reach/services/driverReferrals.service';
 
@@ -114,6 +116,52 @@ describe('directBidLifecycle LOADS feed', () => {
         'all',
       ),
     ).toBe(true);
+  });
+
+  it('STATUS dropdown filters map open / negotiating / awarded / closed', () => {
+    const open = story({ post_id: 'o', campaign_id: 'co', direct_bid_status: null });
+    const quoted = story({
+      post_id: 'q',
+      campaign_id: 'cq',
+      direct_bid_status: 'pending',
+      direct_bid_amount: 40000,
+    });
+    const counter = story({
+      post_id: 'n',
+      campaign_id: 'cn',
+      direct_bid_status: 'pending',
+      direct_bid_amount: 40000,
+      direct_bid_counter_amount: 42000,
+    });
+    const awarded = story({
+      post_id: 'a',
+      campaign_id: 'ca',
+      direct_bid_status: 'accepted',
+      direct_bid_amount: 50000,
+    });
+    const rejected = story({
+      post_id: 'r',
+      campaign_id: 'cr',
+      direct_bid_status: 'rejected',
+    });
+
+    expect(matchesBidStatusFilter(open, 'open')).toBe(true);
+    expect(matchesBidStatusFilter(quoted, 'open')).toBe(false);
+    expect(matchesBidStatusFilter(quoted, 'negotiating')).toBe(true);
+    expect(matchesBidStatusFilter(counter, 'negotiating')).toBe(true);
+    expect(matchesBidStatusFilter(awarded, 'awarded')).toBe(true);
+    expect(matchesBidStatusFilter(awarded, 'all')).toBe(false);
+    expect(matchesBidStatusFilter(rejected, 'closed')).toBe(true);
+    expect(matchesBidStatusFilter(open, 'closed')).toBe(false);
+  });
+
+  it('parses legacy quoted/counter URL params as negotiating', () => {
+    expect(parseBidStatusFilterParam('quoted')).toBe('negotiating');
+    expect(parseBidStatusFilterParam('counter')).toBe('negotiating');
+    expect(parseBidStatusFilterParam('open')).toBe('open');
+    expect(parseBidStatusFilterParam(undefined)).toBe('all');
+    expect(bidStatusFilterLabel('open')).toBe('Open / Bidding Active');
+    expect(bidStatusFilterLabel('negotiating')).toBe('Under Negotiation');
   });
 
   it('hides completed-campaign and rejected history from opportunities', () => {

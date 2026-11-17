@@ -109,6 +109,8 @@ type Props = {
   due: number;
   lane?: DriverCaptureLane;
   assignerName?: string | null;
+  /** Skip the party list and open the amount step for this shipper. */
+  seedParty?: { id: string; name: string; phone?: string | null } | null;
   onClose: () => void;
   onTagged?: (party: { id: string; name: string }) => void;
 };
@@ -119,6 +121,7 @@ export function DriverCollectFromSheet({
   due: _due,
   lane: _lane,
   assignerName,
+  seedParty = null,
   onClose,
   onTagged,
 }: Props) {
@@ -176,6 +179,27 @@ export function DriverCollectFromSheet({
   }, [visible, trip.id]);
 
   const currentBilled = useMemo(() => tripReceivableBilled(trip), [trip]);
+  const seedKey = seedParty?.id ?? "";
+  const seededKeyRef = useRef("");
+
+  useEffect(() => {
+    if (!visible) {
+      seededKeyRef.current = "";
+      return;
+    }
+    if (!seedKey || seededKeyRef.current === seedKey || !seedParty) return;
+    seededKeyRef.current = seedKey;
+    setBilledForTag(null);
+    setPendingParty(null);
+    setSuccessParty(null);
+    setReceivableParty({
+      id: seedParty.id,
+      name: seedParty.name,
+      phone: seedParty.phone ?? null,
+      avatar: EMPTY_DRIVER_PARTY_AVATAR,
+    });
+    setReceivableAmount(currentBilled > 0 ? String(currentBilled) : "");
+  }, [currentBilled, seedKey, seedParty, visible]);
 
   const handlePick = useCallback((party: PartyOption) => {
     if (busyId || !party.id) return;
@@ -255,11 +279,12 @@ export function DriverCollectFromSheet({
   }, [busyId, fleetAssignerName, queryClient, trip.id, trip.organization_id]);
 
   const flowOpen = !!(pendingParty || receivableParty || successParty);
+  const skipList = Boolean(seedParty?.id);
   if (!visible && !flowOpen) return null;
 
   return (
     <>
-    <Modal visible={visible && !flowOpen} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible && !flowOpen && !skipList} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
@@ -283,7 +308,7 @@ export function DriverCollectFromSheet({
           )}
 
           {loading ? (
-            <ActivityIndicator style={{ marginVertical: 28 }} color={Theme.primary} />
+            <ActivityIndicator style={{ marginVertical: 28 }} color={Theme.driverEmerald} />
           ) : (
             <ScrollView
               style={styles.list}
@@ -292,15 +317,18 @@ export function DriverCollectFromSheet({
               showsVerticalScrollIndicator={false}
             >
               {fleetAssignerName ? (
+                <Text style={styles.sectionLabel}>Fleet work</Text>
+              ) : null}
+              {fleetAssignerName ? (
                 <TouchableOpacity
-                  style={styles.addPrimary}
+                  style={[styles.addPrimary, !!busyId && styles.addPrimaryDisabled]}
                   onPress={() => void handleMarkFleet()}
                   disabled={!!busyId}
                   accessibilityRole="button"
                   accessibilityLabel={`Mark ${fleetAssignerName} fleet trip`}
                 >
                   {busyId === "fleet" ? (
-                    <ActivityIndicator size="small" color={Theme.buttonDarkText} />
+                    <ActivityIndicator size="small" color={Theme.textOnPrimary} />
                   ) : (
                     <Text style={styles.addPrimaryText} numberOfLines={1}>
                       Mark {fleetAssignerName} fleet trip
@@ -308,7 +336,9 @@ export function DriverCollectFromSheet({
                   )}
                 </TouchableOpacity>
               ) : null}
-              <Text style={styles.sectionLabel}>Your parties</Text>
+              <Text style={[styles.sectionLabel, fleetAssignerName ? styles.sectionLabelSpaced : null]}>
+                Your parties
+              </Text>
               {parties.length === 0 ? (
                 <View style={styles.emptyCard}>
                   <Text style={styles.emptyTitle}>No parties yet</Text>
@@ -358,7 +388,7 @@ export function DriverCollectFromSheet({
                       </Text>
                     </View>
                     {busyId === party.id ? (
-                      <ActivityIndicator size="small" color={Theme.primary} />
+                      <ActivityIndicator size="small" color={Theme.driverEmerald} />
                     ) : (
                       <View style={[styles.tagPill, party.linkedToTrip && styles.tagPillActive]}>
                         <Text
@@ -380,7 +410,7 @@ export function DriverCollectFromSheet({
                     accessibilityRole="button"
                     accessibilityLabel="Add new party"
                   >
-                    <Plus size={16} color={Theme.textPrimary} strokeWidth={2.4} />
+                    <Plus size={16} color={Theme.driverEmerald} strokeWidth={2.4} />
                     <Text style={styles.addSecondaryText}>Add new party</Text>
                   </TouchableOpacity>
                 </View>
@@ -388,7 +418,12 @@ export function DriverCollectFromSheet({
             </ScrollView>
           )}
 
-          <TouchableOpacity style={styles.closeBtn} onPress={onClose} accessibilityRole="button">
+          <TouchableOpacity
+            style={styles.closeBtn}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+          >
             <Text style={styles.closeText}>Cancel</Text>
           </TouchableOpacity>
         </View>
@@ -432,6 +467,7 @@ export function DriverCollectFromSheet({
       onCancelReceivable={() => {
         setReceivableParty(null);
         setReceivableAmount("");
+        if (seedParty?.id) onClose();
       }}
       onContinueReceivable={(value) => {
         if (!receivableParty || pendingParty) return;
@@ -483,7 +519,7 @@ const styles = StyleSheet.create({
   kicker: {
     ...driverUISemiBold,
     fontSize: 10,
-    letterSpacing: 1.1,
+    letterSpacing: 0.9,
     textTransform: "uppercase",
     color: Theme.textMuted,
   },
@@ -491,7 +527,7 @@ const styles = StyleSheet.create({
     ...driverUIBold,
     marginTop: 4,
     fontSize: 22,
-    letterSpacing: -0.4,
+    letterSpacing: -0.3,
     color: Theme.textPrimary,
   },
   hint: {
@@ -537,15 +573,18 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     ...driverUISemiBold,
-    fontSize: 11,
-    letterSpacing: 0.8,
+    fontSize: 10,
+    letterSpacing: 0.9,
     textTransform: "uppercase",
     color: Theme.textMuted,
-    marginBottom: 4,
+    marginBottom: 2,
+  },
+  sectionLabelSpaced: {
+    marginTop: 12,
   },
   row: {
     minHeight: 64,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.cardWhite,
@@ -576,23 +615,26 @@ const styles = StyleSheet.create({
   },
   tagPill: {
     minHeight: 32,
-    minWidth: 56,
-    paddingHorizontal: 12,
+    minWidth: 64,
+    paddingHorizontal: 14,
     borderRadius: 999,
-    backgroundColor: Theme.actionBtnInk,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorder,
+    backgroundColor: Theme.driverEmeraldMuted,
     alignItems: "center",
     justifyContent: "center",
   },
   tagPillActive: {
+    borderColor: Theme.driverEmerald,
     backgroundColor: Theme.driverEmerald,
   },
   tagPillText: {
     ...driverUIBold,
-    fontSize: 12,
-    color: Theme.buttonDarkText,
+    fontSize: 13,
+    color: Theme.driverEmerald,
   },
   tagPillTextActive: {
-    color: Theme.buttonDarkText,
+    color: Theme.textOnPrimary,
   },
   addBlock: {
     marginTop: 8,
@@ -600,26 +642,30 @@ const styles = StyleSheet.create({
   },
   addPrimary: {
     minHeight: 48,
-    borderRadius: 14,
-    backgroundColor: Theme.actionBtnInk,
+    borderRadius: 12,
+    backgroundColor: Theme.driverEmerald,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
     paddingHorizontal: 14,
   },
+  addPrimaryDisabled: {
+    opacity: 0.45,
+  },
   addPrimaryText: {
     ...driverUIBold,
     flexShrink: 1,
-    fontSize: 14,
-    color: Theme.buttonDarkText,
+    fontSize: 15,
+    color: Theme.textOnPrimary,
   },
   addSecondary: {
     minHeight: 48,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: Theme.surfaceBorder,
-    backgroundColor: Theme.surface,
+    borderStyle: "dashed",
+    borderColor: Theme.driverEmeraldBorder,
+    backgroundColor: Theme.cardWhite,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -628,11 +674,11 @@ const styles = StyleSheet.create({
   },
   addSecondaryText: {
     ...driverUIBold,
-    fontSize: 14,
-    color: Theme.textPrimary,
+    fontSize: 15,
+    color: Theme.driverEmerald,
   },
   emptyCard: {
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Theme.surfaceBorder,
     backgroundColor: Theme.surface,
@@ -652,14 +698,18 @@ const styles = StyleSheet.create({
     color: Theme.textSecondary,
   },
   closeBtn: {
-    marginTop: 4,
-    minHeight: 44,
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Theme.surfaceBorder,
+    backgroundColor: Theme.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   closeText: {
-    ...driverUISemiBold,
+    ...driverUIBold,
     fontSize: 15,
-    color: Theme.textSecondary,
+    color: Theme.textPrimary,
   },
 });

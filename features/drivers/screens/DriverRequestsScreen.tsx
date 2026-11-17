@@ -23,6 +23,8 @@ import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeCont
 import * as driversService from '@/features/drivers/services/drivers.service';
 import * as tripsService from '@/features/trips/services/trips.service';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import { DriverListEmptyArt } from '@/features/drivers/components/DriverListEmptyArt';
+import { DriverTripEmptyHourglass } from '@/features/drivers/components/DriverTripEmptyHourglass';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -848,9 +850,8 @@ export default function DriverRequestsScreen() {
     viewHistoryLinkText: { fontSize: 14, fontWeight: '700', letterSpacing: 0.1 },
     emptyCard: {
       width: '100%',
-      padding: 28,
-      borderRadius: 16,
-      borderWidth: 1,
+      paddingTop: 36,
+      paddingHorizontal: 28,
       alignItems: 'center',
     },
     emptyIconWrap: {
@@ -965,10 +966,8 @@ export default function DriverRequestsScreen() {
                 Fleet owner marked these trips as paid. Review and verify from passbook.
               </Text>
               {paymentUpdates.length === 0 ? (
-                <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <View style={[styles.emptyIconWrap, { backgroundColor: colors.whiteMuted }]}>
-                    <FontAwesome name="bell-slash" size={34} color={colors.textMuted} />
-                  </View>
+                <View style={styles.emptyCard}>
+                  <DriverListEmptyArt kind="money" />
                   <Text style={[styles.emptyTitle, { color: colors.text }]}>No payment updates yet</Text>
                   <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
                     New fleet-marked-paid updates will appear here across all your connected fleets.
@@ -1306,10 +1305,8 @@ export default function DriverRequestsScreen() {
           )}
 
           {pendingInvites.length === 0 && connectedAcceptedInvites.length === 0 && pastLinkedDrivers.length === 0 && (
-            <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={[styles.emptyIconWrap, { backgroundColor: colors.whiteMuted }]}>
-                <FontAwesome name="inbox" size={40} color={colors.textMuted} />
-              </View>
+            <View style={styles.emptyCard}>
+              <DriverTripEmptyHourglass />
               <Text style={[styles.emptyTitle, { color: colors.text }]}>No connection requests</Text>
               <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
                 Organisation invites will appear here. Accept to connect and receive trip assignments on the Dashboard.

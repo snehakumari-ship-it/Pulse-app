@@ -16,6 +16,8 @@ type Props = {
   busy?: boolean;
   scanLabel?: string;
   compact?: boolean;
+  /** Match a compact amount field: short control, no inner title row. */
+  fieldSized?: boolean;
   /** Nested inside a parent card — no own border/shadow. */
   embedded?: boolean;
   onAttach: () => void;
@@ -38,6 +40,7 @@ export function OpsEntryBodyPhotoSlot({
   busy = false,
   scanLabel = "AI scan",
   compact = false,
+  fieldSized = false,
   embedded = false,
   onAttach,
   onPress,
@@ -54,52 +57,59 @@ export function OpsEntryBodyPhotoSlot({
       style={[
         styles.card,
         compact && styles.cardCompact,
-        compact && styles.cardCompactFill,
+        compact && !fieldSized && styles.cardCompactFill,
+        fieldSized && styles.cardFieldSized,
         embedded && styles.cardEmbedded,
       ]}
     >
-      <View style={styles.headerRow}>
-        <View style={styles.titleRow}>
-          <Feather
-            name={hasPhoto ? "image" : "camera"}
-            size={11}
-            color={iconColor}
-          />
-          <Text style={styles.title}>{slotTitle}</Text>
-        </View>
-        {hasPhoto && !compact ? (
-          <View style={styles.actions}>
-            {onRetake ? (
-              <Pressable
-                style={styles.actionBtn}
-                onPress={onRetake}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel="Retake photo"
-              >
-                <Feather name="refresh-cw" size={10} color={Theme.textMuted} />
-                <Text style={styles.actionText}>Retake</Text>
-              </Pressable>
-            ) : null}
-            {onRemove ? (
-              <Pressable
-                style={[styles.actionBtn, styles.actionBtnDanger]}
-                onPress={onRemove}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel="Remove photo"
-              >
-                <Feather name="trash-2" size={10} color={Theme.destructive} />
-              </Pressable>
-            ) : null}
+      {!fieldSized ? (
+        <View style={styles.headerRow}>
+          <View style={styles.titleRow}>
+            <Feather
+              name={hasPhoto ? "image" : "camera"}
+              size={11}
+              color={iconColor}
+            />
+            <Text style={styles.title}>{slotTitle}</Text>
           </View>
-        ) : null}
-      </View>
+          {hasPhoto && !compact ? (
+            <View style={styles.actions}>
+              {onRetake ? (
+                <Pressable
+                  style={styles.actionBtn}
+                  onPress={onRetake}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retake photo"
+                >
+                  <Feather name="refresh-cw" size={10} color={Theme.textMuted} />
+                  <Text style={styles.actionText}>Retake</Text>
+                </Pressable>
+              ) : null}
+              {onRemove ? (
+                <Pressable
+                  style={[styles.actionBtn, styles.actionBtnDanger]}
+                  onPress={onRemove}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove photo"
+                >
+                  <Feather name="trash-2" size={10} color={Theme.destructive} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {hasPhoto ? (
         <Pressable
           style={[
-            compact ? styles.previewWrapCompactFilled : styles.previewWrap,
+            fieldSized
+              ? styles.previewWrapField
+              : compact
+                ? styles.previewWrapCompactFilled
+                : styles.previewWrap,
             scanning && styles.previewWrapScanning,
           ]}
           onPress={onPress ?? onAttach}
@@ -113,7 +123,7 @@ export function OpsEntryBodyPhotoSlot({
             resizeMode="cover"
           />
           <ExpenseBillScanOverlay visible={scanning} scanTravel={108} label={scanLabel} />
-          {compact ? (
+          {compact && !fieldSized ? (
             <View style={styles.compactOverlay} pointerEvents="box-none">
               <View style={styles.compactOverlayTop}>
                 {onRemove ? (
@@ -147,11 +157,43 @@ export function OpsEntryBodyPhotoSlot({
               </View>
             </View>
           ) : null}
+          {fieldSized ? (
+            <View style={styles.fieldOverlay} pointerEvents="box-none">
+              {onRemove ? (
+                <Pressable
+                  style={[styles.compactIconBtn, styles.compactIconBtnDanger, styles.fieldIconBtn]}
+                  onPress={onRemove}
+                  disabled={busy}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove bill photo"
+                >
+                  <Feather name="trash-2" size={11} color={Theme.destructive} />
+                </Pressable>
+              ) : null}
+              {onRetake ? (
+                <Pressable
+                  style={[styles.compactIconBtn, styles.fieldIconBtn]}
+                  onPress={onRetake}
+                  disabled={busy}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retake bill photo"
+                >
+                  <Feather name="refresh-cw" size={11} color={Theme.textPrimaryDark} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
         </Pressable>
       ) : (
         <Pressable
           style={[
-            compact ? styles.previewWrapCompactEmpty : styles.emptyWrap,
+            fieldSized
+              ? styles.previewWrapFieldEmpty
+              : compact
+                ? styles.previewWrapCompactEmpty
+                : styles.emptyWrap,
             busy && styles.emptyWrapBusy,
           ]}
           onPress={onAttach}
@@ -166,13 +208,30 @@ export function OpsEntryBodyPhotoSlot({
             </>
           ) : (
             <>
-              <View style={[styles.emptyIconRing, compact && styles.emptyIconRingCompact]}>
-                <Feather name="camera" size={compact ? 16 : 22} color={iconColor} />
-              </View>
-              <Text style={[styles.emptyBtnText, compact && styles.emptyBtnTextCompact]}>
+              {!fieldSized && compact ? (
+                <Feather
+                  name="camera"
+                  size={16}
+                  color={Theme.textMuted}
+                  strokeWidth={2}
+                />
+              ) : !fieldSized ? (
+                <View style={styles.emptyIconRing}>
+                  <Feather name="camera" size={22} color={iconColor} />
+                </View>
+              ) : null}
+              <Text
+                style={[
+                  styles.emptyBtnText,
+                  compact && styles.emptyBtnTextCompact,
+                  fieldSized && styles.emptyBtnTextField,
+                ]}
+              >
                 Attach photo
               </Text>
-              {!compact ? <Text style={styles.emptySubtext}>Camera or gallery</Text> : null}
+              {!compact && !fieldSized ? (
+                <Text style={styles.emptySubtext}>Camera or gallery</Text>
+              ) : null}
             </>
           )}
         </Pressable>
@@ -199,23 +258,30 @@ export function OpsEntryBodyPhotoPreview(
   );
 }
 
-const COMPACT_PREVIEW_H = 120;
+const COMPACT_PREVIEW_H = 96;
+/** Same height as SmartInput `density="compact"` `fieldCompact`. */
+const FIELD_CONTROL_H = 40;
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-    padding: 8,
-    gap: 6,
+    borderRadius: 18,
+    borderWidth: 0,
+    borderColor: "transparent",
+    backgroundColor: "transparent",
+    padding: 0,
+    gap: 10,
   },
   cardCompact: {
     padding: 0,
-    gap: 6,
+    gap: 8,
   },
   cardCompactFill: {
     flex: 1,
+  },
+  cardFieldSized: {
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: "stretch",
   },
   cardEmbedded: {
     borderWidth: 0,
@@ -238,8 +304,8 @@ const styles = StyleSheet.create({
   },
   title: {
     ...Typography.headerTitle,
-    fontSize: 9,
-    letterSpacing: 0.55,
+    fontSize: 10,
+    letterSpacing: 0.7,
     color: Theme.textMuted,
     flexShrink: 1,
     textTransform: "uppercase",
@@ -273,35 +339,66 @@ const styles = StyleSheet.create({
   },
   previewWrap: {
     position: "relative",
-    height: 132,
-    borderRadius: 10,
+    height: 148,
+    borderRadius: 18,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(15,23,42,0.08)",
+    backgroundColor: "#F3F4F6",
   },
   previewWrapCompactFilled: {
     position: "relative",
     height: COMPACT_PREVIEW_H,
     minHeight: COMPACT_PREVIEW_H,
-    borderRadius: 10,
+    borderRadius: 16,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.surfaceGray,
+    borderColor: "rgba(15,23,42,0.08)",
+    backgroundColor: "#F3F4F6",
+  },
+  previewWrapField: {
+    position: "relative",
+    width: "100%",
+    alignSelf: "stretch",
+    height: FIELD_CONTROL_H,
+    minHeight: FIELD_CONTROL_H,
+    maxHeight: FIELD_CONTROL_H,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.whiteMuted,
+  },
+  previewWrapFieldEmpty: {
+    width: "100%",
+    alignSelf: "stretch",
+    height: FIELD_CONTROL_H,
+    minHeight: FIELD_CONTROL_H,
+    maxHeight: FIELD_CONTROL_H,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: "solid",
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.whiteMuted,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 8,
+    paddingHorizontal: 12,
   },
   previewWrapCompactEmpty: {
     height: COMPACT_PREVIEW_H,
     minHeight: COMPACT_PREVIEW_H,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: "rgba(148,163,184,0.4)",
-    backgroundColor: "rgba(148,163,184,0.08)",
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: "solid",
+    borderColor: Theme.borderInput,
+    backgroundColor: Theme.whiteMuted,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 8,
+    justifyContent: "flex-start",
+    gap: 8,
+    paddingHorizontal: 12,
   },
   previewWrapScanning: {
     borderColor: "#6ee7b7",
@@ -314,6 +411,19 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: "100%",
     height: "100%",
+  },
+  fieldOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 4,
+  },
+  fieldIconBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   compactOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -356,56 +466,69 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   emptyWrap: {
-    height: 132,
-    borderRadius: 10,
+    height: 148,
+    borderRadius: 18,
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "rgba(148,163,184,0.4)",
-    backgroundColor: "rgba(148,163,184,0.08)",
+    borderColor: "rgba(15,23,42,0.14)",
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 12,
+    gap: 8,
+    paddingHorizontal: 16,
   },
   emptyWrapBusy: {
     borderStyle: "solid",
-    borderColor: "rgba(148,163,184,0.28)",
+    borderColor: "rgba(15,23,42,0.1)",
   },
   emptyIconRing: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.cardWhite,
+    backgroundColor: "#FFFFFF",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(148,163,184,0.28)",
+    borderColor: "rgba(15,23,42,0.08)",
   },
   emptyIconRingCompact: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  emptyIconRingField: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   emptyBtnText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700",
-    color: Theme.textSecondary,
-    letterSpacing: 0.1,
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.1,
   },
   emptyBtnTextCompact: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.15,
+  },
+  emptyBtnTextField: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    letterSpacing: -0.15,
   },
   emptySubtext: {
-    fontSize: 9,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "500",
     color: Theme.textMuted,
   },
   hint: {
-    fontSize: 9,
-    fontWeight: "600",
-    color: Theme.textSecondary,
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.textMuted,
     textAlign: "center",
-    lineHeight: 12,
+    lineHeight: 15,
   },
 });

@@ -9,6 +9,7 @@ import {
   Camera,
   type CameraRef,
   GeoJSONSource,
+  Images,
   Layer,
   Map,
   Marker,
@@ -54,6 +55,7 @@ function MarkerContent({
   avatarUri,
   avatarSeed,
   isOnline,
+  showArrivalTruck,
   onPress,
 }: {
   markerId: string;
@@ -64,6 +66,7 @@ function MarkerContent({
   avatarUri?: string | null;
   avatarSeed?: string | null;
   isOnline?: boolean;
+  showArrivalTruck?: boolean;
   onPress?: () => void;
 }) {
   const role = tripMapMarkerRoleFromId(markerId);
@@ -74,7 +77,9 @@ function MarkerContent({
         avatarSeed={avatarSeed}
         isOnline={isOnline ?? (role === 'truck' || role === 'live')}
         size={48}
+        showArrivalTruck={showArrivalTruck}
         onPressStatus={onPress}
+        variant="truck"
       />
     );
   }
@@ -158,15 +163,15 @@ export const LeafletMapMapLibre = React.forwardRef<
         // Native MapLibre path rebuilds PointAnnotations from props; live bus
         // still updates shared values / React throttle on the home screen.
       },
-      fitBounds: (ne, sw, paddingPx = 80, _maxZoom) => {
+      fitBounds: (ne, sw, paddingPx = 80, _maxZoom, insets) => {
         cameraRef.current?.fitBounds?.(
           [sw.longitude, sw.latitude, ne.longitude, ne.latitude],
           {
             padding: {
-              top: paddingPx,
-              right: paddingPx,
-              bottom: paddingPx,
-              left: paddingPx,
+              top: insets?.top ?? paddingPx,
+              right: insets?.right ?? paddingPx,
+              bottom: insets?.bottom ?? paddingPx,
+              left: insets?.left ?? paddingPx,
             },
             duration: lowPower ? 0 : 600,
           },
@@ -201,11 +206,20 @@ export const LeafletMapMapLibre = React.forwardRef<
               zoom,
             }}
           />
+          <Images
+            images={{
+              'route-arrow': require('../../assets/images/map/route-arrow.png'),
+            }}
+          />
 
-          {safePolylineLayers.map((layer) => (
+          {safePolylineLayers.map((layer) => {
+            const sourceId = `leaflet-polyline-source-${layer.id}`;
+            const lineWidth = layer.width ?? 5;
+            const showArrows = !layer.dashed && lineWidth >= 6;
+            return (
             <GeoJSONSource
               key={layer.id}
-              id={`leaflet-polyline-source-${layer.id}`}
+              id={sourceId}
               data={{
                 type: 'Feature',
                 geometry: {
@@ -215,20 +229,49 @@ export const LeafletMapMapLibre = React.forwardRef<
                 properties: {},
               }}
             >
+              {layer.glowWidth != null ? (
+                <Layer
+                  id={`leaflet-polyline-casing-${layer.id}`}
+                  type="line"
+                  source={sourceId}
+                  style={{
+                    lineColor: Theme.cardWhite,
+                    lineWidth: layer.glowWidth,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+              ) : null}
               <Layer
                 id={`leaflet-polyline-layer-${layer.id}`}
                 type="line"
-                source={`leaflet-polyline-source-${layer.id}`}
+                source={sourceId}
                 style={{
                   lineColor: layer.color ?? polylineColor,
-                  lineWidth: layer.width ?? 5,
+                  lineWidth,
                   lineCap: 'round',
                   lineJoin: 'round',
                   ...(layer.dashed ? { lineDasharray: [2, 2.5] } : {}),
                 }}
               />
+              {showArrows ? (
+                <Layer
+                  id={`leaflet-polyline-arrows-${layer.id}`}
+                  type="symbol"
+                  source={sourceId}
+                  style={{
+                    symbolPlacement: 'line',
+                    symbolSpacing: 90,
+                    iconImage: 'route-arrow',
+                    iconSize: 0.32,
+                    iconAllowOverlap: true,
+                    iconIgnorePlacement: true,
+                  }}
+                />
+              ) : null}
             </GeoJSONSource>
-          ))}
+            );
+          })}
 
           {(routeLabels ?? []).map((label) => (
             <Marker
@@ -265,6 +308,7 @@ export const LeafletMapMapLibre = React.forwardRef<
                 avatarUri={m.avatarUri}
                 avatarSeed={m.avatarSeed}
                 isOnline={m.isOnline}
+                showArrivalTruck={m.showArrivalTruck}
                 onPress={m.onPress}
               />
             </Marker>

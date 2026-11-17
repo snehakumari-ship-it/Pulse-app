@@ -17,10 +17,15 @@ import {
   infrastructureShouldRetry,
 } from '@/lib/queryRetry';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
+import { AppState } from 'react-native';
 
 /**
- * Server-resolved Driver vs DCO mode.
+ * Server-resolved Driver vs DCO mode for whoever is signed in.
+ * Screens gate the DCO UI on `isDco` from this hook. There is no per-account
+ * UI. When a driver is later approved as a DCO, the same screens appear for
+ * that login as soon as this query refreshes (app resume, or the existing
+ * DCO-status invalidate).
  *
  * Important: TanStack Query v5 sets `isLoading=false` while a query is
  * `enabled:false` (e.g. auth still restoring). Screens must use `modeLoading`
@@ -55,6 +60,17 @@ export function useDriverOperatingModeQuery(userId?: string | null) {
       queryKey: queryKeys.driverApp.driverOperatingMode(uid),
     });
   }, [queryClient, uid]);
+
+  // A fresh 30s cache must not keep yesterday's DRIVER answer after approval.
+  // Resume always re-reads the signed-in person's mode.
+  useEffect(() => {
+    if (!uid || !isDriver || !authSettled) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      invalidate();
+    });
+    return () => sub.remove();
+  }, [authSettled, invalidate, isDriver, uid]);
 
   // Still resolving identity or first mode fetch — do not treat as "denied".
   const modeLoading =

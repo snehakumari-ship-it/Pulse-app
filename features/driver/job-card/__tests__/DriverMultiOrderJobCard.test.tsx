@@ -297,7 +297,7 @@ describe('DriverMultiOrderJobCard', () => {
 
   it('renders the collapsed peek with the Commerce header', () => {
     const onToggleCollapse = jest.fn();
-    const { getByLabelText, getByText } = render(
+    const { getByLabelText, getAllByText } = render(
       <DriverMultiOrderJobCard
         trip={trip()}
         collapsed
@@ -305,22 +305,9 @@ describe('DriverMultiOrderJobCard', () => {
         stopExecution={execution({ stops: [pickup, dropA], currentStop: pickup, nextStop: dropA })}
       />,
     );
-    expect(getByText('Commerce Delivery')).toBeTruthy();
+    expect(getAllByText('Commerce Delivery').length).toBeGreaterThan(0);
     fireEvent.press(getByLabelText("Open today's route"));
     expect(onToggleCollapse).toHaveBeenCalledTimes(1);
-  });
-
-  it('puts expense on the current-stop card', () => {
-    const onExpense = jest.fn();
-    const { getByLabelText } = render(
-      <DriverMultiOrderJobCard
-        trip={trip()}
-        onExpense={onExpense}
-        stopExecution={execution({ stops: [pickup, dropA], currentStop: pickup, nextStop: dropA })}
-      />,
-    );
-    fireEvent.press(getByLabelText('Add trip expense'));
-    expect(onExpense).toHaveBeenCalledTimes(1);
   });
 
   it('expands product lines from memory without another commerce read', () => {

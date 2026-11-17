@@ -277,9 +277,8 @@ describe('Commerce Job Card — read contract', () => {
     expect(within(view.getByTestId('commerce-timeline-stop-pu')).getByText('3 orders · 4 products')).toBeTruthy();
   });
 
-  it('stop, order and product expansion and the map control make zero requests', async () => {
-    const onShowRouteOnMap = jest.fn();
-    const view = renderCard(commerceTrip(), { onShowRouteOnMap });
+  it('stop, order and product expansion makes zero requests', async () => {
+    const view = renderCard(commerceTrip());
     await waitForLoaded(view);
     const baseline = mockCalls.length;
 
@@ -302,10 +301,6 @@ describe('Commerce Job Card — read contract', () => {
     expect(view.queryByTestId('commerce-timeline-orders-d1')).toBeNull();
     fireEvent.press(view.getByTestId('commerce-timeline-toggle-pu'));
     expect(view.queryByTestId('commerce-timeline-orders-pu')).toBeNull();
-
-    fireEvent.press(view.getByLabelText('View trip plan on map'));
-    expect(view.getByTestId('trip-plan-page')).toBeTruthy();
-    expect(onShowRouteOnMap).not.toHaveBeenCalled();
     expect(mockCalls.length).toBe(baseline);
   });
 

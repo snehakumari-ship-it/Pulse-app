@@ -38,8 +38,10 @@ export function DriverUnifiedExpenseEntryScreen({
   const isEditing = Boolean(trimmedEntryId);
 
   const [formKind, setFormKind] = useState<DriverExpenseFormKind>(initialKind);
-  const [otherCategory, setOtherCategory] = useState<TripOtherExpenseCategory>(() =>
-    parseDriverExpenseCategoryParam(initialOtherCategory ?? undefined),
+  const [otherCategory, setOtherCategory] = useState<TripOtherExpenseCategory | null>(() =>
+    initialOtherCategory
+      ? parseDriverExpenseCategoryParam(initialOtherCategory)
+      : null,
   );
   const [resolvedEditKind, setResolvedEditKind] = useState<DriverExpenseFormKind | null>(
     isEditing ? null : initialKind,
@@ -59,7 +61,11 @@ export function DriverUnifiedExpenseEntryScreen({
   useEffect(() => {
     if (isEditing) return;
     setFormKind(initialKind);
-    setOtherCategory(parseDriverExpenseCategoryParam(initialOtherCategory ?? undefined));
+    setOtherCategory(
+      initialOtherCategory
+        ? parseDriverExpenseCategoryParam(initialOtherCategory)
+        : null,
+    );
   }, [initialKind, initialOtherCategory, isEditing]);
 
   useEffect(() => {
@@ -101,6 +107,11 @@ export function DriverUnifiedExpenseEntryScreen({
     setOtherCategory(next);
   }, []);
 
+  const handleClearCategory = useCallback(() => {
+    setFormKind("other");
+    setOtherCategory(null);
+  }, []);
+
   if (isEditing && editResolveLoading) {
     return <CenteredLoadingView message="Loading expense…" />;
   }
@@ -116,6 +127,7 @@ export function DriverUnifiedExpenseEntryScreen({
         entryId={activeEntryId}
         otherCategory={otherCategory}
         onCategoryNavChange={handleCategoryNav}
+        onClearCategory={handleClearCategory}
         billCapture={billCapture}
       />
     );
@@ -128,6 +140,7 @@ export function DriverUnifiedExpenseEntryScreen({
         entryId={activeEntryId}
         otherCategory={otherCategory}
         onCategoryNavChange={handleCategoryNav}
+        onClearCategory={handleClearCategory}
         billCapture={billCapture}
       />
     );
@@ -139,6 +152,7 @@ export function DriverUnifiedExpenseEntryScreen({
       entryId={activeEntryId}
       expenseCategory={otherCategory}
       onExpenseCategoryChange={handleOtherCategoryChange}
+      onClearCategory={handleClearCategory}
       onCategoryNavChange={handleCategoryNav}
       billCapture={billCapture}
     />

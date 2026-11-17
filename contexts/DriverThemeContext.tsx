@@ -38,11 +38,11 @@ export function useDriverThemeColors() {
 export function getDriverThemeColors(mode: DriverThemeMode) {
   const isDark = mode === 'dark';
   return {
-    background: isDark ? Theme.driverBackground : Theme.screenBackground,
-    surface: isDark ? Theme.driverSurface : Theme.surface,
+    background: isDark ? Theme.driverBackground : Theme.driverEmeraldWash,
+    surface: isDark ? Theme.driverSurface : Theme.cardWhite,
     surfaceElevated: isDark ? Theme.driverSurfaceElevated : Theme.surfaceLight,
-    border: isDark ? Theme.driverBorder : Theme.borderLight,
-    borderSubtle: isDark ? Theme.driverBorderSubtle : Theme.borderLight,
+    border: isDark ? Theme.driverBorder : Theme.borderMedium,
+    borderSubtle: isDark ? Theme.driverBorderSubtle : Theme.borderMedium,
     text: isDark ? Theme.textOnDark : Theme.textPrimary,
     textMuted: isDark ? Theme.driverTextMuted : Theme.textMuted,
     textOnPrimary: Theme.textOnPrimary,

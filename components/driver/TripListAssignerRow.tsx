@@ -205,8 +205,7 @@ const styles = StyleSheet.create({
   },
   cellYield: {
     flexShrink: 0,
-    minWidth: 72,
-    maxWidth: "28%",
+    width: 84,
     paddingLeft: 8,
     alignItems: "flex-end",
     justifyContent: "center",

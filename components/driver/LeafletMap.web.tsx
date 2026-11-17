@@ -319,6 +319,7 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const markersRef = useRef<MapLibreMarkerLike[]>([]);
     const markersByIdRef = useRef(new Map<string, MapLibreMarkerLike>());
+    const markerOverlayKeyRef = useRef("");
     const routeLayerIdsRef = useRef<string[]>([]);
     const lastPolylineStrRef = useRef<string>("");
     const mapStyleLoadedRef = useRef(false);
@@ -479,10 +480,6 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
         if (!mapInstance || !isMapStyleReady(mapInstance)) return;
 
         try {
-          markersRef.current.forEach((m) => m.remove?.());
-          markersRef.current = [];
-          markersByIdRef.current.clear();
-
           let shouldFitBounds = false;
           const activeLayers = resolvePolylineLayers(polylines, polyline, polylineColor);
           const currentPolylineStr = JSON.stringify(activeLayers);
@@ -559,6 +556,49 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
           }
 
           const currentMarkers = Array.isArray(markers) ? markers : [];
+          const overlayKey = [
+            currentMarkers
+              .map((m) =>
+                [
+                  m?.id ?? "",
+                  m?.showArrivalTruck ? "1" : "0",
+                  m?.label ?? "",
+                  m?.avatarUri ?? "",
+                  m?.isOnline ? "1" : "0",
+                  m?.highlighted ? "1" : "0",
+                  m?.kindIndex ?? "",
+                  m?.nudgeX ?? "",
+                ].join("|"),
+              )
+              .join(";"),
+            (routeLabels ?? [])
+              .map(
+                (label) =>
+                  `${label.id}|${label.text}|${label.coordinate?.latitude?.toFixed?.(5) ?? ""}|${label.coordinate?.longitude?.toFixed?.(5) ?? ""}`,
+              )
+              .join(";"),
+          ].join("#");
+          const canSlide =
+            overlayKey === markerOverlayKeyRef.current &&
+            currentMarkers.length > 0 &&
+            currentMarkers.every(
+              (m) => m?.id && markersByIdRef.current.has(String(m.id)),
+            );
+          if (canSlide) {
+            for (const m of currentMarkers) {
+              if (!m?.coordinate || !m.id) continue;
+              markersByIdRef.current
+                .get(String(m.id))
+                ?.setLngLat?.([m.coordinate.longitude, m.coordinate.latitude]);
+            }
+            mapInstance.resize();
+            return;
+          }
+          markersRef.current.forEach((m) => m.remove?.());
+          markersRef.current = [];
+          markersByIdRef.current.clear();
+          markerOverlayKeyRef.current = overlayKey;
+
           for (const m of currentMarkers) {
             if (!m || !m.coordinate) continue;
             const lat = m.coordinate.latitude;
@@ -569,6 +609,7 @@ export const LeafletMap = React.forwardRef<LeafletMapRef, LeafletMapProps>(
               avatarUri: m.avatarUri,
               avatarSeed: m.avatarSeed,
               isOnline: m.isOnline,
+              showArrivalTruck: m.showArrivalTruck,
               highlighted: m.highlighted,
               kindIndex: m.kindIndex ?? kindIndexFromMarkerId(m.id) ?? undefined,
               clusterBadges: m.clusterBadges,

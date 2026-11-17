@@ -1,79 +1,84 @@
 /**
- * Market tab: Reach opportunities for every driver, plus the Marketplace
- * (market_bids) layer, which is DCO-only — see get_my_driver_operating_mode.
+ * Market tab: Find Work + My Bids for admin-approved DCOs.
+ * Regular drivers do not see this dock entry; the route stays registered for
+ * deep links and redirects home until DCO approval unlocks the surface.
  */
-import {
-  DRIVER_DETAIL_HORIZONTAL_PAD,
-  DriverSubScreenHeader,
-  driverDetailPageBackground,
-} from '@/components/driver/DriverSubScreenHeader';
+import { CenteredLoadingView } from '@/components/CenteredLoadingView';
+import { DRIVER_DETAIL_HORIZONTAL_PAD } from '@/components/driver/DriverSubScreenHeader';
 import Theme from '@/constants/Theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { useDriverTheme, useDriverThemeColors } from '@/contexts/DriverThemeContext';
-import {
-  formatFleetOwnerRateOffer,
-  isLoadCompatibleWithFleet,
-  type FleetOwnerOpenLoad,
-} from '@/features/driver/services/fleetOwnerLoads.service';
-import {
-  marketBidStatusLabel,
-  type MarketBidRow,
-  type MarketBidStatus,
-} from '@/features/driver/services/marketBids.service';
-import {
-  driverPoolEyebrow,
-  groupDriverMarketLoads,
-  summarizeDriverPool,
-  type DriverMarketPool,
-} from '@/features/driver/utils/driverMarketPools.util';
 import { DriverWorkOpportunityCard } from '@/features/driver/components/DriverWorkOpportunityCard';
 import { MyBidsContent } from '@/features/driver/components/MyBidsScreen';
+import {
+    formatFleetOwnerRateOffer,
+    isLoadCompatibleWithFleet,
+    type FleetOwnerOpenLoad,
+} from '@/features/driver/services/fleetOwnerLoads.service';
+import {
+    marketBidStatusLabel,
+    type MarketBidRow,
+    type MarketBidStatus,
+} from '@/features/driver/services/marketBids.service';
+import {
+    driverPoolEyebrow,
+    groupDriverMarketLoads,
+    summarizeDriverPool,
+    type DriverMarketPool,
+} from '@/features/driver/utils/driverMarketPools.util';
+import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOperatingMode';
 import { cityOf, StoriesContent, type SharedFeedFilters } from '@/features/reach/screens/DriverStoriesScreen';
 import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingModeQuery';
-import type { DriverOperatingModeKind } from '@/features/drivers/domain/driverOperatingMode';
 import { useFleetOwnerOpenLoadsQuery } from '@/lib/queries/useFleetOwnerOpenLoadsQuery';
 import { useMyMarketBidsQuery } from '@/lib/queries/useMyMarketBidsQuery';
 import { useOwnerVehiclesQuery } from '@/lib/queries/useOwnerVehiclesQuery';
 import { ROUTES } from '@/lib/routes';
 import { useFocusEffect } from '@react-navigation/native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MapPin } from 'lucide-react-native';
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AvailableLoadsScreen() {
-  const router = useRouter();
   const { profile } = useAuth();
   const uid = profile?.uid ?? '';
   const { isDark } = useDriverTheme();
   const colors = useDriverThemeColors();
-  const pageBg = driverDetailPageBackground(isDark, colors.background);
+  const insets = useSafeAreaInsets();
+  const pageBg = isDark ? colors.background : Theme.driverEmeraldWash;
   // A7.3: the DCO Available surface's "My Bids" entry deep-links here with
   // ?segment=mybids so it lands directly on this segment instead of Find Work.
   const { segment: initialSegment } = useLocalSearchParams<{ segment?: string }>();
   const [selectedSegment, setSegment] = useState<'find' | 'mybids'>(
     initialSegment === 'mybids' ? 'mybids' : 'find',
   );
-  const { isDco } = useDriverOperatingModeQuery(uid);
-  const segment = isDco ? selectedSegment : 'find';
-  const cardBorder = isDark ? colors.borderSubtle : 'rgba(226,232,240,0.95)';
+  const { isDco, modeLoading } = useDriverOperatingModeQuery(uid);
+  const segment = selectedSegment;
+  const cardBorder = isDark ? colors.borderSubtle : Theme.borderLight;
+
+  if (modeLoading) {
+    return <CenteredLoadingView style={{ flex: 1, backgroundColor: pageBg }} />;
+  }
+
+  if (!isDco) {
+    return <Redirect href={ROUTES.DRIVER_ROOT} />;
+  }
 
   // Earnings-page pattern: Market chrome scrolls with the feed (not pinned).
   const marketListHeader = (
     <>
-      <DriverSubScreenHeader
-        title="Market"
-        subtitle="Find work"
-        onBack={() =>
-          router.canGoBack() ? router.back() : router.replace(ROUTES.DRIVER_ROOT)
-        }
-      />
+      <View style={[styles.marketTitleBlock, { paddingTop: insets.top + 8, backgroundColor: pageBg }]}>
+        <Text style={styles.marketDisplayTitle} accessibilityRole="header">
+          MARKET.
+        </Text>
+      </View>
       <View
         style={[
-          styles.segmentRow,
+          styles.segmentTrack,
           {
-            borderColor: cardBorder,
             backgroundColor: isDark ? colors.surfaceElevated : Theme.surfaceGray,
+            borderColor: cardBorder,
           },
         ]}
       >
@@ -88,15 +93,16 @@ export default function AvailableLoadsScreen() {
             <Pressable
               key={seg.id}
               onPress={() => setSegment(seg.id)}
-              style={[
-                styles.segmentBtn,
-                on && {
-                  backgroundColor: isDark ? colors.surface : Theme.cardWhite,
-                  borderColor: cardBorder,
-                },
-              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              style={[styles.segmentBtn, on && styles.segmentBtnOn]}
             >
-              <Text style={[styles.segmentText, { color: on ? colors.text : colors.textMuted }]}>
+              <Text
+                style={[
+                  styles.segmentText,
+                  on ? styles.segmentTextOn : { color: colors.textMuted },
+                ]}
+              >
                 {seg.label}
               </Text>
             </Pressable>
@@ -203,9 +209,9 @@ export function FindLoadsContent({ uid, filters }: { uid: string; filters: Share
   // uses for itself.
   useFocusEffect(
     useCallback(() => {
-      if (!uid) return;
+      if (!uid || !marketplaceAllowed) return;
       void refetchLoads();
-    }, [uid, refetchLoads]),
+    }, [uid, marketplaceAllowed, refetchLoads]),
   );
 
   const fleetTypes = useMemo(
@@ -244,32 +250,47 @@ export function FindLoadsContent({ uid, filters }: { uid: string; filters: Share
     return (
       <View style={styles.marketGate}>
         <Text style={[styles.marketplaceLabel, { color: colors.textMuted }]}>MARKETPLACE</Text>
-        <Text style={[styles.gateBody, { color: colors.textMuted }]}>{gate.body}</Text>
-        <Pressable
-          onPress={() =>
-            router.push(
-              (gate.target === 'my-fleet'
-                ? ROUTES.driverMyFleet()
-                : gate.target === 'wallet-self'
-                  ? ROUTES.driverWalletSelf()
-                  : ROUTES.driverDcoStatus()) as Parameters<typeof router.push>[0],
-            )
-          }
-          style={({ pressed }) => [
-            styles.cta,
-            { backgroundColor: colors.emerald, opacity: pressed ? 0.88 : 1 },
+        <View
+          style={[
+            styles.gateCard,
+            {
+              backgroundColor: isDark ? colors.surfaceElevated : Theme.cardWhite,
+              borderColor: cardBorder,
+            },
           ]}
         >
-          <Text style={styles.ctaText}>{gate.cta}</Text>
-        </Pressable>
+          <Text style={[styles.gateTitle, { color: colors.text }]}>Almost ready to bid</Text>
+          <Text style={[styles.gateBody, { color: colors.textMuted }]}>{gate.body}</Text>
+          <Pressable
+            onPress={() =>
+              router.push(
+                (gate.target === 'my-fleet'
+                  ? ROUTES.driverMyFleet()
+                  : gate.target === 'wallet-self'
+                    ? ROUTES.driverWalletSelf()
+                    : ROUTES.driverDcoStatus()) as Parameters<typeof router.push>[0],
+              )
+            }
+            style={({ pressed }) => [
+              styles.cta,
+              { backgroundColor: colors.emerald, opacity: pressed ? 0.88 : 1 },
+            ]}
+          >
+            <Text style={styles.ctaText}>{gate.cta}</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
+  const marketCount = visiblePools.length + visible.length;
+
   return (
     <View style={styles.marketSection}>
       <View style={styles.marketplaceDivider} />
-      <Text style={[styles.marketplaceLabel, { color: colors.textMuted }]}>MARKETPLACE</Text>
+      <Text style={[styles.marketplaceLabel, { color: colors.textMuted }]}>
+        {isLoading ? 'MARKETPLACE' : `MARKETPLACE · ${marketCount}`}
+      </Text>
 
       <View style={styles.marketListPad}>
         {error ? (
@@ -288,7 +309,9 @@ export function FindLoadsContent({ uid, filters }: { uid: string; filters: Share
               },
             ]}
           >
-            <MapPin size={22} color={colors.emerald} />
+            <View style={[styles.emptyIcon, { backgroundColor: isDark ? colors.emeraldMuted : Theme.driverEmeraldMuted }]}>
+              <MapPin size={18} color={colors.emerald} />
+            </View>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               No open loads right now
             </Text>
@@ -400,7 +423,7 @@ function marketplaceGate(mode: DriverOperatingModeKind): {
   switch (mode) {
     case 'DCO_VEHICLE_REQUIRED':
       return {
-        body: 'Add an active vehicle to your fleet to see and bid on Marketplace loads as a DCO.',
+        body: 'Add an active vehicle to your fleet to see and bid on Marketplace loads.',
         cta: 'Manage my vehicle',
         target: 'my-fleet',
       };
@@ -417,9 +440,10 @@ function marketplaceGate(mode: DriverOperatingModeKind): {
         target: 'wallet-self',
       };
     default:
+      // Non-DCO drivers are redirected off this screen; keep a calm fallback.
       return {
-        body: 'Marketplace bidding is for DCOs (driver-cum-owners) with their own vehicle. As a driver, your jobs are assigned by your business.',
-        cta: 'About DCO',
+        body: 'Marketplace opens after your DCO request is approved.',
+        cta: 'View DCO status',
         target: 'dco-status',
       };
   }
@@ -503,14 +527,26 @@ function LoadCard({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   gateBody: { fontSize: 12, lineHeight: 17 },
-  marketSection: { paddingTop: 16, gap: 10, paddingBottom: 8 },
+  marketSection: { paddingTop: 14, gap: 8, paddingBottom: 8 },
   marketGate: {
     paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
     paddingTop: 14,
     paddingBottom: 8,
-    gap: 8,
+    gap: 10,
   },
-  marketListPad: { paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD, gap: 12 },
+  gateCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
+  },
+  gateTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  marketListPad: { paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD, gap: 8 },
   marketplaceDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(148,163,184,0.35)',
@@ -520,37 +556,65 @@ const styles = StyleSheet.create({
   marketplaceLabel: {
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.7,
+    letterSpacing: 0.55,
+    lineHeight: 13,
     paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
     marginBottom: 2,
+    includeFontPadding: false,
   },
-  segmentRow: {
+  marketTitleBlock: {
+    paddingHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
+    paddingBottom: 2,
+  },
+  marketDisplayTitle: {
+    fontSize: 40,
+    fontWeight: '900',
+    fontStyle: 'italic',
+    letterSpacing: -1.6,
+    lineHeight: 44,
+    color: Theme.driverCtaFill,
+    textTransform: 'uppercase',
+    marginTop: -4,
+  },
+  segmentTrack: {
     flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: DRIVER_DETAIL_HORIZONTAL_PAD,
     marginTop: 10,
-    marginBottom: 2,
-    borderRadius: 12,
+    marginBottom: 4,
+    padding: 4,
+    gap: 4,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 3,
-    gap: 3,
   },
   segmentBtn: {
     flex: 1,
-    borderRadius: 9,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'transparent',
-    paddingVertical: 8,
-    minHeight: 38,
+    borderRadius: 11,
+    paddingVertical: 10,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  segmentText: { fontSize: 12, fontWeight: '700', letterSpacing: -0.1, lineHeight: 15 },
+  segmentBtnOn: {
+    backgroundColor: Theme.buttonDark,
+  },
+  segmentText: { fontSize: 13, fontWeight: '600', letterSpacing: -0.1, lineHeight: 18 },
+  segmentTextOn: { color: Theme.buttonDarkText, fontWeight: '700' },
   empty: {
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 22,
+    paddingHorizontal: 16,
     gap: 6,
+    alignItems: 'center',
+  },
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
   },
   emptyTitle: { fontSize: 13, fontWeight: '700', letterSpacing: -0.15 },
   emptyBody: { fontSize: 12, lineHeight: 17 },

@@ -6,11 +6,6 @@
 import Theme from '@/constants/Theme';
 import {
   FLOW_EMERALD,
-  FLOW_EMERALD_DARK,
-  FLOW_MINT,
-  HERO_SIDE_ICON_SIZE,
-  HeroAssignerBlock,
-  HeroKindBadge,
   TRIP_SHEET_BODY_PAD,
   TRIP_SHEET_HERO_PAD,
 } from '@/components/driver/DriverTripSheetLayout';
@@ -20,7 +15,7 @@ import {
   summarizePlanRows,
   type MissionPlanStop,
 } from '@/features/driver/components/missionPlanRows';
-import { AlertTriangle, Navigation, Route, Wallet } from 'lucide-react-native';
+import { AlertTriangle, Map } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -64,7 +59,7 @@ export interface MissionCardLayoutProps {
 }
 
 export function MissionCardLayout({
-  title,
+  title: _title,
   earnings,
   earningsLabel = "EST. EARNINGS",
   assignedBy = null,
@@ -76,8 +71,8 @@ export function MissionCardLayout({
   planStops = null,
   tripIdLabel = null,
   tripDateLabel = null,
-  remainingKm = null,
-  routeTotalKm = null,
+  remainingKm: _remainingKm = null,
+  routeTotalKm: _routeTotalKm = null,
   distanceLabel,
   etaLabel,
   vehicleNumber = null,
@@ -94,82 +89,35 @@ export function MissionCardLayout({
   const planRows = showPlan
     ? summarizePlanRows(missionPlanRows(pickupLabel, dropLabel, planStops))
     : [];
-  const routeLabel = [pickupLabel, dropLabel]
+  const placeHeading = [pickupLabel, dropLabel]
     .map((part) => part.trim())
-    .filter((part) => part && part !== '—')
-    .join(' → ');
-  const destinationLabel = showPlan
-    ? planRows.length > 0
-    : routeLabel || pickupLabel || dropLabel || null;
+    .find((part) => part && part !== '—') ?? null;
+  const destinationLabel = showPlan ? planRows.length > 0 : placeHeading;
   const tripRef = tripIdLabel?.trim() || null;
   const tripDate = tripDateLabel?.trim() || null;
-
-  const progressFraction =
-    remainingKm != null && routeTotalKm != null && routeTotalKm > 0
-      ? Math.min(1, Math.max(0, 1 - remainingKm / routeTotalKm))
-      : null;
 
   const caption =
     dwellLabel ??
     [distanceLabel, etaLabel !== '—' ? `${etaLabel} remaining` : null]
       .filter(Boolean)
       .join(' • ');
+  const payIsBlank = /n\/a/i.test(earnings) || /n\/a/i.test(earningsLabel) || earnings.trim() === '—' || earnings.trim() === '';
+  const assignerName = assignedBy?.linePrimary?.trim() || '';
+  const bannerLabel = ['ACTIVE TRIP', assignedBy?.kindLabel?.trim()]
+    .filter(Boolean)
+    .join(' • ');
 
   return (
     <>
       <LinearGradient
-        colors={[FLOW_EMERALD_DARK, FLOW_EMERALD]}
+        colors={[Theme.driverEmerald, Theme.driverPrimary]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.flowHero}
       >
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroEyebrowRow}>
-            <Route size={12} color={FLOW_MINT} strokeWidth={2.5} />
-            <Text style={styles.heroEyebrow} numberOfLines={1}>
-              {title.toUpperCase()}
-            </Text>
-          </View>
-          {assignedBy ? (
-            <HeroKindBadge kind={assignedBy.kind} label={assignedBy.kindLabel} />
-          ) : null}
-        </View>
-        <View style={styles.heroMainRow}>
-          <View
-            style={[
-              styles.heroEarningsBlock,
-              !showHeroAssigner && styles.heroEarningsBlockFull,
-            ]}
-          >
-            <View style={styles.heroIconWrap}>
-              <Wallet size={16} color={FLOW_EMERALD} strokeWidth={2.2} />
-            </View>
-            <View style={styles.heroTextBlock}>
-              <Text style={styles.heroAmount} numberOfLines={1}>
-                {earnings}
-              </Text>
-              <Text style={styles.heroAmountLabel}>{earningsLabel}</Text>
-            </View>
-          </View>
-          {showHeroAssigner && assignedBy ? (
-            <>
-              <View style={styles.heroColDivider} />
-              {onAssignerPress ? (
-                <Pressable
-                  onPress={onAssignerPress}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Tag the party"
-                  style={{ flex: 1 }}
-                >
-                  <HeroAssignerBlock assigner={assignedBy} />
-                </Pressable>
-              ) : (
-                <HeroAssignerBlock assigner={assignedBy} />
-              )}
-            </>
-          ) : null}
-        </View>
+        <Text style={styles.heroEyebrow} numberOfLines={1}>
+          {bannerLabel}
+        </Text>
       </LinearGradient>
 
       <View style={styles.contentWrap}>
@@ -258,32 +206,56 @@ export function MissionCardLayout({
                   </>
                 ) : (
                   <>
-                    <View style={styles.routeTitleRow}>
-                      <Text
-                        style={[styles.destinationLabel, { color: Theme.textPrimaryDark }]}
-                        numberOfLines={2}
-                      >
-                        {destinationLabel}
-                      </Text>
-                      {tripDate ? (
+                    <Text
+                      style={[styles.destinationLabel, { color: Theme.textPrimaryDark }]}
+                      numberOfLines={2}
+                    >
+                      {placeHeading}
+                    </Text>
+                    <View style={styles.metaNavigateRow}>
+                      <View style={styles.destinationTextCol}>
+                        {tripRef ? (
+                          <Text
+                            style={[styles.destinationHeading, { color: Theme.textPrimaryDark, marginTop: 0 }]}
+                            numberOfLines={1}
+                          >
+                            {tripRef}
+                          </Text>
+                        ) : destinationHeading ? (
+                          <Text
+                            style={[styles.destinationHeading, { color: Theme.textPrimaryDark, marginTop: 0 }]}
+                            numberOfLines={1}
+                          >
+                            {destinationHeading}
+                          </Text>
+                        ) : null}
                         <Text
-                          style={[styles.routeDate, { color: Theme.textMuted }]}
+                          style={[styles.destinationCaption, { color: Theme.textMuted, marginTop: 2 }]}
                           numberOfLines={1}
                         >
-                          {tripDate}
+                          {caption}
                         </Text>
+                      </View>
+                      {onNavigate ? (
+                        <Pressable
+                          onPress={onNavigate}
+                          style={({ pressed }) => [
+                            styles.navigateChip,
+                            pressed && { opacity: 0.88 },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel="Open navigation"
+                          hitSlop={8}
+                        >
+                          <Map size={16} color={FLOW_EMERALD} strokeWidth={2.4} />
+                          <Text style={styles.navigateChipText}>NAVIGATE</Text>
+                        </Pressable>
                       ) : null}
                     </View>
-                    <Text
-                      style={[styles.destinationHeading, { color: Theme.textMuted }]}
-                      numberOfLines={1}
-                    >
-                      {tripRef ?? destinationHeading}
-                    </Text>
                   </>
                 )}
               </View>
-              {onNavigate ? (
+              {showPlan && onNavigate ? (
                 <Pressable
                   onPress={onNavigate}
                   style={({ pressed }) => [
@@ -294,41 +266,32 @@ export function MissionCardLayout({
                   accessibilityLabel="Open navigation"
                   hitSlop={8}
                 >
-                  <Navigation size={12} color={FLOW_EMERALD} strokeWidth={2.4} />
-                  <Text style={styles.navigateChipText}>Navigate</Text>
+                  <Map size={16} color={FLOW_EMERALD} strokeWidth={2.4} />
+                  <Text style={styles.navigateChipText}>NAVIGATE</Text>
                 </Pressable>
               ) : null}
             </View>
 
-            {progressFraction != null ? (
-              <View style={styles.progressBarTrack}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${progressFraction * 100}%`,
-                      backgroundColor: FLOW_EMERALD,
-                    },
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.progressBarDot,
-                    {
-                      left: `${progressFraction * 100}%`,
-                      borderColor: FLOW_EMERALD,
-                    },
-                  ]}
-                />
-              </View>
+            {showPlan ? (
+              <Text
+                style={[styles.destinationCaption, { color: Theme.textMuted }]}
+                numberOfLines={1}
+              >
+                {caption}
+              </Text>
             ) : null}
-
-            <Text
-              style={[styles.destinationCaption, { color: Theme.textMuted }]}
-              numberOfLines={1}
-            >
-              {caption}
-            </Text>
+            {!payIsBlank ? (
+              <Text style={[styles.payLine, { color: Theme.textMuted }]} numberOfLines={1}>
+                {earningsLabel} {earnings}
+              </Text>
+            ) : null}
+            {showHeroAssigner && assignerName && onAssignerPress ? (
+              <Pressable onPress={onAssignerPress} accessibilityRole="button" accessibilityLabel="Tag the party">
+                <Text style={[styles.payLine, { color: FLOW_EMERALD }]} numberOfLines={1}>
+                  Assigned by {assignerName}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -364,10 +327,9 @@ export function MissionCardLayout({
 const styles = StyleSheet.create({
   /** Flush to sheet edges — same hero width as JobRequestCard. */
   flowHero: {
-    paddingTop: TRIP_SHEET_HERO_PAD.top,
+    paddingTop: 14,
     paddingHorizontal: TRIP_SHEET_HERO_PAD.horizontal,
-    paddingBottom: TRIP_SHEET_HERO_PAD.bottom,
-    gap: 10,
+    paddingBottom: 14,
   },
   contentWrap: {
     paddingHorizontal: TRIP_SHEET_BODY_PAD.horizontal,
@@ -388,62 +350,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   heroEyebrow: {
-    fontSize: 9,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 0.9,
-    color: FLOW_MINT,
+    letterSpacing: 0.8,
+    color: Theme.textOnPrimary,
     textTransform: 'uppercase',
-    flexShrink: 1,
-  },
-  heroMainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    minWidth: 0,
-  },
-  heroEarningsBlock: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minWidth: 0,
-  },
-  heroEarningsBlockFull: {
-    flex: 1,
-  },
-  heroIconWrap: {
-    width: HERO_SIDE_ICON_SIZE,
-    height: HERO_SIDE_ICON_SIZE,
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  heroTextBlock: {
-    flex: 1,
-    minWidth: 0,
-    gap: 1,
-  },
-  heroAmount: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: -0.25,
-    lineHeight: 20,
-  },
-  heroAmountLabel: {
-    fontSize: 7,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    color: FLOW_MINT,
-  },
-  heroColDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: HERO_SIDE_ICON_SIZE,
-    backgroundColor: 'rgba(255,255,255,0.28)',
-    alignSelf: 'center',
-    flexShrink: 0,
   },
   destinationBlock: {
     gap: 0,
@@ -537,17 +448,28 @@ const styles = StyleSheet.create({
   },
   destinationHeading: {
     marginTop: 5,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   destinationLabel: {
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 21,
+    fontSize: 28,
     fontWeight: '800',
-    letterSpacing: -0.4,
-    lineHeight: 26,
+    letterSpacing: -0.6,
+    lineHeight: 34,
+  },
+  metaNavigateRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  payLine: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '700',
   },
   routeDate: {
     flexShrink: 0,
@@ -557,22 +479,19 @@ const styles = StyleSheet.create({
   navigateChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: Theme.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(4,120,87,0.35)',
+    justifyContent: 'center',
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: Theme.surfaceGray,
     flexShrink: 0,
-    marginTop: 2,
-    maxWidth: 118,
   },
   navigateChipText: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '800',
     color: FLOW_EMERALD,
-    letterSpacing: 0.1,
+    letterSpacing: 0.4,
   },
   progressBarTrack: {
     height: 4,

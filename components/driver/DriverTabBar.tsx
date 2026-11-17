@@ -8,7 +8,7 @@ import { useDriverOperatingModeQuery } from '@/lib/queries/useDriverOperatingMod
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import * as Haptics from 'expo-haptics';
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, type ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -56,9 +56,27 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const insets = useSafeAreaInsets();
   const colors = useDriverThemeColors();
   const { isDark } = useDriverTheme();
-  const { isDco } = useDriverOperatingModeQuery();
+  const { isDco, modeLoading } = useDriverOperatingModeQuery();
   const focusedRoute = state.routes[state.index];
   const current = focusedRoute?.name;
+
+  // Market stays in the route tree; dock only after admin-approved DCO.
+  // While mode is loading, omit Market so regular drivers never flash it.
+  const visibleTabs = useMemo(
+    () =>
+      TAB_CONFIG.filter(
+        (tab) => tab.name !== 'available-loads' || (!modeLoading && isDco),
+      ),
+    [isDco, modeLoading],
+  );
+
+  // If Market is focused but the driver is not eligible, soft-land on Dashboard.
+  useEffect(() => {
+    if (modeLoading) return;
+    if (current !== 'available-loads') return;
+    if (isDco) return;
+    navigation.navigate('index' as never);
+  }, [current, isDco, modeLoading, navigation]);
 
   // Custom tab bars ignore React Navigation's default tabBarStyle handling.
   // Routes like chat set `tabBarStyle: { display: 'none' }` so the composer
@@ -100,12 +118,12 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
   const dockSurface = {
     backgroundColor: isDark ? 'rgba(10,10,10,0.95)' : 'rgba(255,255,255,0.96)',
-    borderColor: colors.border,
+    borderColor: isDark ? colors.border : Theme.borderMedium,
   };
 
   const renderTab = (tab: (typeof TAB_CONFIG)[number]) => {
     const isActive = current === tab.name;
-    const label = tab.name === 'available-loads' && !isDco ? 'Loads' : tab.label;
+    const label = tab.label;
     return (
       <View key={tab.name} style={styles.dockColumn}>
         <View
@@ -113,12 +131,12 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
             styles.activePill,
             isActive && styles.activePillVisible,
             {
-              backgroundColor: isDark ? colors.surfaceElevated : colors.whiteMuted,
-              borderTopColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+              backgroundColor: 'transparent',
+              borderTopColor: 'transparent',
             },
           ]}
         >
-          <View style={[styles.activePillAccent, { backgroundColor: colors.primary }]} />
+              <View style={[styles.activePillAccent, { backgroundColor: Theme.driverEmerald }]} />
         </View>
 
         <TouchableOpacity
@@ -139,13 +157,13 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
             <FontAwesome5
               name={tab.icon}
               size={16}
-              color={isActive ? colors.text : colors.textMuted}
+              color={isActive ? Theme.driverEmerald : colors.textMuted}
               solid={isActive}
             />
             <Text
               style={[
                 styles.dockLabel,
-                { color: isActive ? colors.text : colors.textMuted },
+                { color: isActive ? Theme.driverEmerald : colors.textMuted },
                 isActive && styles.dockLabelActive,
               ]}
               numberOfLines={1}
@@ -166,7 +184,7 @@ export function DriverTabBar({ state, descriptors, navigation }: BottomTabBarPro
       ]}
     >
       <View style={[styles.glassDock, dockSurface]}>
-        {TAB_CONFIG.map(renderTab)}
+        {visibleTabs.map(renderTab)}
       </View>
     </View>
   );
@@ -223,11 +241,12 @@ const styles = withWebSafeShadows(
   },
   activePillAccent: {
     position: 'absolute',
-    bottom: 0,
-    left: '28%',
-    right: '28%',
+    bottom: 6,
+    left: '30%',
+    right: '30%',
     height: 3,
     borderRadius: 999,
+    backgroundColor: Theme.driverEmerald,
   },
   dockButton: {
     flex: 1,
@@ -239,7 +258,7 @@ const styles = withWebSafeShadows(
   dockLabel: {
     ...Typography.subTabLabel,
     ...driverTabMicroLabel,
-    fontSize: 7,
+    fontSize: 9,
     letterSpacing: 1,
   },
   dockLabelActive: {

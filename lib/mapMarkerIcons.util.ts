@@ -22,7 +22,7 @@ let _driverMapMarkerStylesInjected = false;
 
 function ensureDriverMapMarkerStyles(): void {
   if (typeof document === 'undefined') return;
-  const id = 'pulse-driver-map-marker-styles-v4';
+  const id = 'pulse-driver-map-marker-styles-v6';
   if (document.getElementById(id)) {
     _driverMapMarkerStylesInjected = true;
     return;
@@ -31,12 +31,14 @@ function ensureDriverMapMarkerStyles(): void {
   document.getElementById('pulse-driver-map-marker-styles')?.remove();
   document.getElementById('pulse-driver-map-marker-styles-v2')?.remove();
   document.getElementById('pulse-driver-map-marker-styles-v3')?.remove();
+  document.getElementById('pulse-driver-map-marker-styles-v4')?.remove();
+  document.getElementById('pulse-driver-map-marker-styles-v5')?.remove();
   const el = document.createElement('style');
   el.id = id;
   el.textContent = `
 @keyframes pulseDriverMapPulse{0%,100%{transform:scale(1);opacity:0.55;}50%{transform:scale(1.22);opacity:0.18;}}
 .pulse-driver-map-marker{position:relative;display:flex;flex-direction:column;align-items:center;width:44px;filter:drop-shadow(0 4px 10px rgba(15,23,42,0.35));pointer-events:auto;cursor:pointer;}
-.pulse-driver-map-pulse{position:absolute;top:-4px;left:50%;width:52px;height:52px;margin-left:-26px;border-radius:50%;border:2px solid var(--ring);box-sizing:border-box;pointer-events:none;transform-origin:center center;}
+.pulse-driver-map-pulse{position:absolute;top:-8px;left:50%;width:60px;height:60px;margin-left:-30px;border-radius:50%;background:rgba(26,115,232,0.18);border:2px solid #1A73E8;box-sizing:border-box;pointer-events:none;transform-origin:center center;}
 .pulse-driver-map-pulse.on{animation:pulseDriverMapPulse 1.8s ease-in-out infinite;}
 .pulse-driver-map-pulse.off{opacity:0.32;}
 .pulse-driver-map-avatar-wrap{position:relative;width:44px;height:44px;z-index:1;pointer-events:none;flex-shrink:0;}
@@ -44,23 +46,30 @@ function ensureDriverMapMarkerStyles(): void {
 .pulse-driver-map-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
 .pulse-driver-map-dot{position:absolute;top:-1px;right:-1px;width:12px;height:12px;border-radius:50%;background:var(--ring);border:2px solid #fff;box-sizing:border-box;z-index:2;pointer-events:auto;cursor:pointer;}
 .pulse-driver-map-pointer{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-top:9px solid var(--ring);margin-top:-1px;align-self:center;pointer-events:none;flex-shrink:0;}
+.pulse-driver-truck{position:absolute;top:-28px;left:50%;width:48px;height:24px;margin-left:-24px;z-index:3;pointer-events:none;filter:drop-shadow(0 2px 4px rgba(15,23,42,0.28));animation:pulseTruckIn .45s ease-out both,pulseTruckBob 1.8s ease-in-out .45s infinite;}
+@keyframes pulseTruckIn{from{opacity:0;transform:translateX(-8px);}to{opacity:1;transform:translateX(0);}}
+@keyframes pulseTruckBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-2px);}}
 `;
   document.head.appendChild(el);
   _driverMapMarkerStylesInjected = true;
 }
 
+const ARRIVAL_TRUCK_HTML = `<div class="pulse-driver-truck" aria-hidden="true"><svg width="48" height="24" viewBox="0 0 48 24" fill="none"><rect x="1" y="7" width="27" height="10" rx="2" fill="#047857"/><path d="M28 10h8.2L42 14.2V17H28V10z" fill="#065f46"/><rect x="31" y="11.2" width="5.2" height="3" rx="0.6" fill="#E7F6EF"/><circle cx="13" cy="18.2" r="2.5" fill="#0f172a"/><circle cx="36" cy="18.2" r="2.5" fill="#0f172a"/><circle cx="13" cy="18.2" r="1" fill="#e2e8f0"/><circle cx="36" cy="18.2" r="1" fill="#e2e8f0"/></svg></div>`;
+
 export function buildDriverAvatarMarkerHtml(
   avatarUri?: string | null,
   avatarSeed?: string | null,
   isOnline = false,
+  showArrivalTruck = false,
 ): string {
   ensureDriverMapMarkerStyles();
   const src = resolveDriverMapAvatarSrc(avatarUri, avatarSeed);
-  const ring = isOnline ? Theme.darkGreen : Theme.teslaRed;
+  const ring = '#1A73E8';
   const pulseClass = isOnline ? 'on' : 'off';
   const safeSrc = src.replace(/"/g, '&quot;');
   const statusTitle = isOnline ? 'View live location' : 'View location';
   return `<div class="pulse-driver-map-marker" style="--ring:${ring};" title="${statusTitle}">
+  ${showArrivalTruck ? ARRIVAL_TRUCK_HTML : ''}
   <div class="pulse-driver-map-pulse ${pulseClass}"></div>
   <div class="pulse-driver-map-avatar-wrap">
     <div class="pulse-driver-map-avatar">
@@ -166,6 +175,8 @@ export type DriverMapMarkerOptions = {
   clusterBadges?: readonly { kind: 'pickup' | 'drop'; index: number }[];
   /** Compact following-stop line, e.g. "+1 next · Drop 2". */
   nextLabel?: string | null;
+  /** Side-view truck above the avatar once the driver has reached the stop. */
+  showArrivalTruck?: boolean;
 };
 
 let tripMapMarkerStylesInjected = false;
@@ -275,6 +286,7 @@ export function createTripMapMarkerElement(
       driverOptions?.avatarUri,
       driverOptions?.avatarSeed,
       driverOptions?.isOnline ?? (role === 'truck' || role === 'live'),
+      driverOptions?.showArrivalTruck === true,
     );
   } else if (role === 'ping') {
     iconHost.innerHTML = MAP_PING_DOT_HTML;

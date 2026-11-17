@@ -4,26 +4,29 @@
  */
 import { EntityAvatar } from "@/components/EntityAvatar";
 import {
-  driverBodySecondary,
-  driverUIBold,
-  driverUISemiBold,
+    driverBodySecondary,
+    driverUIBold,
+    driverUISemiBold,
 } from "@/constants/DriverTypography";
 import Theme from "@/constants/Theme";
 import {
-  EMPTY_DRIVER_PARTY_AVATAR,
-  resolveDriverPartyAvatarMap,
-  type DriverPartyAvatarFields,
+    EMPTY_DRIVER_PARTY_AVATAR,
+    resolveDriverPartyAvatarMap,
+    type DriverPartyAvatarFields,
 } from "@/features/drivers/utils/driverPartyAvatar.util";
 import {
-  type DriverPartyReceivable,
-  summarizeDriverPartyReceivables,
+    MARKETPLACE_PARTY_ID,
+    summarizeDriverPartyReceivables,
+    UNTAGGED_PARTY_ID,
+    type DriverPartyReceivable,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import type { TripRow } from "@/features/trips/services/trips.service";
 import { ROUTES } from "@/lib/routes";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -47,6 +50,8 @@ type Props = {
   isDark: boolean;
   /** Wallet callers may pass this; trip rollups match the 8081 Self view. */
   audience?: "dco" | "offline" | "indie";
+  /** DCO settlements overview. Offline and other callers keep the table. */
+  variant?: "table" | "overview";
 };
 
 export function DriverSelfReceivablesPanel({
@@ -57,6 +62,7 @@ export function DriverSelfReceivablesPanel({
   colors,
   isDark,
   audience: _audience = "dco",
+  variant = "table",
 }: Props) {
   void _audience;
   const router = useRouter();
@@ -81,6 +87,143 @@ export function DriverSelfReceivablesPanel({
       cancelled = true;
     };
   }, [rows, trips, receivedByTripId, isFleetDispatched]);
+
+  const openParty = (partyId: string) => router.push(ROUTES.driverPartyReceivable(partyId));
+
+  if (variant === "overview") {
+    const marketplace = rows.find((row) => row.id === MARKETPLACE_PARTY_ID) ?? null;
+    const untagged = rows.find((row) => row.id === UNTAGGED_PARTY_ID) ?? null;
+    const tagged = rows.filter(
+      (row) => row.id !== MARKETPLACE_PARTY_ID && row.id !== UNTAGGED_PARTY_ID,
+    );
+    return (
+      <View style={styles.wrap}>
+        <View style={styles.summaryRow}>
+          <LinearGradient
+            colors={isDark ? [colors.surface, colors.surface] : [Theme.cardWhite, Theme.driverEmeraldWash]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.summaryCard, { borderColor: hairline }]}
+          >
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Total outstanding</Text>
+            <Text style={[styles.summaryOutstanding, { color: summary.due > 0 ? Theme.negative : colors.emerald }]}>
+              {inr(summary.due)}
+            </Text>
+          </LinearGradient>
+          <View style={[styles.collectionCard, { backgroundColor: colors.surface, borderColor: hairline }]}>
+            <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Collection</Text>
+            <Text style={[styles.collectionValue, { color: colors.emerald }]}>{summary.collectionPercent}%</Text>
+            <Text style={[styles.collectionHint, { color: colors.textMuted }]}>
+              {inr(summary.received)} of {inr(summary.billed)}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Transactions</Text>
+
+        {rows.length === 0 ? (
+          <View
+            style={[
+              styles.emptyTxnCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: isDark ? colors.border : Theme.borderLight,
+              },
+            ]}
+          >
+            <View style={[styles.emptyTxnIcon, { backgroundColor: Theme.driverEmeraldMuted }]}>
+              <FontAwesome name="arrow-down" size={14} color={colors.emerald} />
+            </View>
+            <Text style={[styles.emptyTxnTitle, { color: colors.text }]}>No receivables yet</Text>
+          </View>
+        ) : null}
+
+        {marketplace ? (
+          <TouchableOpacity
+            style={[styles.marketCard, { borderColor: isDark ? colors.border : Theme.driverEmeraldBorderSoft }]}
+            onPress={() => openParty(marketplace.id)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${marketplace.name}, ${inr(marketplace.due)} outstanding`}
+          >
+            <EntityAvatar name={marketplace.name} initialsColorSeed={marketplace.id} entityType="supplier" isIntegrated size={32} showIntegrationBadge={false} />
+            <Text style={[styles.categoryName, { color: colors.text, flex: 1 }]} numberOfLines={1}>{marketplace.name}</Text>
+            <Text style={[styles.categoryDue, { color: marketplace.due > 0 ? Theme.negative : colors.emerald }]}>{inr(marketplace.due)}</Text>
+            <FontAwesome name="chevron-down" size={12} color={colors.textMuted} />
+          </TouchableOpacity>
+        ) : null}
+
+        {untagged ? (
+          <View style={[styles.untaggedCard, { backgroundColor: colors.surface, borderColor: isDark ? colors.border : Theme.borderMedium }]}>
+            <TouchableOpacity
+              style={styles.untaggedTop}
+              onPress={() => openParty(untagged.id)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`${untagged.name}, ${inr(untagged.due)} outstanding`}
+            >
+              <View style={styles.untaggedBadge}>
+                <FontAwesome name="briefcase" size={13} color={Theme.driverCtaFill} />
+              </View>
+              <View style={styles.untaggedCopy}>
+                <Text style={[styles.categoryName, { color: colors.text }]}>{untagged.name}</Text>
+                <Text style={[styles.untaggedHint, { color: colors.textMuted }]} numberOfLines={1}>
+                  {untagged.subtitle}
+                </Text>
+              </View>
+              <Text style={[styles.categoryDue, { color: untagged.due > 0 ? Theme.negative : colors.emerald }]}>{inr(untagged.due)}</Text>
+              <FontAwesome name="chevron-down" size={12} color={colors.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => openParty(untagged.id)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Assign shipper"
+              style={styles.assignLink}
+            >
+              <Text style={styles.assignLinkText}>Assign shipper</Text>
+              <FontAwesome name="arrow-right" size={10} color={Theme.textPrimaryDark} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {tagged.length > 0 ? (
+          <View style={[styles.taggedCard, { backgroundColor: colors.surface, borderColor: hairline }]}>
+            <Text style={[styles.taggedLabel, { color: colors.textMuted }]}>Tagged shippers</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.avatarRow}>
+              {tagged.map((row) => {
+                const avatar = avatarByPartyId[row.id] ?? EMPTY_DRIVER_PARTY_AVATAR;
+                return (
+                  <TouchableOpacity
+                    key={row.id}
+                    style={styles.avatarItem}
+                    onPress={() => openParty(row.id)}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.name}, ${inr(row.due)} outstanding`}
+                  >
+                    <EntityAvatar
+                      name={row.name}
+                      initialsColorSeed={row.id}
+                      avatarUrl={avatar.avatarUrl}
+                      avatarSeed={avatar.avatarSeed}
+                      organizationImageUrl={avatar.organizationImageUrl}
+                      organizationAvatarSeed={avatar.organizationAvatarSeed}
+                      entityType="client"
+                      isIntegrated={avatar.isIntegrated}
+                      size={40}
+                      showIntegrationBadge={false}
+                    />
+                    <Text style={[styles.avatarName, { color: colors.text }]} numberOfLines={1}>{row.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap}>
@@ -139,13 +282,13 @@ export function DriverSelfReceivablesPanel({
       </View>
 
       {rows.length === 0 ? (
-        <View
-          style={[
-            styles.emptyCard,
-            { backgroundColor: colors.surface, borderColor: hairline },
-          ]}
-        >
-          <FontAwesome name="inbox" size={20} color={colors.textMuted} />
+        <View style={styles.emptyCard}>
+          <Image
+            source={require("../../../assets/images/receivables-van-parcel.png")}
+            style={styles.emptyArt}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>
             No receivables yet
           </Text>
@@ -248,20 +391,26 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     flex: 1.2,
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 72,
+    paddingVertical: 14,
+    minHeight: 78,
     justifyContent: "center",
+    overflow: "hidden",
+    shadowColor: Theme.textPrimaryDark,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
   collectionCard: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    minHeight: 72,
+    paddingVertical: 14,
+    minHeight: 78,
     justifyContent: "center",
   },
   summaryLabel: {
@@ -353,20 +502,147 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     alignItems: "center",
-    gap: 6,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 24,
+    gap: 8,
+    paddingTop: 28,
     paddingHorizontal: 16,
+  },
+  emptyArt: {
+    width: 168,
+    height: 112,
+    marginBottom: 4,
+  },
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyTitle: {
     ...driverUIBold,
-    fontSize: 13,
+    fontSize: 16,
+    letterSpacing: -0.2,
   },
   emptyBody: {
     ...driverBodySecondary,
     fontSize: 11,
     textAlign: "center",
     lineHeight: 15,
+  },
+  emptyTxnCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: 2,
+    borderLeftColor: Theme.driverEmerald,
+  },
+  emptyTxnIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTxnTitle: {
+    ...driverUIBold,
+    flex: 1,
+    fontSize: 12,
+  },
+  sectionTitle: {
+    ...driverUIBold,
+    fontSize: 14,
+    marginTop: 6,
+  },
+  marketCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: Theme.driverEmeraldMuted,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  untaggedCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  untaggedTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  untaggedBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.driverEmeraldWash,
+  },
+  untaggedCopy: { flex: 1, minWidth: 0, gap: 1 },
+  untaggedHint: {
+    ...driverBodySecondary,
+    fontSize: 11,
+  },
+  categoryName: {
+    ...driverUIBold,
+    fontSize: 14,
+  },
+  categoryDue: {
+    ...driverUIBold,
+    fontSize: 13,
+  },
+  assignLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    minHeight: 32,
+  },
+  assignLinkText: {
+    ...driverUISemiBold,
+    fontSize: 12,
+    color: Theme.textPrimaryDark,
+  },
+  taggedCard: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  taggedLabel: {
+    ...driverUIBold,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  avatarRow: {
+    gap: 12,
+    paddingRight: 4,
+  },
+  avatarItem: {
+    width: 64,
+    alignItems: "center",
+    gap: 4,
+  },
+  avatarName: {
+    ...driverUISemiBold,
+    fontSize: 10,
+    textAlign: "center",
   },
 });

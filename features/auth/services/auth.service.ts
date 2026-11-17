@@ -2023,6 +2023,8 @@ export interface UpdateProfileOptions {
   avatar_seed?: string | null;
   /** Profile quote/status (WhatsApp-style). */
   status_text?: string | null;
+  /** Login email. A change is sent to Auth and public.profiles. */
+  email?: string;
 }
 
 /**
@@ -2046,6 +2048,13 @@ export async function updateProfile(
       updates.company_name,
     );
     if (companyErr) return { error: new Error(companyErr) };
+  }
+  if (updates.email !== undefined) {
+    const emailErr = validateEmail(updates.email);
+    if (emailErr) return { error: new Error(emailErr) };
+    if (!updates.email.trim()) {
+      return { error: new Error("Email cannot be removed.") };
+    }
   }
   if (updates.status_text !== undefined && updates.status_text !== null) {
     const statusErr = maxLength(
@@ -2084,6 +2093,11 @@ export async function updateProfile(
     if (updates.status_text !== undefined)
       data.status_text = updates.status_text?.trim() ?? "";
 
+    const nextEmail =
+      updates.email !== undefined ? updates.email.trim().toLowerCase() : "";
+    const currentEmail = (user.email ?? "").trim().toLowerCase();
+    const emailChanged = Boolean(nextEmail) && nextEmail !== currentEmail;
+
     if (updates.phone !== undefined && String(updates.phone).trim()) {
       const nextTen = extractIndianMobileTenDigits(updates.phone);
       const currentTen =
@@ -2103,7 +2117,10 @@ export async function updateProfile(
       }
     }
 
-    const { error: authError } = await supabase().auth.updateUser({ data });
+    const { error: authError } = await supabase().auth.updateUser({
+      ...(emailChanged ? { email: nextEmail } : {}),
+      data,
+    });
     if (authError) return { error: new Error(authError.message || "Auth update failed") };
 
     // 2. Sync to public.profiles table (for relational use, searching, and public profile view)
@@ -2120,6 +2137,7 @@ export async function updateProfile(
     if (updates.avatar_seed !== undefined) profileUpdates.avatar_seed = updates.avatar_seed;
     // Note: Profiles table uses 'bio' for status/quote (from migrations)
     if (updates.status_text !== undefined) profileUpdates.bio = updates.status_text?.trim() ?? "";
+    if (emailChanged) profileUpdates.email = nextEmail;
     
     // We update public.profiles but don't block the UI if it fails (metadata is the primary driver for the current user)
     const { error: dbError } = await supabase()

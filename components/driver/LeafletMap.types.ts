@@ -27,6 +27,8 @@ export type LeafletMarker = {
   avatarUri?: string | null;
   avatarSeed?: string | null;
   isOnline?: boolean;
+  /** Truck badge once the driver is at the active stop. Moves with this marker. */
+  showArrivalTruck?: boolean;
   /** Active guidance target — subtle pulse on pickup/drop. */
   highlighted?: boolean;
   /** Pickup 1 / Drop 2 numbering for multi-stop plans. */
@@ -82,6 +84,7 @@ export type LeafletMapRef = {
     sw: LeafletLatLng,
     paddingPx?: number,
     maxZoom?: number,
+    insets?: { top?: number; right?: number; bottom?: number; left?: number },
   ) => void;
   zoomIn: () => void;
   zoomOut: () => void;

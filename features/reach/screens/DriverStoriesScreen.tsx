@@ -38,12 +38,16 @@ import {
   deactivateFleetOwnerCapacityStory,
   type FleetOwnerCapacityStory,
 } from '@/features/driver/services/fleetOwnerCapacityStory.service';
+import { SearchableFilterDropdown } from '@/features/reach/components/SearchableFilterDropdown';
 import {
   bidStatusFilterLabel,
+  bidStatusFilterOptions,
+  bidStatusFilterTone,
   compareLoadOpportunities,
   dedupeDriverReachStories,
   directBidUiBucket,
   matchesBidStatusFilter,
+  parseBidStatusFilterParam,
   type BidStatusFilter,
 } from '@/features/reach/utils/directBidLifecycle';
 import {
@@ -133,7 +137,7 @@ function referralStatusChip(story: DriverReachStoryRow): {
   }
 }
 
-/** Compact filter dropdown cell — label + tiny value preview + chevron. */
+/** Compact filter dropdown cell — label + value + rotating chevron. */
 function FilterDropdownCell({
   icon: Icon,
   label,
@@ -160,18 +164,28 @@ function FilterDropdownCell({
         pressed && styles.filterCellPressed,
       ]}
       accessibilityRole="button"
+      accessibilityState={{ expanded: !!active }}
       accessibilityLabel={`${label}: ${value}. Change filter`}
     >
       <View style={styles.filterCellTop}>
-        <Icon size={11} color={Theme.textMuted} strokeWidth={2.2} />
-        <Text style={styles.filterCellLabel} numberOfLines={1}>
+        <Icon
+          size={11}
+          color={active ? Theme.driverEmeraldDark : Theme.textMuted}
+          strokeWidth={2.2}
+        />
+        <Text
+          style={[styles.filterCellLabel, active && styles.filterCellLabelOpen]}
+          numberOfLines={1}
+        >
           {label}
         </Text>
-        <ChevronDown
-          size={12}
-          color={active || filled ? Theme.textPrimaryDark : Theme.textMuted}
-          strokeWidth={2.4}
-        />
+        <View style={active ? styles.chevronOpen : undefined}>
+          <ChevronDown
+            size={12}
+            color={active || filled ? Theme.driverEmeraldDark : Theme.textMuted}
+            strokeWidth={2.4}
+          />
+        </View>
       </View>
       <Text
         style={[
@@ -187,71 +201,7 @@ function FilterDropdownCell({
   );
 }
 
-function FilterChip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.filterChip, selected && styles.filterChipSelected]}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-    >
-      <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 type FilterMenuKey = 'pickup' | 'drop' | 'status';
-
-type FilterOption = { value: string; label: string };
-
-function FilterOptionsPanel({
-  title,
-  options,
-  selectedValue,
-  onSelect,
-}: {
-  title: string;
-  options: ReadonlyArray<FilterOption>;
-  selectedValue: string;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <View style={styles.filterPanel}>
-      <Text style={styles.filterPanelTitle}>{title}</Text>
-      <View style={styles.filterPanelGrid}>
-        {options.map((opt) => {
-          const on = opt.value === selectedValue;
-          return (
-            <Pressable
-              key={opt.value || '__any__'}
-              onPress={() => onSelect(opt.value)}
-              style={[styles.filterPanelChip, on && styles.filterPanelChipOn]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-            >
-              <Text
-                style={[styles.filterPanelChipText, on && styles.filterPanelChipTextOn]}
-                numberOfLines={1}
-              >
-                {opt.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
 
 /**
  * Presentation-only content adapter — the same Reach reel/filters/cards/
@@ -261,14 +211,14 @@ function FilterOptionsPanel({
  */
 /**
  * Shared feed controls -- one filter row covers both Reach and Marketplace so the two read as
- * one work surface with two arrival mechanisms, not two screens stacked. pickup/drop/fitsFleet
- * apply to both sources identically; bidStatus is Reach-specific vocabulary (open/quoted/counter
- * has no Market equivalent -- market_bids is pending/accepted/rejected/withdrawn), so it's passed
- * through but the Marketplace side is free to ignore it.
+ * one work surface with two arrival mechanisms, not two screens stacked. pickup/drop apply to
+ * both sources identically; bidStatus is Reach-specific vocabulary (Market STATUS dropdown),
+ * so it's passed through but the Marketplace side is free to ignore it.
  */
 export interface SharedFeedFilters {
   pickup: string | null;
   drop: string | null;
+  /** Kept for callers; fleet chip removed from Market UI — always false. */
   fitsFleet: boolean;
 }
 
@@ -338,20 +288,14 @@ export function StoriesContent({
     pickup?: string;
     drop?: string;
     status?: string;
-    fitsFleet?: string;
   }>();
   const pickupFilter = filterParams.pickup || null;
   const dropFilter = filterParams.drop || null;
-  const bidStatusFilter: BidStatusFilter =
-    filterParams.status === 'open' || filterParams.status === 'quoted' || filterParams.status === 'counter'
-      ? filterParams.status
-      : 'all';
-  const fitsFleetFilter = filterParams.fitsFleet === '1';
+  const bidStatusFilter: BidStatusFilter = parseBidStatusFilterParam(filterParams.status);
 
   const setPickupFilter = (v: string | null) => router.setParams({ pickup: v ?? '' });
   const setDropFilter = (v: string | null) => router.setParams({ drop: v ?? '' });
   const setBidStatusFilter = (v: BidStatusFilter) => router.setParams({ status: v });
-  const setFitsFleetFilter = (v: boolean) => router.setParams({ fitsFleet: v ? '1' : '0' });
 
   useEffect(() => {
     let cancelled = false;
@@ -428,13 +372,6 @@ export function StoriesContent({
         if (dest.toLowerCase() !== dropFilter.toLowerCase()) return false;
       }
       if (!matchesBidStatusFilter(s, bidStatusFilter)) return false;
-      if (
-        fitsFleetFilter &&
-        fleetVehicleTypes.length > 0 &&
-        !isVehicleTypeCompatibleWithFleet(s.snapshot_vehicle_type, fleetVehicleTypes)
-      ) {
-        return false;
-      }
       return true;
     });
 
@@ -449,7 +386,7 @@ export function StoriesContent({
     scored.sort(compareLoadOpportunities);
 
     return scored;
-  }, [stories, pickupFilter, dropFilter, bidStatusFilter, fitsFleetFilter, fleetVehicleTypes]);
+  }, [stories, pickupFilter, dropFilter, bidStatusFilter, fleetVehicleTypes]);
 
   /**
    * Action Needed — counter/quoted items needing a driver response, independent
@@ -639,8 +576,30 @@ export function StoriesContent({
 
   const cardBg = isDark ? colors.surface : Theme.cardWhite;
   const hasActiveFilters =
-    pickupFilter != null || dropFilter != null || bidStatusFilter !== 'all' || fitsFleetFilter;
-  const BID_STATUS_FILTERS: BidStatusFilter[] = ['all', 'open', 'quoted', 'counter'];
+    pickupFilter != null || dropFilter != null || bidStatusFilter !== 'all';
+  const statusMenuOptions = bidStatusFilterOptions().map((f) => ({
+    value: f,
+    label: bidStatusFilterLabel(f),
+    tone: bidStatusFilterTone(f),
+  }));
+  const pickupMenuOptions = [
+    { value: '', label: 'Any' },
+    ...pickupOptions.map((city) => ({ value: city, label: city })),
+  ];
+  const dropMenuOptions = [
+    { value: '', label: 'Any' },
+    ...dropOptions.map((city) => ({ value: city, label: city })),
+  ];
+  const statusTriggerLabel =
+    bidStatusFilter === 'all'
+      ? 'All'
+      : bidStatusFilter === 'open'
+        ? 'Open'
+        : bidStatusFilter === 'negotiating'
+          ? 'Negotiating'
+          : bidStatusFilter === 'awarded'
+            ? 'Awarded'
+            : 'Closed';
 
   return (
     <>
@@ -670,6 +629,10 @@ export function StoriesContent({
           />
         }
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => {
+          if (openFilterMenu) setOpenFilterMenu(null);
+        }}
       >
         {listHeader}
         {actionNeededItems.length > 0 ? (
@@ -801,7 +764,7 @@ export function StoriesContent({
             <FilterDropdownCell
               icon={BadgeCheck}
               label="Status"
-              value={bidStatusFilterLabel(bidStatusFilter)}
+              value={statusTriggerLabel}
               filled={bidStatusFilter !== 'all'}
               active={openFilterMenu === 'status'}
               onPress={() =>
@@ -811,78 +774,56 @@ export function StoriesContent({
           </View>
 
           {openFilterMenu === 'pickup' ? (
-            <FilterOptionsPanel
-              title="Pickup city"
+            <SearchableFilterDropdown
+              title="Select pickup"
+              searchable
+              searchPlaceholder="Search pickup city..."
+              options={pickupMenuOptions}
               selectedValue={pickupFilter ?? ''}
-              options={[
-                { value: '', label: 'Any' },
-                ...pickupOptions.map((city) => ({ value: city, label: city })),
-              ]}
+              onClose={() => setOpenFilterMenu(null)}
               onSelect={(v) => {
                 setPickupFilter(v || null);
                 setOpenFilterMenu(null);
               }}
+              testID="market-filter-pickup-menu"
             />
           ) : null}
           {openFilterMenu === 'drop' ? (
-            <FilterOptionsPanel
-              title="Drop city"
+            <SearchableFilterDropdown
+              title="Select drop"
+              searchable
+              searchPlaceholder="Search drop city..."
+              options={dropMenuOptions}
               selectedValue={dropFilter ?? ''}
-              options={[
-                { value: '', label: 'Any' },
-                ...dropOptions.map((city) => ({ value: city, label: city })),
-              ]}
+              onClose={() => setOpenFilterMenu(null)}
               onSelect={(v) => {
                 setDropFilter(v || null);
                 setOpenFilterMenu(null);
               }}
+              testID="market-filter-drop-menu"
             />
           ) : null}
           {openFilterMenu === 'status' ? (
-            <FilterOptionsPanel
-              title="Bid status"
+            <SearchableFilterDropdown
+              title="Select status"
+              searchable={false}
+              options={statusMenuOptions}
               selectedValue={bidStatusFilter}
-              options={BID_STATUS_FILTERS.map((f) => ({
-                value: f,
-                label: bidStatusFilterLabel(f),
-              }))}
+              onClose={() => setOpenFilterMenu(null)}
               onSelect={(v) => {
-                setBidStatusFilter(v as BidStatusFilter);
+                setBidStatusFilter(parseBidStatusFilterParam(v));
                 setOpenFilterMenu(null);
               }}
+              testID="market-filter-status-menu"
             />
           ) : null}
 
-          {fleetVehicleTypes.length > 0 ? (
-            <View style={styles.filterMetaRow}>
-              <FilterChip
-                label="Fits my fleet"
-                selected={fitsFleetFilter}
-                onPress={() => setFitsFleetFilter(!fitsFleetFilter)}
-              />
-              {hasActiveFilters ? (
-                <Pressable
-                  onPress={() => {
-                    setPickupFilter(null);
-                    setDropFilter(null);
-                    setBidStatusFilter('all');
-                    setFitsFleetFilter(false);
-                    setOpenFilterMenu(null);
-                  }}
-                  hitSlop={8}
-                  style={styles.clearFilters}
-                >
-                  <Text style={styles.clearFiltersText}>Clear</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : hasActiveFilters ? (
+          {hasActiveFilters ? (
             <Pressable
               onPress={() => {
                 setPickupFilter(null);
                 setDropFilter(null);
                 setBidStatusFilter('all');
-                setFitsFleetFilter(false);
                 setOpenFilterMenu(null);
               }}
               hitSlop={8}
@@ -1215,7 +1156,7 @@ export function StoriesContent({
             ) : null}
 
         {footer
-          ? footer({ pickup: pickupFilter, drop: dropFilter, fitsFleet: fitsFleetFilter })
+          ? footer({ pickup: pickupFilter, drop: dropFilter, fitsFleet: false })
           : null}
       </ScrollView>
 
@@ -1565,11 +1506,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterCellOpen: {
-    borderColor: Theme.borderMedium,
-    backgroundColor: Theme.surfaceGray,
+    borderColor: Theme.driverEmeraldDark,
+    borderWidth: 1.5,
+    backgroundColor: Theme.driverEmeraldMuted,
   },
   filterCellFilled: {
-    borderColor: 'rgba(148,163,184,0.45)',
+    borderColor: Theme.driverEmeraldBorder,
     backgroundColor: Theme.cardWhite,
   },
   filterCellPressed: {
@@ -1591,6 +1533,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     lineHeight: 11,
   },
+  filterCellLabelOpen: {
+    color: Theme.driverEmeraldDark,
+  },
+  chevronOpen: {
+    transform: [{ rotate: '180deg' }],
+  },
   filterCellValue: {
     fontSize: 11,
     fontWeight: '700',
@@ -1602,89 +1550,10 @@ const styles = StyleSheet.create({
     color: Theme.textPrimaryDark,
   },
   filterCellValueOpen: {
-    color: Theme.textPrimaryDark,
-  },
-  filterMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  filterPanel: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    backgroundColor: Theme.cardWhite,
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    gap: 8,
-  },
-  filterPanelTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Theme.textMuted,
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
-  },
-  filterPanelGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  filterPanelChip: {
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    minHeight: 32,
-    borderRadius: 8,
-    backgroundColor: Theme.surfaceGray,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    maxWidth: '100%',
-  },
-  filterPanelChipOn: {
-    backgroundColor: Theme.driverEmeraldMuted,
-    borderColor: Theme.driverEmerald,
-  },
-  filterPanelChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Theme.textSecondary,
-  },
-  filterPanelChipTextOn: {
     color: Theme.driverEmeraldDark,
-    fontWeight: '800',
-  },
-  filterChip: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    minHeight: 30,
-    borderRadius: 8,
-    backgroundColor: Theme.surfaceGray,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterChipSelected: {
-    backgroundColor: Theme.cardWhite,
-    borderColor: Theme.borderMedium,
-  },
-  filterChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Theme.textSecondary,
-    lineHeight: 14,
-    includeFontPadding: false,
-  },
-  filterChipTextSelected: {
-    color: Theme.textPrimaryDark,
-    fontWeight: '700',
   },
   clearFilters: {
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     paddingVertical: 2,
   },
   clearFiltersText: {

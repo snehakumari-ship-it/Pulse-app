@@ -11,6 +11,8 @@ import { SLACK_STREAM_TABS } from "@/features/chat/components/shared/chatSlackSt
 import type { ResolvedPartyAvatarIdentity } from "@/lib/entityIdentity";
 import { getSignedAvatarUrl } from "@/lib/avatarUpload";
 import { CHAT_ACCENT } from "@/features/chat/chatTheme";
+import { driverChatInboxStyles as driver } from "@/features/chat/components/driver/driverChatInbox.styles";
+import { Theme } from "@/constants/Theme";
 import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";
 import {
@@ -160,6 +162,7 @@ export function ChatSlackListHeader({
   profileAvatarUrl,
   profileAvatarSeed,
   profileOrgLogoUrl,
+  tone = "slack",
 }: {
   /** Active stream tab — DMs, Trips, Integrated. */
   streamLabel: string;
@@ -172,46 +175,53 @@ export function ChatSlackListHeader({
   profileAvatarUrl?: string | null;
   profileAvatarSeed?: string | null;
   profileOrgLogoUrl?: string | null;
+  /** Driver inbox uses the mint driver header. Fleet chat stays on Slack chrome. */
+  tone?: "slack" | "driver";
 }) {
+  const isDriver = tone === "driver";
   const contextLine = [streamLabel, orgName?.trim()].filter(Boolean).join(" · ");
   return (
-    <View style={[st.listHeader, { paddingTop: topInset + 8 }]}>
-      <LinearGradient
-        pointerEvents="none"
-        colors={[
-          "rgba(255, 255, 255, 0.14)",
-          "rgba(255, 255, 255, 0.04)",
-          "rgba(255, 255, 255, 0)",
-        ]}
-        locations={[0, 0.35, 0.72]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        style={st.listHeaderMirrorSheen}
-      />
-      <View style={st.listHeaderMirrorGlow} pointerEvents="none" />
-      <View style={st.listHeaderAccentLine} pointerEvents="none" />
+    <View style={[st.listHeader, isDriver && driver.header, { paddingTop: topInset + 8 }]}>
+      {isDriver ? null : (
+        <>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[
+              "rgba(255, 255, 255, 0.14)",
+              "rgba(255, 255, 255, 0.04)",
+              "rgba(255, 255, 255, 0)",
+            ]}
+            locations={[0, 0.35, 0.72]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={st.listHeaderMirrorSheen}
+          />
+          <View style={st.listHeaderMirrorGlow} pointerEvents="none" />
+          <View style={st.listHeaderAccentLine} pointerEvents="none" />
+        </>
+      )}
       <TouchableOpacity
         onPress={onBack}
         hitSlop={10}
-        style={[st.listHeaderMirrorBtn, st.listHeaderCloseBtn]}
+        style={[st.listHeaderMirrorBtn, st.listHeaderCloseBtn, isDriver && driver.closeBtn]}
         accessibilityRole="button"
         accessibilityLabel="Close chat"
       >
         <X
           size={SLACK_ICON.sizeClose}
-          color="#FFFFFF"
+          color={isDriver ? Theme.driverCtaFill : "#FFFFFF"}
           strokeWidth={SLACK_ICON.strokeHeader}
         />
       </TouchableOpacity>
       <View style={st.listHeaderTextCol}>
         <View style={st.listHeaderBrandRow}>
-          <Text style={st.listHeaderTitle} numberOfLines={1}>
-            pulse business chat
+          <Text style={isDriver ? driver.headerTitle : st.listHeaderTitle} numberOfLines={1}>
+            {isDriver ? "Messages" : "pulse business chat"}
           </Text>
-          <Text style={st.listHeaderBrandDot}>.</Text>
+          {isDriver ? null : <Text style={st.listHeaderBrandDot}>.</Text>}
         </View>
         {contextLine ? (
-          <Text style={st.listHeaderSubtitle} numberOfLines={1}>
+          <Text style={isDriver ? driver.headerSubtitle : st.listHeaderSubtitle} numberOfLines={1}>
             {contextLine}
           </Text>
         ) : null}
@@ -228,7 +238,7 @@ export function ChatSlackListHeader({
             <PenLine size={17} color="#FFFFFF" strokeWidth={SLACK_ICON.strokeHeader} />
           </TouchableOpacity>
         ) : null}
-        <View style={st.listHeaderAvatarWrap}>
+        <View style={[st.listHeaderAvatarWrap, isDriver && driver.avatarWrap]}>
           <View style={st.peopleAvatarCircle}>
             <ChatPartyAvatar
               identity={
@@ -245,7 +255,7 @@ export function ChatSlackListHeader({
               size={SLACK_AVATAR.listHeader}
             />
           </View>
-          <View style={st.listHeaderOnlineDot} />
+          <View style={[st.listHeaderOnlineDot, isDriver && driver.onlineDot]} />
         </View>
       </View>
     </View>
@@ -577,6 +587,9 @@ function ChatListPreviewWithStar({
   showStar,
   starFilled,
   onPressStar,
+  starColor = CHAT_ACCENT,
+  containerStyle,
+  starButtonStyle,
 }: {
   text: string;
   style?: StyleProp<TextStyle>;
@@ -584,6 +597,9 @@ function ChatListPreviewWithStar({
   showStar?: boolean;
   starFilled?: boolean;
   onPressStar?: () => void;
+  starColor?: string;
+  containerStyle?: StyleProp<ViewStyle>;
+  starButtonStyle?: StyleProp<ViewStyle>;
 }) {
   if (!showStar) {
     return (
@@ -591,7 +607,7 @@ function ChatListPreviewWithStar({
     );
   }
   return (
-    <View style={st.listRowPreviewStarRow}>
+    <View style={[st.listRowPreviewStarRow, containerStyle]}>
       <View style={st.listRowPreviewStarText}>
         <ChatListPreviewText
           text={text}
@@ -607,6 +623,7 @@ function ChatListPreviewWithStar({
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         style={({ pressed }) => [
           st.listRowPreviewStarBtn,
+          starButtonStyle,
           pressed && st.listRowPreviewStarBtnPressed,
         ]}
         accessibilityRole="button"
@@ -614,8 +631,8 @@ function ChatListPreviewWithStar({
       >
         <Star
           size={16}
-          color={CHAT_ACCENT}
-          fill={starFilled ? CHAT_ACCENT : "transparent"}
+          color={starColor}
+          fill={starFilled ? starColor : "transparent"}
           strokeWidth={2}
         />
       </Pressable>
@@ -642,6 +659,7 @@ function ChatSlackListRowInner({
   showPreviewStar,
   previewStarFilled,
   onPressPreviewStar,
+  tone = "slack",
 }: {
   identity: ResolvedPartyAvatarIdentity;
   title: string;
@@ -663,6 +681,8 @@ function ChatSlackListRowInner({
   showPreviewStar?: boolean;
   previewStarFilled?: boolean;
   onPressPreviewStar?: () => void;
+  /** Driver inbox uses mint cards. Fleet chat stays on Slack rows. */
+  tone?: "slack" | "driver";
 }) {
   const badgeLabel =
     previewKind === "system"
@@ -682,42 +702,61 @@ function ChatSlackListRowInner({
     Boolean(previewImagePreviews && previewImagePreviews.length > 0);
   const hasDriverSwapPreview =
     previewKind === "driver_swap" && Boolean(previewDriverSwap);
+  const isDriver = tone === "driver";
+  const starColor = isDriver ? Theme.driverGold : CHAT_ACCENT;
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         st.listRow,
+        isDriver && driver.row,
         (hasImageStrip || hasDriverSwapPreview) && st.listRowWithMedia,
-        recommended && st.listRowRecommended,
-        active && st.listRowActive,
-        pressed && st.listRowPressed,
+        (hasImageStrip || hasDriverSwapPreview) && isDriver && driver.rowWithMedia,
+        !isDriver && recommended && st.listRowRecommended,
+        active && (isDriver ? driver.rowActive : st.listRowActive),
+        pressed && (isDriver ? driver.rowPressed : st.listRowPressed),
       ]}
     >
       <View style={st.listRowAvatarWrap}>
-        <View style={st.listRowAvatarCircle}>
+        <View style={[st.listRowAvatarCircle, isDriver && driver.avatarRing]}>
           <ChatPartyAvatar identity={identity} size={SLACK_AVATAR.list} />
         </View>
-        {unread && unread > 0 && !active ? <View style={st.listRowUnreadDot} /> : null}
+        {unread && unread > 0 && !active ? (
+          <View style={[st.listRowUnreadDot, isDriver && driver.unreadDot]} />
+        ) : null}
       </View>
       <View style={st.listRowBody}>
         <View style={st.listRowTop}>
           <View style={st.listRowTitleWrap}>
-            <Text style={st.listRowTitle} numberOfLines={1}>
+            <Text style={[st.listRowTitle, isDriver && driver.title]} numberOfLines={1}>
               {title}
             </Text>
-            {titleMeta ? (
+            {!isDriver && titleMeta ? (
               <Text style={st.listRowTitleMeta} numberOfLines={1}>
                 {titleMeta}
               </Text>
             ) : null}
           </View>
           {time ? (
-            <Text style={st.listRowTime} numberOfLines={1}>
+            <Text style={[st.listRowTime, isDriver && driver.time]} numberOfLines={1}>
               {time}
             </Text>
           ) : null}
         </View>
-        {partyLine ? (
+        {isDriver && (partyLine || titleMeta) ? (
+          <View style={driver.metaRow}>
+            {partyLine ? (
+              <Text style={driver.party} numberOfLines={1}>
+                {partyLine}
+              </Text>
+            ) : null}
+            {titleMeta ? (
+              <Text style={driver.date} numberOfLines={1}>
+                {titleMeta}
+              </Text>
+            ) : null}
+          </View>
+        ) : partyLine ? (
           <Text style={st.listRowPartyLine} numberOfLines={1}>
             {partyLine}
           </Text>
@@ -737,11 +776,18 @@ function ChatSlackListRowInner({
             {preview ? (
               <ChatListPreviewWithStar
                 text={preview}
-                style={[st.listRowPreview, st.listRowPreviewBelowMedia]}
+                style={[
+                  st.listRowPreview,
+                  isDriver ? driver.preview : null,
+                  isDriver ? driver.previewBelowMedia : st.listRowPreviewBelowMedia,
+                ]}
                 numberOfLines={3}
                 showStar={showPreviewStar}
                 starFilled={previewStarFilled}
                 onPressStar={onPressPreviewStar}
+                starColor={starColor}
+                containerStyle={isDriver ? driver.starRow : undefined}
+                starButtonStyle={isDriver ? driver.starBtn : undefined}
               />
             ) : null}
           </>
@@ -763,21 +809,27 @@ function ChatSlackListRowInner({
               </Text>
               <ChatListPreviewWithStar
                 text={preview}
-                style={st.listRowPreview}
+                style={[st.listRowPreview, isDriver && driver.preview]}
                 numberOfLines={2}
                 showStar={showPreviewStar}
                 starFilled={previewStarFilled}
                 onPressStar={onPressPreviewStar}
+                starColor={starColor}
+                containerStyle={isDriver ? driver.starRow : undefined}
+                starButtonStyle={isDriver ? driver.starBtn : undefined}
               />
             </View>
           ) : (
             <ChatListPreviewWithStar
               text={preview}
-              style={st.listRowPreview}
+              style={[st.listRowPreview, isDriver && driver.preview]}
               numberOfLines={2}
               showStar={showPreviewStar}
               starFilled={previewStarFilled}
               onPressStar={onPressPreviewStar}
+              starColor={starColor}
+              containerStyle={isDriver ? driver.starRow : undefined}
+              starButtonStyle={isDriver ? driver.starBtn : undefined}
             />
           )
         ) : null}

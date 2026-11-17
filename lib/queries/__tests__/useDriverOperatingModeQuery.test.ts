@@ -11,6 +11,8 @@ describe("useDriverOperatingModeQuery source", () => {
     expect(src).toMatch(/canAddDcoShippers: ready && canAddDcoShippers\(operatingMode\)/);
     expect(src).toMatch(/canTagOfflineParty: ready && canTagOfflineParty\(operatingMode\)/);
     expect(src).toMatch(/canManageDcoSelfBook: ready && canManageDcoSelfBook\(operatingMode\)/);
+    expect(src).toMatch(/isDco: ready && isDcoOperatingMode\(operatingMode\)/);
+    expect(src).toMatch(/AppState.addEventListener\('change'/);
   });
 });
 
