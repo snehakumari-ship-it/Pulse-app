@@ -5454,6 +5454,8 @@ export default function TripDetailScreen({
       } satisfies TripDocItem);
     void handleVaultUpload(doc);
   };
+  // Plain function (not useCallback): this runs after the early returns above,
+  // so a hook here changes hook order between loading and loaded renders.
   const requestRemoveEwayBill = (row: EwayBillStripRow) => {
     const storagePath = row.previewPath?.trim() ?? "";
     if (!row.documentId && !storagePath) return;
@@ -7626,6 +7628,7 @@ export default function TripDetailScreen({
                           }
                           truckLocation={mapTruckLocation}
                           dbLocationTrail={mapDbLocationTrail}
+                          completedTrip={detail.tripCompleted}
                           truckStatus={mapTruckStatus}
                           height="100%"
                           onDistanceCalculated={setMapRouteDistanceKm}
@@ -7669,7 +7672,7 @@ export default function TripDetailScreen({
                         <View style={neoStyles.radarBottomMetaRow}>
                           <View style={neoStyles.radarBottomLeft}>
                             <Text style={neoStyles.radarMetaLabel}>
-                              Driver location
+                              {detail.tripCompleted ? "Trip completed" : "Driver location"}
                             </Text>
                             <Text
                               style={neoStyles.radarMetaValue}
@@ -7679,7 +7682,13 @@ export default function TripDetailScreen({
                                 driverLastPingDisplay.cityLabel?.trim() ||
                                 (driverMapTrackingEligible
                                   ? "Waiting for first ping"
-                                  : "—")}
+                                  : detail.tripCompleted
+                                    ? mapDbLocationTrail.length > 1
+                                      ? "Driven route shown on map"
+                                      : mapDbLocationTrail.length === 1
+                                        ? "Last location shown on map"
+                                        : "No GPS saved for this trip"
+                                    : "—")}
                             </Text>
                             {detail.driverName?.trim() ? (
                               <>
@@ -8298,6 +8307,7 @@ export default function TripDetailScreen({
                     }
                     truckLocation={mapTruckLocation}
                     dbLocationTrail={mapDbLocationTrail}
+                    completedTrip={detail.tripCompleted}
                     truckStatus={mapTruckStatus}
                     height={mapHeight}
                     onDistanceCalculated={setMapRouteDistanceKm}
@@ -8739,6 +8749,7 @@ export default function TripDetailScreen({
                           }
                           truckLocation={mapTruckLocation}
                           dbLocationTrail={mapDbLocationTrail}
+                          completedTrip={detail.tripCompleted}
                           truckStatus={mapTruckStatus}
                           height={520}
                           onDistanceCalculated={setMapRouteDistanceKm}
