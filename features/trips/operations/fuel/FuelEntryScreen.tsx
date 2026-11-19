@@ -30,6 +30,7 @@ import { operationsEntryStyles as s } from "../shared/operationsEntryScreen.styl
 import { useOperationsSyncState } from "../state/useOperationsSyncState";
 import { DriverExpenseCategorySwitch } from "../shared/DriverExpenseCategorySwitch";
 import { DriverExpenseChipSelect } from "../shared/DriverExpenseChipSelect";
+import { DriverExpensePaymentFields } from "../shared/DriverExpensePaymentFields";
 import type { DriverExpenseCategoryNav } from "../shared/driverExpenseCategoryNav.util";
 import type { TripOtherExpenseCategory } from "../types";
 import {
@@ -175,15 +176,17 @@ const flowStyles = StyleSheet.create({
 export function FuelEntryScreen({
   trip,
   entryId,
-  otherCategory = "parking",
+  otherCategory = null,
   onCategoryNavChange,
+  onClearCategory,
   lockCategorySwitch = false,
   billCapture,
 }: {
   trip: TripRow;
   entryId?: string | null;
-  otherCategory?: TripOtherExpenseCategory;
+  otherCategory?: TripOtherExpenseCategory | null;
   onCategoryNavChange?: (next: DriverExpenseCategoryNav) => void;
+  onClearCategory?: () => void;
   lockCategorySwitch?: boolean;
   /** Shared OCR state from DriverUnifiedExpenseEntryScreen (keeps photo across category switch). */
   billCapture?: ExpenseBillCaptureBag;
@@ -206,14 +209,21 @@ export function FuelEntryScreen({
   const [paymentOwner, setPaymentOwner] = useState<OperationalPaymentOwner>(() =>
     defaultPaymentOwnerForTrip(trip, profile?.role),
   );
-  const [paymentMode, setPaymentMode] = useState<OperationalPaymentMode>("unknown");
+  const [paymentMode, setPaymentMode] = useState<OperationalPaymentMode | null>(null);
   const [hint, setHint] = useState<string | null>(null);
 
   const handleOcrPreview = useCallback(
     (result: ExpenseReceiptOcrResult) => {
       return previewFuelReceiptOcr(
         result,
-        { amountInr, liters, fuelType, stationName, notes, paymentMode },
+        {
+          amountInr,
+          liters,
+          fuelType,
+          stationName,
+          notes,
+          paymentMode: paymentMode ?? "unknown",
+        },
         {
           setAmountInr,
           setLiters,
@@ -298,7 +308,7 @@ export function FuelEntryScreen({
       setStationName(entry.station_name ?? "");
       setNotes(entry.notes ?? "");
       setPaymentOwner(entry.payment_owner ?? "organization");
-      setPaymentMode(entry.payment_mode ?? "unknown");
+      setPaymentMode(entry.payment_mode ?? null);
       const billPath = entry.bill_storage_path?.trim();
       if (billPath) {
         void getDocumentViewUrl(billPath).then((url) => {
@@ -402,12 +412,13 @@ export function FuelEntryScreen({
           />
         }
       >
-        <DriverExpenseSection title="Category & payment">
+        <DriverExpenseSection>
           <DriverExpenseCategorySwitch
             tripId={trip.id}
             formKind="fuel"
             otherCategory={otherCategory}
             onOtherCategoryChange={() => {}}
+            onClearCategory={onClearCategory}
             onCategoryNavChange={onCategoryNavChange}
             lockCategorySwitch={lockCategorySwitch}
             lockKindSwitch={isEditing}
@@ -421,16 +432,14 @@ export function FuelEntryScreen({
             columns={2}
             visualGroup="fuel_type"
           />
-          <DriverExpenseFieldDivider />
-          <DriverExpenseChipSelect
-            label="Payment mode"
-            options={PAYMENT_MODE_OPTIONS}
-            value={paymentMode}
-            onChange={setPaymentMode}
-            columns={3}
-            visualGroup="payment_mode"
-          />
         </DriverExpenseSection>
+
+        <DriverExpensePaymentFields
+          value={paymentMode}
+          onChange={setPaymentMode}
+          otherDetail={notes}
+          onOtherDetailChange={setNotes}
+        />
 
         <DriverExpenseSection title="Details">
           <View>
@@ -504,6 +513,9 @@ export function FuelEntryScreen({
             options={PAYMENT_MODE_OPTIONS}
             value={paymentMode}
             onChange={setPaymentMode}
+            onClear={() => setPaymentMode(null)}
+            clearable
+            collapseAfterSelect={false}
             columns={3}
             visualGroup="payment_mode"
           />

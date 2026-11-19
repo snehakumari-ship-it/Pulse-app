@@ -21,19 +21,11 @@ import { syncAndInvalidateLinkedDrivers } from '@/lib/syncLinkedDriversForDriver
 import {
   hydrateDriverSignupSuccessFlag,
 } from '@/lib/onboarding/businessSignupBranding.util';
-import {
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold,
-  PlusJakartaSans_800ExtraBold,
-  useFonts as usePlusJakartaFonts,
-} from '@expo-google-fonts/plus-jakarta-sans';
 import { useQueryClient } from '@tanstack/react-query';
 import { Redirect, Tabs } from 'expo-router';
 import { DEFAULT_DISPATCHER_ROUTE } from '@/lib/routes';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 /** Wait for AuthContext DB profile merge before bouncing JWT-stale "user" roles. */
 const WRONG_ROLE_HYDRATION_GRACE_MS = 2500;
@@ -121,16 +113,6 @@ function DriverTabsNavigator() {
 }
 
 export default function DriverAppLayout() {
-  // Web uses FontFaceObserver (expo-font) with a timeout; on failure we still mount so the app is usable with system fonts.
-  const [fontsLoaded, fontError] = usePlusJakartaFonts({
-    PlusJakartaSans_400Regular,
-    PlusJakartaSans_500Medium,
-    PlusJakartaSans_600SemiBold,
-    PlusJakartaSans_700Bold,
-    PlusJakartaSans_800ExtraBold,
-  });
-  const fontsReady = fontsLoaded || fontError != null;
-
   // ✅ Keep roleVerified from deepak/main
   const { user, profile, loading, refreshSession } = useAuth();
   const queryClient = useQueryClient();
@@ -165,15 +147,6 @@ export default function DriverAppLayout() {
     void refreshSession();
   }, [loading, user, profile, refreshSession]);
 
-  useEffect(() => {
-    if (fontError && __DEV__ && Platform.OS === 'web') {
-      console.warn(
-        '[DriverAppLayout] Plus Jakarta font load failed; using system fallbacks.',
-        fontError,
-      );
-    }
-  }, [fontError]);
-
   // JWT session metadata can lag behind public.profiles.role (QA role flips,
   // admin updates). Auth merges DB profile asynchronously — give it a short
   // grace window before treating a non-driver JWT/session profile as final,
@@ -204,7 +177,7 @@ export default function DriverAppLayout() {
     Boolean(profile) &&
     profile?.role !== 'driver';
 
-  // ✅ Gate includes fonts + auth checks — waiting states only, never wrongRole.
+  // ✅ Gate covers auth checks — waiting states only, never wrongRole.
   // While grace is running for a non-driver session profile, keep the splash so
   // deep links do not paint the dispatcher shell.
   const profileRole = profile?.role ?? null;
@@ -217,7 +190,6 @@ export default function DriverAppLayout() {
   const gate =
     !wrongRole &&
     (awaitingRoleHydration ||
-      !fontsReady ||
       loading ||
       !user ||
       profileRole == null ||
@@ -250,7 +222,7 @@ export default function DriverAppLayout() {
   if (gate) {
     return (
       <AppLoadingSplash
-        variant={loading ? 'session' : !fontsReady ? 'preparing' : 'generic'}
+        variant={loading ? 'session' : 'generic'}
         style={styles.gate}
       />
     );

@@ -14,6 +14,8 @@ type Props = {
   compact?: boolean;
   /** Stretch to fill a row (wallet earnings actions). */
   block?: boolean;
+  /** Content-width 36pt pill (trip card actions); hitSlop keeps a 44pt target. */
+  pill?: boolean;
   disabled?: boolean;
   label?: string;
   /** Open capture even when due is 0 (offline trip — add revenue). */
@@ -29,6 +31,7 @@ export function DriverCapturePaymentButton({
   reference,
   compact,
   block,
+  pill,
   disabled,
   label = "Capture",
   allowZeroDue = false,
@@ -43,6 +46,7 @@ export function DriverCapturePaymentButton({
         styles.btn,
         compact && styles.btnCompact,
         block && styles.btnBlock,
+        pill && styles.btnPill,
         disabled && styles.btnDisabled,
         !disabled && pressed ? styles.btnPressed : null,
       ]}
@@ -63,7 +67,13 @@ export function DriverCapturePaymentButton({
       accessibilityRole="button"
       accessibilityLabel={`${label} payment`}
     >
-      <Text style={[styles.text, compact && styles.textCompact, block && styles.textBlock]}>
+      <Text
+        style={[
+          styles.text,
+          compact && styles.textCompact,
+          (block || pill) && styles.textBlock,
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -95,6 +105,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     borderRadius: 12,
     paddingHorizontal: 12,
+  },
+  btnPill: {
+    height: 36,
+    minWidth: 96,
+    borderRadius: 10,
+    paddingHorizontal: 18,
   },
   textBlock: {
     fontSize: 13,

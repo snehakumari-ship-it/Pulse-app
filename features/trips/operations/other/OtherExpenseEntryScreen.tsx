@@ -64,7 +64,7 @@ import {
 } from "../shared/tripOtherExpenseCategories";
 import { OperationalChipSelect } from "@/components/operational";
 import { DriverExpenseCategorySwitch } from "../shared/DriverExpenseCategorySwitch";
-import { DriverExpenseChipSelect } from "../shared/DriverExpenseChipSelect";
+import { DriverExpensePaymentFields } from "../shared/DriverExpensePaymentFields";
 import {
   parseDriverExpenseCategoryParam,
   normalizeTripOtherExpenseCategory,
@@ -72,8 +72,7 @@ import {
 } from "../shared/driverExpenseCategoryNav.util";
 import {
   DriverExpenseEntryLayout,
-  DriverExpenseFieldDivider,
-  DriverExpenseFieldLabel,
+  DriverExpenseOptionalLabel,
   DriverExpenseSection,
   DriverExpenseTextInput,
 } from "../shared/DriverExpenseEntryLayout";
@@ -148,6 +147,7 @@ export function OtherExpenseEntryScreen({
   initialCategory,
   expenseCategory: expenseCategoryProp,
   onExpenseCategoryChange,
+  onClearCategory,
   onCategoryNavChange,
   lockCategorySwitch = false,
   billCapture,
@@ -156,8 +156,9 @@ export function OtherExpenseEntryScreen({
   entryId?: string | null;
   initialCategory?: TripOtherExpenseCategory | null;
   /** Controlled category (driver unified expense shell). */
-  expenseCategory?: TripOtherExpenseCategory;
+  expenseCategory?: TripOtherExpenseCategory | null;
   onExpenseCategoryChange?: (category: TripOtherExpenseCategory) => void;
+  onClearCategory?: () => void;
   onCategoryNavChange?: (next: DriverExpenseCategoryNav) => void;
   lockCategorySwitch?: boolean;
   billCapture?: ExpenseBillCaptureBag;
@@ -182,12 +183,14 @@ export function OtherExpenseEntryScreen({
   const [showMoreOwners, setShowMoreOwners] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
-  const [internalCategory, setInternalCategory] = useState<TripOtherExpenseCategory>(() =>
-    parseDriverExpenseCategoryParam(
-      expenseCategoryProp ?? initialCategory ?? undefined,
-    ),
+  const [internalCategory, setInternalCategory] = useState<TripOtherExpenseCategory | null>(() =>
+    expenseCategoryProp !== undefined
+      ? expenseCategoryProp
+      : initialCategory
+        ? parseDriverExpenseCategoryParam(initialCategory)
+        : null,
   );
-  const isCategoryControlled = expenseCategoryProp != null;
+  const isCategoryControlled = expenseCategoryProp !== undefined;
   const expenseCategory = isCategoryControlled ? expenseCategoryProp : internalCategory;
 
   const setExpenseCategory = useCallback(
@@ -197,13 +200,18 @@ export function OtherExpenseEntryScreen({
     },
     [isCategoryControlled, onExpenseCategoryChange],
   );
+
+  const clearExpenseCategory = useCallback(() => {
+    if (!isCategoryControlled) setInternalCategory(null);
+    onClearCategory?.();
+  }, [isCategoryControlled, onClearCategory]);
   const [description, setDescription] = useState("");
   const [locationName, setLocationName] = useState("");
   const [notes, setNotes] = useState("");
   const [paymentOwner, setPaymentOwner] = useState<OperationalPaymentOwner>(() =>
     defaultPaymentOwnerForTrip(trip, profile?.role),
   );
-  const [paymentMode, setPaymentMode] = useState<OperationalPaymentMode>("cash");
+  const [paymentMode, setPaymentMode] = useState<OperationalPaymentMode | null>(null);
 
   const applyCategorySideEffects = useCallback((category: TripOtherExpenseCategory) => {
     if (category === "fastag") {
@@ -224,7 +232,14 @@ export function OtherExpenseEntryScreen({
     (result: ExpenseReceiptOcrResult) => {
       return previewOtherReceiptOcr(
         result,
-        { amountInr, expenseCategory, description, locationName, notes, paymentMode },
+        {
+          amountInr,
+          expenseCategory: expenseCategory ?? "parking",
+          description,
+          locationName,
+          notes,
+          paymentMode: paymentMode ?? "unknown",
+        },
         {
           setAmountInr: (value) => {
             setAmountInr(value);
@@ -323,15 +338,18 @@ export function OtherExpenseEntryScreen({
     notes.trim().length > 0;
 
   const saving = saveExpense.isPending || updateExpense.isPending;
-  const CategoryIcon = CATEGORY_ICON[expenseCategory] ?? MoreHorizontal;
+  const CategoryIcon =
+    (expenseCategory ? CATEGORY_ICON[expenseCategory] : null) ?? MoreHorizontal;
   const ownerLabel =
     paymentOwnerOptions.find((o) => o.value === paymentOwner)?.label ?? paymentOwner;
   const modeLabel =
-    PAYMENT_MODE_OPTIONS.find((o) => o.value === paymentMode)?.label ?? paymentMode;
+    PAYMENT_MODE_OPTIONS.find((o) => o.value === paymentMode)?.label ?? "Not set";
 
   useEffect(() => {
     if (isEditing || isCategoryControlled) return;
-    setInternalCategory(parseDriverExpenseCategoryParam(initialCategory ?? undefined));
+    setInternalCategory(
+      initialCategory ? parseDriverExpenseCategoryParam(initialCategory) : null,
+    );
   }, [initialCategory, isCategoryControlled, isEditing]);
 
   useEffect(() => {
@@ -360,7 +378,7 @@ export function OtherExpenseEntryScreen({
       setLocationName(entry.location_name ?? "");
       setNotes(entry.notes ?? "");
       setPaymentOwner(entry.payment_owner ?? "organization");
-      setPaymentMode(entry.payment_mode ?? "cash");
+      setPaymentMode(entry.payment_mode ?? null);
       if (
         entry.description?.trim() ||
         entry.location_name?.trim() ||
@@ -412,6 +430,11 @@ export function OtherExpenseEntryScreen({
     if (amountInr <= 0) {
       setAmountError("Enter the expense amount before saving.");
       triggerFeedback("error");
+      return;
+    }
+    if (!expenseCategory) {
+      triggerFeedback("error");
+      Alert.alert("Choose a category", "Pick a category before saving. Leave them all off if you are not ready.");
       return;
     }
     setAmountError(null);
@@ -483,6 +506,7 @@ export function OtherExpenseEntryScreen({
             onAttach: handleCapture,
             onRemove: handleRemovePhoto,
           }}
+          amountLabel="Expense amount"
           amountSlot={
             <>
               <SmartInput
@@ -493,6 +517,7 @@ export function OtherExpenseEntryScreen({
                   if (numeric > 0) setAmountError(null);
                 }}
                 label="Expense amount"
+                hideLabel
                 context={contextLine}
                 partyPreview={expensePartyPreview}
                 submitLabel="Apply"
@@ -506,30 +531,28 @@ export function OtherExpenseEntryScreen({
             </>
           }
         >
-          <DriverExpenseSection title="Category & payment">
+          <DriverExpenseSection>
             <DriverExpenseCategorySwitch
               tripId={trip.id}
               formKind="other"
               otherCategory={expenseCategory}
               onOtherCategoryChange={handleSelectCategory}
+              onClearCategory={clearExpenseCategory}
               onCategoryNavChange={onCategoryNavChange}
               lockCategorySwitch={lockCategorySwitch}
               lockKindSwitch={isEditing}
             />
-            <DriverExpenseFieldDivider />
-            <DriverExpenseChipSelect
-              label="Payment mode"
-              options={PAYMENT_MODE_OPTIONS}
-              value={paymentMode}
-              onChange={setPaymentMode}
-              columns={3}
-              visualGroup="payment_mode"
-            />
           </DriverExpenseSection>
+
+          <DriverExpensePaymentFields
+            value={paymentMode}
+            onChange={setPaymentMode}
+            otherDetail={notes}
+            onOtherDetailChange={setNotes}
+          />
 
           <DriverExpenseSection>
             <RevealToggle
-              compact
               expanded={showDetails || hasOptionalDetails}
               labelWhenCollapsed="Add details (optional)"
               labelWhenExpanded="Hide details"
@@ -537,29 +560,37 @@ export function OtherExpenseEntryScreen({
             />
             {showDetails || hasOptionalDetails ? (
               <View style={styles.driverDetailsStack}>
-                <View>
-                  <DriverExpenseFieldLabel>Description (optional)</DriverExpenseFieldLabel>
-                  <DriverExpenseTextInput
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder="What was this for?"
-                  />
+                <View style={styles.driverDetailsRow}>
+                  <View style={styles.driverDetailsCol}>
+                    <DriverExpenseOptionalLabel>Description</DriverExpenseOptionalLabel>
+                    <DriverExpenseTextInput
+                      value={description}
+                      onChangeText={setDescription}
+                      placeholder="What was this for?"
+                      numberOfLines={1}
+                      style={styles.driverDetailsInput}
+                    />
+                  </View>
+                  <View style={styles.driverDetailsCol}>
+                    <DriverExpenseOptionalLabel>Location</DriverExpenseOptionalLabel>
+                    <DriverExpenseTextInput
+                      value={locationName}
+                      onChangeText={setLocationName}
+                      placeholder="Plaza, yard, city"
+                      numberOfLines={1}
+                      style={styles.driverDetailsInput}
+                    />
+                  </View>
                 </View>
                 <View>
-                  <DriverExpenseFieldLabel>Location (optional)</DriverExpenseFieldLabel>
-                  <DriverExpenseTextInput
-                    value={locationName}
-                    onChangeText={setLocationName}
-                    placeholder="Plaza, yard, city"
-                  />
-                </View>
-                <View>
-                  <DriverExpenseFieldLabel>Notes (optional)</DriverExpenseFieldLabel>
+                  <DriverExpenseOptionalLabel>Notes</DriverExpenseOptionalLabel>
                   <DriverExpenseTextInput
                     value={notes}
                     onChangeText={setNotes}
                     multiline
+                    numberOfLines={1}
                     placeholder="Short note"
+                    style={styles.driverDetailsNotes}
                   />
                 </View>
               </View>
@@ -601,6 +632,8 @@ export function OtherExpenseEntryScreen({
         options={visibleCategories}
         value={expenseCategory}
         onChange={handleSelectCategory}
+        clearable
+        onClear={clearExpenseCategory}
         density="compact"
       />
       {!isDesktop && moreCategories.length > 0 && !selectedInMoreCategories ? (
@@ -639,6 +672,8 @@ export function OtherExpenseEntryScreen({
         options={PAYMENT_MODE_OPTIONS}
         value={paymentMode}
         onChange={setPaymentMode}
+        clearable
+        onClear={() => setPaymentMode(null)}
         density="compact"
       />
       {expenseCategory === "fastag" && paymentMode === "fastag" ? (
@@ -740,7 +775,7 @@ export function OtherExpenseEntryScreen({
       <View style={styles.summaryCopy}>
         <Text style={styles.summaryEyebrow}>Logging</Text>
         <Text style={styles.summaryTitle} numberOfLines={1}>
-          {formatOtherExpenseCategoryLabel(expenseCategory)}
+          {expenseCategory ? formatOtherExpenseCategoryLabel(expenseCategory) : "Expense"}
         </Text>
         <Text style={styles.summaryMeta} numberOfLines={1}>
           {ownerLabel} · {modeLabel}
@@ -946,26 +981,53 @@ const styles = StyleSheet.create({
   revealToggle: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 4,
-    minHeight: 36,
-    paddingVertical: 4,
+    justifyContent: "space-between",
+    gap: 6,
+    minHeight: 40,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#F5F7FA",
   },
   revealToggleCompact: {
-    minHeight: 32,
-    paddingVertical: 2,
+    minHeight: 36,
+    paddingVertical: 8,
   },
   revealToggleText: {
+    flex: 1,
     fontSize: 12,
     fontWeight: "700",
-    color: Theme.primary,
+    color: Theme.driverEmeraldDark,
+    letterSpacing: -0.1,
   },
   revealToggleTextCompact: {
     fontSize: 11,
   },
   driverDetailsStack: {
+    gap: 12,
+  },
+  driverDetailsRow: {
+    flexDirection: "row",
     gap: 10,
-    marginTop: 6,
+  },
+  driverDetailsCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  driverDetailsInput: {
+    height: 42,
+    minHeight: 42,
+    paddingVertical: 0,
+    paddingHorizontal: 10,
+    fontSize: 13.5,
+  },
+  driverDetailsNotes: {
+    minHeight: 42,
+    maxHeight: 96,
+    paddingTop: 11,
+    paddingBottom: 11,
+    paddingHorizontal: 10,
+    fontSize: 13.5,
   },
   inlineError: {
     marginTop: 6,

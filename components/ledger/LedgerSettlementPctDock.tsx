@@ -40,8 +40,11 @@ export type LedgerSettlementPctDockProps = {
   amountStr: string;
   onAmountChange: (value: string) => void;
   accentColor: string;
-  /** Light = default cards; dark = legacy ink hero (avoid on new layouts). */
-  variant?: "light" | "dark";
+  /**
+   * Light = default cards; dark = legacy ink hero (avoid on new layouts);
+   * mint = borderless slate tiles with a sage selection (driver collect payment).
+   */
+  variant?: "light" | "dark" | "mint";
   /** Tighter tiles for mobile ledger amount step. */
   compact?: boolean;
 };
@@ -55,6 +58,7 @@ export const LedgerSettlementPctDock = memo(function LedgerSettlementPctDock({
   compact = false,
 }: LedgerSettlementPctDockProps) {
   const dark = variant === "dark";
+  const mint = variant === "mint";
   const activePct = useMemo(
     () => resolveActiveSettlementPct(dueTotalInr, amountStr),
     [dueTotalInr, amountStr],
@@ -83,9 +87,17 @@ export const LedgerSettlementPctDock = memo(function LedgerSettlementPctDock({
         styles.dock,
         compact && styles.dockCompact,
         dark && styles.dockDark,
+        mint && styles.dockMint,
       ]}
     >
-      <Text style={[styles.sectionLabel, compact && styles.sectionLabelCompact, dark && styles.sectionLabelDark]}>
+      <Text
+        style={[
+          styles.sectionLabel,
+          compact && styles.sectionLabelCompact,
+          dark && styles.sectionLabelDark,
+          mint && styles.labelMint,
+        ]}
+      >
         Quick settlement
       </Text>
       <Pressable
@@ -93,26 +105,50 @@ export const LedgerSettlementPctDock = memo(function LedgerSettlementPctDock({
           styles.fullPayTile,
           compact && styles.fullPayTileCompact,
           dark && styles.fullPayTileDark,
-          fullActive && styles.fullPayTileActive,
-          fullActive && { borderColor: accentColor },
+          mint && styles.tileMint,
+          fullActive && !mint && styles.fullPayTileActive,
+          fullActive && !mint && { borderColor: accentColor },
           fullActive && dark && { backgroundColor: "rgba(255,255,255,0.08)" },
+          fullActive && mint && styles.tileMintActive,
           pressed && styles.tilePressed,
         ]}
         onPress={() => applySettlementPct(FULL_SETTLEMENT_PCT)}
         accessibilityRole="button"
+        accessibilityState={{ selected: fullActive }}
         accessibilityLabel={`Full payment, ${formatINR(dueTotalInr)}`}
       >
-        <Text style={[styles.fullPayLabel, compact && styles.fullPayLabelCompact, dark && styles.fullPayLabelDark, fullActive && { color: accentColor }]}>
+        <Text
+          style={[
+            styles.fullPayLabel,
+            compact && styles.fullPayLabelCompact,
+            dark && styles.fullPayLabelDark,
+            mint && styles.inkMint,
+            fullActive && { color: accentColor },
+          ]}
+        >
           Full payment
         </Text>
-        <Text style={[styles.fullPayAmount, compact && styles.fullPayAmountCompact, { color: accentColor }]}>
+        <Text
+          style={[
+            styles.fullPayAmount,
+            compact && styles.fullPayAmountCompact,
+            { color: mint && !fullActive ? Theme.payInk : accentColor },
+          ]}
+        >
           {formatINR(dueTotalInr)}
         </Text>
       </Pressable>
-      <Text style={[styles.subsectionLabel, compact && styles.subsectionLabelCompact, dark && styles.subsectionLabelDark]}>
+      <Text
+        style={[
+          styles.subsectionLabel,
+          compact && styles.subsectionLabelCompact,
+          dark && styles.subsectionLabelDark,
+          mint && styles.labelMint,
+        ]}
+      >
         Or choose % of due
       </Text>
-      <View style={[styles.pctGrid, compact && styles.pctGridCompact]}>
+      <View style={[styles.pctGrid, compact && styles.pctGridCompact, mint && styles.pctGridMint]}>
         {SETTLEMENT_PCTS.map((pct) => {
           const preview = Math.round((dueTotalInr * pct) / 100);
           const active = activePct === pct;
@@ -123,13 +159,17 @@ export const LedgerSettlementPctDock = memo(function LedgerSettlementPctDock({
                 styles.pctTile,
                 compact && styles.pctTileCompact,
                 dark && styles.pctTileDark,
-                active && styles.pctTileActive,
-                active && { borderColor: accentColor },
+                mint && styles.tileMint,
+                mint && styles.pctTileMint,
+                active && !mint && styles.pctTileActive,
+                active && !mint && { borderColor: accentColor },
                 active && dark && { backgroundColor: "rgba(255,255,255,0.1)" },
+                active && mint && styles.tileMintActive,
                 pressed && styles.tilePressed,
               ]}
               onPress={() => applySettlementPct(pct)}
               accessibilityRole="button"
+              accessibilityState={{ selected: active }}
               accessibilityLabel={`${pct} percent, ${formatINR(preview)}`}
             >
               <Text
@@ -137,6 +177,8 @@ export const LedgerSettlementPctDock = memo(function LedgerSettlementPctDock({
                   styles.pctTilePct,
                   compact && styles.pctTilePctCompact,
                   dark && styles.pctTilePctDark,
+                  mint && styles.inkMint,
+                  mint && styles.pctTilePctMint,
                   active && styles.pctTilePctActive,
                   active && { color: accentColor },
                 ]}
@@ -148,9 +190,11 @@ export const LedgerSettlementPctDock = memo(function LedgerSettlementPctDock({
                   styles.pctTileAmt,
                   compact && styles.pctTileAmtCompact,
                   dark && styles.pctTileAmtDark,
+                  mint && styles.pctTileAmtMint,
                   active && styles.pctTileAmtActive,
-                  active && !dark && { color: LedgerSyncPalette.ink },
+                  active && !dark && !mint && { color: LedgerSyncPalette.ink },
                   active && dark && { color: Theme.textOnDark },
+                  active && mint && { color: accentColor },
                 ]}
                 numberOfLines={1}
               >
@@ -355,5 +399,49 @@ const styles = StyleSheet.create({
   },
   tilePressed: {
     opacity: 0.88,
+  },
+  dockMint: {
+    borderTopWidth: 0,
+    marginTop: 12,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  labelMint: {
+    fontSize: 9,
+    letterSpacing: 0.8,
+    color: Theme.payMuted,
+    lineHeight: 12,
+  },
+  inkMint: {
+    color: Theme.payInk,
+  },
+  tileMint: {
+    borderWidth: 1,
+    borderColor: "transparent",
+    borderRadius: 12,
+    backgroundColor: Theme.payTile,
+  },
+  tileMintActive: {
+    backgroundColor: Theme.paySage,
+    borderColor: Theme.driverMintHeaderInk,
+  },
+  pctGridMint: {
+    gap: 8,
+  },
+  pctTileMint: {
+    width: "30%",
+    paddingVertical: 10,
+    minHeight: 50,
+  },
+  pctTilePctMint: {
+    fontSize: 14,
+    lineHeight: 17,
+  },
+  pctTileAmtMint: {
+    marginTop: 1,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "600",
+    color: Theme.payMuted,
   },
 });

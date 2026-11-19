@@ -20,6 +20,8 @@ type Props = {
   onTagPress?: () => void;
   /** Third footer cell (e.g. Yield) — same pill, aligned columns. */
   endSlot?: ReactNode;
+  /** Divider between cells; override when the row sits on a dark background. */
+  ruleColor?: string;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -33,6 +35,7 @@ export function TripListAssignerRow({
   needsTag = false,
   onTagPress,
   endSlot = null,
+  ruleColor = Theme.driverEmeraldBorderSoft,
   style,
 }: Props) {
   const tagged = String(taggedParty ?? "").trim();
@@ -86,7 +89,7 @@ export function TripListAssignerRow({
 
       {tagged ? (
         <>
-          <View style={[styles.rule, { backgroundColor: Theme.driverEmeraldBorderSoft }]} />
+          <View style={[styles.rule, { backgroundColor: ruleColor }]} />
           <View style={[styles.cellEnd, endSlot ? styles.cellMid : null]}>
             <View style={styles.tagGlyph}>
               <Tag size={11} color={Theme.driverEmerald} strokeWidth={2.4} />
@@ -148,7 +151,7 @@ export function TripListAssignerRow({
       ) : null}
       {endSlot ? (
         <>
-          <View style={[styles.rule, { backgroundColor: Theme.driverEmeraldBorderSoft }]} />
+          <View style={[styles.rule, { backgroundColor: ruleColor }]} />
           <View style={styles.cellYield}>{endSlot}</View>
         </>
       ) : null}

@@ -1,14 +1,13 @@
 import { CenteredLoadingView } from "@/components/CenteredLoadingView";
 import { DetailPageLayout } from "@/components/DetailPageLayout";
 import { LedgerSettlementPctDock } from "@/components/ledger/LedgerSettlementPctDock";
-import {
-  LedgerProtocolStripModeTile,
-  ledgerPaymentModeVisual,
-} from "@/components/ledger/ledgerPaymentVisuals";
+import { ledgerPaymentModeVisual } from "@/components/ledger/ledgerPaymentVisuals";
+import { PaymentModeLogo } from "@/components/ledger/paymentModeLogos";
 import { SmartInput } from "@/components/mobile-input";
 import Theme from "@/constants/Theme";
 import { useAuth } from "@/contexts/AuthContext";
 import { getDcoSelfReceivableForTrip } from "@/features/dco-self/services/dcoSelfReceivable.service";
+import { CollectCoinsIcon } from "@/features/drivers/components/CollectCoinsIcon";
 import { DriverCaptureConfirmModal } from "@/features/drivers/components/DriverCaptureConfirmModal";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
 import { captureDriverTripPayment } from "@/features/drivers/services/driverCapturePayment.service";
@@ -33,18 +32,32 @@ import { ROUTES } from "@/lib/routes";
 import { showAppAlert } from "@/lib/appAlert";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
 import { useSafeBack } from "@/lib/useSafeBack";
-import { Banknote, Hash } from "lucide-react-native";
+import { ArrowLeft, Banknote, Hash } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const HEADER_GRADIENT = [
+  Theme.driverMintHeaderTop,
+  Theme.driverMintHeaderMid,
+  Theme.payMintPage,
+] as const;
+const FOREST = Theme.driverMintHeaderInk;
 
 const CAPTURE_MODES = PAYMENT_MODES.filter((mode) =>
   ["CASH", "UPI", "BANK", "CHEQUE"].includes(mode.id),
@@ -69,7 +82,9 @@ function firstParam(value: string | string[] | undefined): string {
 
 export default function DriverCapturePaymentScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
+  const [focusedField, setFocusedField] = useState<"reference" | "paidOn" | null>(null);
   const onBack = useSafeBack(ROUTES.driverWalletSelf());
   const { profile } = useAuth();
   const {
@@ -295,132 +310,183 @@ export default function DriverCapturePaymentScreen() {
     );
   }
 
+  const screenTitle = lane === "fleet" ? "Collect commission" : "Collect payment";
+
   return (
-    <DetailPageLayout
-      title={lane === "fleet" ? "Collect commission" : "Collect payment"}
-     
-      onBack={onBack}
-      titleSubline={<Text style={styles.kicker}>{kicker}</Text>}
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      enabled={Platform.OS !== "web"}
     >
-      <View style={styles.hero}>
-        {needsPartyTag ? (
-          <Text style={styles.heroLabel}>
-            Tag a shipper or middleman on this trip before collecting.
-          </Text>
-        ) : (
-          <Text style={styles.heroLabel}>
-            {lane === "fleet" ? `Commission from ${partyName}` : `Revenue from ${partyName}`}
-          </Text>
-        )}
-        <SmartInput
-          type="currency"
-          value={amountNum}
-          onChange={(_, numeric) => {
-            setAmount(formatLedgerAmountInput(numeric));
-          }}
-          label="Amount received"
-          context={`${partyName} · ${tripDisplay}${dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}`}
-          submitLabel="Apply"
-          variant="hero"
-          density="compact"
-          heroAccentColor={Theme.primary}
-          placeholder="0"
-          required={false}
-          disabled={submitting}
-          validation={{
-            min: 0,
-            max: dueHint > 0 ? dueHint : 100000000,
-          }}
-        />
-        <Text style={styles.heroHint} numberOfLines={2}>
-          {partyName} · {tripDisplay}
-          {dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}
-        </Text>
-        <LedgerSettlementPctDock
-          dueTotalInr={dueHint}
-          amountStr={amount}
-          onAmountChange={setAmount}
-          accentColor={Theme.primary}
-          variant="light"
-          compact
-        />
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.sectionHead}>
-          <View style={[styles.sectionIcon, { backgroundColor: "#dcfce7" }]}>
-            <Banknote size={15} color={Theme.darkGreen} strokeWidth={2.2} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.sectionTitle}>Payment mode</Text>
-            <Text style={styles.sectionHint}>How this money moved</Text>
-          </View>
-        </View>
-        <View style={styles.modeRow}>
-          {CAPTURE_MODES.map((item) => (
-            <View key={item.id} style={styles.modeCell}>
-              <LedgerProtocolStripModeTile
-                modeId={item.id}
-                label={ledgerPaymentModeVisual(item.id).shortLabel}
-                selected={modeId === item.id}
-                variant="compact"
-                onPress={() => {
-                  if (!submitting) setModeId(item.id);
-                }}
-              />
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.sectionHead}>
-          <View style={[styles.sectionIcon, { backgroundColor: Theme.avatarIndigo }]}>
-            <Hash size={15} color={Theme.primary} strokeWidth={2.2} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.sectionTitle}>Reference / UTR</Text>
-            <Text style={styles.sectionHint}>
-              {isCash ? "Optional for cash" : "NEFT / UPI / bank transaction reference"}
-            </Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.input}
-          value={reference}
-          onChangeText={setReference}
-          placeholder="UTR / reference"
-          placeholderTextColor={Theme.textMuted}
-          autoCapitalize="characters"
-          editable={!submitting}
-        />
-        <Text style={styles.dateLabel}>Paid on</Text>
-        <TextInput
-          style={styles.input}
-          value={paidOn}
-          onChangeText={setPaidOn}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Theme.textMuted}
-          editable={!submitting}
-        />
-      </View>
-
-      {lane === "marketplace" ? (
-        <Text style={styles.exchangeNote}>
-          Pulse Exchange records this as received after the shipper confirms.
-        </Text>
-      ) : null}
-
-      {needsPartyTag ? (
-        <TouchableOpacity
-          style={styles.submit}
-          onPress={() => setTagOpen(true)}
+      <StatusBar style="dark" />
+      <LinearGradient
+        colors={HEADER_GRADIENT}
+        locations={[0, 0.55, 1]}
+        style={[styles.header, { paddingTop: insets.top + 10 }]}
+      >
+        <Pressable
+          onPress={onBack}
+          hitSlop={6}
           accessibilityRole="button"
-          accessibilityLabel="Tag party"
+          accessibilityLabel="Back"
+          style={({ pressed }) => [styles.backCircle, pressed && styles.backCirclePressed]}
         >
-          <Text style={styles.submitText}>Tag party first</Text>
-        </TouchableOpacity>
-      ) : null}
+          <ArrowLeft size={18} color={FOREST} strokeWidth={2.4} />
+        </Pressable>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {screenTitle}
+          </Text>
+          <Text style={styles.headerKicker} numberOfLines={1}>
+            {kicker}
+          </Text>
+        </View>
+        <View style={styles.headerArt} pointerEvents="none">
+          <CollectCoinsIcon size={52} />
+        </View>
+      </LinearGradient>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.hero}>
+          {needsPartyTag ? (
+            <Text style={styles.heroLabel}>
+              Tag a shipper or middleman on this trip before collecting.
+            </Text>
+          ) : (
+            <Text style={styles.heroLabel}>
+              {lane === "fleet" ? `Commission from ${partyName}` : `Revenue from ${partyName}`}
+            </Text>
+          )}
+          <SmartInput
+            type="currency"
+            value={amountNum}
+            onChange={(_, numeric) => {
+              setAmount(formatLedgerAmountInput(numeric));
+            }}
+            label="Amount received"
+            context={`${partyName} · ${tripDisplay}${dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}`}
+            submitLabel="Apply"
+            variant="hero"
+            density="compact"
+            heroAccentColor={FOREST}
+            placeholder="0"
+            required={false}
+            disabled={submitting}
+            validation={{
+              min: 0,
+              max: dueHint > 0 ? dueHint : 100000000,
+            }}
+          />
+          <Text style={styles.heroHint} numberOfLines={2}>
+            {partyName} · {tripDisplay}
+            {dueHint > 0 ? ` · due ${inr(dueHint)}` : ""}
+          </Text>
+          <LedgerSettlementPctDock
+            dueTotalInr={dueHint}
+            amountStr={amount}
+            onAmountChange={setAmount}
+            accentColor={FOREST}
+            variant="mint"
+            compact
+          />
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHead}>
+            <View style={styles.sectionIcon}>
+              <Banknote size={15} color={FOREST} strokeWidth={2.2} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.sectionTitle}>Payment mode</Text>
+              <Text style={styles.sectionHint}>How this money moved</Text>
+            </View>
+          </View>
+          <View style={styles.modeRow}>
+            {CAPTURE_MODES.map((item) => {
+              const selected = modeId === item.id;
+              const label = ledgerPaymentModeVisual(item.id).shortLabel;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => {
+                    if (!submitting) setModeId(item.id);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={label}
+                  style={({ pressed }) => [
+                    styles.modeTile,
+                    selected && styles.modeTileSelected,
+                    pressed && styles.modeTilePressed,
+                  ]}
+                >
+                  <View style={styles.modeLogo}>
+                    <PaymentModeLogo modeId={item.id} size={18} />
+                  </View>
+                  <Text
+                    style={[styles.modeLabel, selected && styles.modeLabelSelected]}
+                    numberOfLines={1}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHead}>
+            <View style={styles.sectionIcon}>
+              <Hash size={15} color={FOREST} strokeWidth={2.2} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.sectionTitle}>Reference / UTR</Text>
+              <Text style={styles.sectionHint}>
+                {isCash ? "Optional for cash" : "NEFT / UPI / bank transaction reference"}
+              </Text>
+            </View>
+          </View>
+          <TextInput
+            style={[styles.input, focusedField === "reference" && styles.inputFocused]}
+            value={reference}
+            onChangeText={setReference}
+            onFocus={() => setFocusedField("reference")}
+            onBlur={() => setFocusedField(null)}
+            placeholder="UTR / reference"
+            placeholderTextColor={Theme.textMuted}
+            autoCapitalize="characters"
+            editable={!submitting}
+          />
+          <Text style={styles.dateLabel}>Paid on</Text>
+          <TextInput
+            style={[styles.input, focusedField === "paidOn" && styles.inputFocused]}
+            value={paidOn}
+            onChangeText={setPaidOn}
+            onFocus={() => setFocusedField("paidOn")}
+            onBlur={() => setFocusedField(null)}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={Theme.textMuted}
+            editable={!submitting}
+          />
+        </View>
+
+        {needsPartyTag ? (
+          <TouchableOpacity
+            style={styles.tagBtn}
+            onPress={() => setTagOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Tag party"
+          >
+            <Text style={styles.tagBtnText}>Tag party first</Text>
+          </TouchableOpacity>
+        ) : null}
+      </ScrollView>
 
       <DriverCollectFromSheet
         visible={tagOpen}
@@ -435,24 +501,43 @@ export default function DriverCapturePaymentScreen() {
         }}
       />
 
-      <TouchableOpacity
-        style={[styles.submit, !canSubmit && styles.submitDisabled]}
-        onPress={() => {
-          if (canSubmit) setConfirmOpen(true);
-        }}
-        disabled={!canSubmit}
-        activeOpacity={0.88}
-        accessibilityRole="button"
-        accessibilityLabel="Capture payment"
-      >
-        {submitting ? (
-          <ActivityIndicator size="small" color={Theme.buttonPrimaryText} />
-        ) : (
-          <Text style={styles.submitText}>
-            Collect {amountNum > 0 ? inr(Math.min(amountNum, cap || amountNum)) : lane === "fleet" ? "commission" : "payment"}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        {lane === "marketplace" ? (
+          <Text style={styles.exchangeNote}>
+            Pulse Exchange records this as received after the shipper confirms.
           </Text>
-        )}
-        </TouchableOpacity>
+        ) : null}
+        <View style={styles.footerRow}>
+          <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={onBack}
+            disabled={submitting}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+          >
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.submit, !canSubmit && styles.submitDisabled]}
+            onPress={() => {
+              if (canSubmit) setConfirmOpen(true);
+            }}
+            disabled={!canSubmit}
+            activeOpacity={0.88}
+            accessibilityRole="button"
+            accessibilityLabel="Capture payment"
+          >
+            {submitting ? (
+              <ActivityIndicator size="small" color={Theme.cardWhite} />
+            ) : (
+              <Text style={styles.submitText} numberOfLines={1}>
+                Collect {amountNum > 0 ? inr(Math.min(amountNum, cap || amountNum)) : lane === "fleet" ? "commission" : "payment"}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
       <DriverCaptureConfirmModal
         visible={confirmOpen || !!recorded}
         phase={recorded ? "success" : "confirm"}
@@ -474,129 +559,272 @@ export default function DriverCapturePaymentScreen() {
           else onBack();
         }}
       />
-      </DetailPageLayout>
-    );
+    </KeyboardAvoidingView>
+  );
 }
 
 const styles = StyleSheet.create({
-  kicker: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: Theme.textMuted,
+  screen: {
+    flex: 1,
+    backgroundColor: Theme.payMintPage,
   },
   empty: {
     fontSize: 13,
     color: Theme.textMuted,
     paddingTop: 12,
   },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  backCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Theme.cardWhite,
+    borderWidth: 1,
+    borderColor: Theme.payCircleBorder,
+    shadowColor: Theme.driverMintHeaderTitle,
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  backCirclePressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.96 }],
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.driverMintHeaderTitle,
+  },
+  headerKicker: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "600",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: Theme.payMuted,
+  },
+  headerArt: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 16,
+    gap: 12,
+  },
   hero: {
-    backgroundColor: Theme.surfaceLight,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.payCardBorder,
+    padding: 16,
   },
   heroLabel: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    color: Theme.textMuted,
-    marginBottom: 4,
+    color: Theme.payMuted,
+    textAlign: "center",
+    marginBottom: 6,
   },
   heroHint: {
-    marginTop: 6,
+    marginTop: 8,
     fontSize: 11,
     fontWeight: "500",
-    color: Theme.textMuted,
+    lineHeight: 15,
+    color: Theme.payMuted,
+    textAlign: "center",
+    alignSelf: "center",
+    maxWidth: "92%",
   },
   card: {
-    backgroundColor: Theme.surfaceLight,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 12,
+    backgroundColor: Theme.cardWhite,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Theme.payCardBorder,
+    padding: 16,
   },
   sectionHead: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
+    gap: 10,
+    marginBottom: 12,
   },
   sectionIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: Theme.paySage,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "800",
     letterSpacing: 0.2,
-    color: Theme.textPrimaryDark,
+    color: Theme.payInk,
   },
   sectionHint: {
     marginTop: 1,
-    fontSize: 10,
-    color: Theme.textMuted,
+    fontSize: 11,
+    color: Theme.payMuted,
   },
   modeRow: {
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
   },
-  modeCell: {
+  modeTile: {
     flex: 1,
     minWidth: 0,
+    minHeight: 64,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "transparent",
+    backgroundColor: Theme.payTile,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Theme.borderLight,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    fontWeight: "600",
-    color: Theme.textPrimaryDark,
-    backgroundColor: Theme.screenBackground,
-    minHeight: 44,
+  modeTileSelected: {
+    backgroundColor: FOREST,
+    borderColor: FOREST,
   },
-  dateLabel: {
-    marginTop: 10,
-    marginBottom: 6,
+  modeTilePressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
+  },
+  modeLogo: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    backgroundColor: Theme.cardWhite,
+  },
+  modeLabel: {
     fontSize: 10,
+    lineHeight: 12,
     fontWeight: "700",
     letterSpacing: 0.4,
     textTransform: "uppercase",
-    color: Theme.textMuted,
+    color: Theme.payModeLabel,
+  },
+  modeLabelSelected: {
+    color: Theme.cardWhite,
+  },
+  input: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: Theme.payInputBorder,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    fontWeight: "600",
+    color: Theme.payInk,
+    backgroundColor: Theme.cardWhite,
+  },
+  inputFocused: {
+    borderColor: FOREST,
+  },
+  dateLabel: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: Theme.payMuted,
+  },
+  tagBtn: {
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: FOREST,
+    backgroundColor: Theme.paySage,
+  },
+  tagBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: FOREST,
+  },
+  footer: {
+    backgroundColor: Theme.cardWhite,
+    borderTopWidth: 1,
+    borderTopColor: Theme.payFooterBorder,
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   exchangeNote: {
     fontSize: 11,
-    color: Theme.textMuted,
-    marginBottom: 12,
     lineHeight: 15,
+    textAlign: "center",
+    color: Theme.payMuted,
+    marginBottom: 10,
   },
-  submit: {
-    minHeight: 48,
-    borderRadius: 14,
+  footerRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Theme.payCancelBorder,
+    backgroundColor: Theme.cardWhite,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Theme.buttonPrimary,
-    borderWidth: Theme.buttonPrimaryBorderWidth,
-    borderColor: Theme.buttonPrimaryBorder,
+  },
+  cancelText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Theme.payCancelInk,
+  },
+  submit: {
+    flex: 1.4,
+    height: 48,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: FOREST,
   },
   submitDisabled: {
-    opacity: 0.55,
+    opacity: 0.5,
   },
   submitText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "800",
-    color: Theme.buttonPrimaryText,
+    color: Theme.cardWhite,
   },
 });

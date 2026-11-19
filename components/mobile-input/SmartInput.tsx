@@ -59,6 +59,11 @@ const webStyles = StyleSheet.create({
     minWidth: 0,
   },
   fieldInputCompact: { fontSize: 14, paddingVertical: 8 },
+  fieldInputEmphasis: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Theme.textPrimaryDark,
+  },
   // row variant
   rowWrap: { width: '100%' },
   rowLabel: {
@@ -158,6 +163,9 @@ export interface SmartInputProps {
   /** Displayed in the trigger row and as the entry header */
   label: string;
 
+  /** Keep `label` for the entry screen, but do not print it on the field. */
+  hideLabel?: boolean;
+
   /** Secondary line in the entry header, e.g. "Trip: BLR → CHN" */
   context?: string;
 
@@ -217,6 +225,7 @@ export function SmartInput({
   value,
   onChange,
   label,
+  hideLabel = false,
   context,
   partyPreview,
   variant = 'row',
@@ -315,9 +324,11 @@ export function SmartInput({
     if (variant === 'row') {
       return (
         <View style={webStyles.rowWrap}>
-          <Text style={[webStyles.rowLabel, density === 'compact' && webStyles.rowLabelCompact]}>
-            {label}{required ? <Text style={webStyles.req}> *</Text> : null}
-          </Text>
+          {hideLabel ? null : (
+            <Text style={[webStyles.rowLabel, density === 'compact' && webStyles.rowLabelCompact]}>
+              {label}{required ? <Text style={webStyles.req}> *</Text> : null}
+            </Text>
+          )}
           <View style={[webStyles.rowShell, !!errorMessage && webStyles.shellError]}>
             {triggerPrefix ? <Text style={webStyles.prefix}>{triggerPrefix}</Text> : null}
             <TextInput
@@ -364,9 +375,11 @@ export function SmartInput({
     // 'field' variant (default for web)
     return (
       <View style={webStyles.fieldWrap}>
-        <Text style={[webStyles.fieldLabel, density === 'compact' && webStyles.fieldLabelCompact]}>
-          {label}{required ? <Text style={webStyles.req}> *</Text> : null}
-        </Text>
+        {hideLabel ? null : (
+          <Text style={[webStyles.fieldLabel, density === 'compact' && webStyles.fieldLabelCompact]}>
+            {label}{required ? <Text style={webStyles.req}> *</Text> : null}
+          </Text>
+        )}
         <View style={[webStyles.fieldShell, !!errorMessage && webStyles.shellError, disabled && webStyles.disabled]}>
           {showPrefix ? <Text style={webStyles.prefix}>{triggerPrefix}</Text> : null}
           <TextInput
@@ -375,8 +388,13 @@ export function SmartInput({
             keyboardType="decimal-pad"
             inputMode="decimal"
             placeholder={placeholder ?? '0'}
-            placeholderTextColor={Theme.placeholder}
-            style={[webStyles.fieldInput, density === 'compact' && webStyles.fieldInputCompact, webOutline]}
+            placeholderTextColor={hideLabel ? Theme.textPrimaryDark : Theme.placeholder}
+            style={[
+              webStyles.fieldInput,
+              density === 'compact' && webStyles.fieldInputCompact,
+              hideLabel && webStyles.fieldInputEmphasis,
+              webOutline,
+            ]}
             editable={!disabled}
             accessibilityLabel={label}
           />
@@ -391,6 +409,7 @@ export function SmartInput({
     <>
       <SmartInputTrigger
         label={label}
+        hideLabel={hideLabel}
         displayValue={displayValue}
         placeholder={placeholder}
         onPress={handleOpen}

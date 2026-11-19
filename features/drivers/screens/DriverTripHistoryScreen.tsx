@@ -19,6 +19,11 @@ import {
     getDriverTripDisplayNumber,
 } from "@/features/driver/utils/driverTripSequence.util";
 import { DriverCollectFromSheet } from "@/features/drivers/components/DriverCollectFromSheet";
+import { TripCardActionPanel } from "@/features/drivers/components/TripCardCaptureStrip";
+import { TripRouteSplit } from "@/features/drivers/components/TripRouteSplit";
+import { resolveIndianState } from "@/features/drivers/utils/indianStateCode.util";
+import { receivedByTripFromDriverBooks } from "@/features/drivers/services/driverCapturePayment.service";
+import { driverCaptureLaneForTrip } from "@/features/drivers/utils/driverCapturePayment.util";
 import {
     driverHistoryLane,
     driverHistoryLaneLabel,
@@ -30,6 +35,7 @@ import * as driversService from "@/features/drivers/services/drivers.service";
 import {
     isTripTaggedToParty,
     tripNeedsPartyTag,
+    tripReceivableBilled,
     tripReceivablePartyName,
 } from "@/features/drivers/utils/driverPartyReceivables.util";
 import {
@@ -51,6 +57,7 @@ import {
 import { useDriverAvatarUri } from "@/lib/avatarUpload";
 import { fetchOrgBrandingByIds } from "@/lib/orgBrandingFetch";
 import { useDriverOperatingModeQuery } from "@/lib/queries/useDriverOperatingModeQuery";
+import { ROUTES } from "@/lib/routes";
 import { supabase } from "@/lib/supabase";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useFocusEffect } from "@react-navigation/native";
@@ -157,16 +164,6 @@ function formatDate(dateStr: string | null) {
     .toUpperCase();
 }
 
-function formatDistance(distance: string | number | null | undefined): string | null {
-  if (distance == null || distance === "") return null;
-  const n =
-    typeof distance === "string"
-      ? parseFloat(distance.replace(/[^0-9.]/g, ""))
-      : Number(distance);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return `${Math.round(n).toLocaleString("en-IN")} KM`;
-}
-
 function splitLocationPrimarySecondary(location: string | null | undefined): {
   primary: string;
   secondary: string | null;
@@ -220,28 +217,6 @@ function _getTripSettlementBreakdown(
   return { fareEarnings, partnerBonus, taxDeductions, netPayout, isSalary };
 }
 void _getTripSettlementBreakdown;
-
-/** Arrow with translate-x animation on press (reference: group-hover:translate-x-2) */
-function AnimatedCardArrow({
-  pressed,
-  color,
-}: {
-  pressed: boolean;
-  color: string;
-}) {
-  const translateX = useSharedValue(0);
-  useEffect(() => {
-    translateX.value = withTiming(pressed ? 8 : 0, { duration: 180 });
-  }, [pressed]);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-  return (
-    <Animated.View style={animatedStyle}>
-      <FontAwesome name="arrow-right" size={12} color={color} />
-    </Animated.View>
-  );
-}
 
 /** Side green bar: opacity 0 by default, 100% on touch (reference: opacity-0 group-hover:opacity-100 transition-opacity) */
 function AnimatedAccentBar({
@@ -300,6 +275,7 @@ export default function DriverTripsScreen() {
   >([]);
   const [trips, setTrips] = useState<tripsService.TripRow[]>([]);
   const [tagTrip, setTagTrip] = useState<tripsService.TripRow | null>(null);
+  const [receivedByTripId, setReceivedByTripId] = useState<Record<string, number>>({});
   const suppressCardPress = useRef(false);
   const [assignmentActorByTripId, setAssignmentActorByTripId] = useState<
     Record<string, string>
@@ -426,6 +402,9 @@ export default function DriverTripsScreen() {
               setTrips(tRes.trips ?? []);
             }
             if (!invitesRes.error) setInvites(invitesRes.invites ?? []);
+            void receivedByTripFromDriverBooks().then((map) => {
+              if (!stale()) setReceivedByTripId(map);
+            });
             setLoading(false);
             initialLoadDoneRef.current = true;
             isRefreshingRef.current = false;
@@ -930,11 +909,14 @@ export default function DriverTripsScreen() {
     const isFleetTrip = isFleetDispatchedTrip(item);
     const historyLane = driverHistoryLane(item, isFleetTrip);
     const laneLabel = driverHistoryLaneLabel(historyLane);
-    const distanceLabel = formatDistance(item.distance);
     const pickupParts = splitLocationPrimarySecondary(item.pickup_area);
     const dropParts = splitLocationPrimarySecondary(item.drop_location);
-    const corridorHint = [pickupParts.secondary, dropParts.secondary].filter(Boolean).join(" · ");
     const assignerPayload = assignerPayloadByTripId[String(item.id)] ?? null;
+    const captureReceived = Math.max(0, Math.round(receivedByTripId[item.id] ?? 0));
+    const captureBilled = tripReceivableBilled(item);
+    const captureDue = Math.max(0, captureBilled - captureReceived);
+    const needsPartyTag = tripNeedsPartyTag(item, isFleetTrip);
+    const showCaptureStrip = completed && historyLane !== "fleet" && (captureBilled > 0 || captureReceived > 0);
     return (
       <TouchableOpacity
         style={[
@@ -962,132 +944,149 @@ export default function DriverTripsScreen() {
         />
         <AnimatedCardScale pressed={pressedCardId === item.id}>
           <View style={styles.cardWatermark} pointerEvents="none">
-            <MapPinned size={80} color={colors.emerald} strokeWidth={1.2} />
+            <MapPinned size={64} color={colors.emerald} strokeWidth={1.2} />
           </View>
           <View style={styles.cardRefTop}>
-            <View style={styles.cardRefTopLeft}>
+            <Text
+              style={[
+                styles.cardRefId,
+                isDark
+                  ? { color: colors.text, opacity: 0.85 }
+                  : { color: colors.textMuted },
+              ]}
+              numberOfLines={1}
+            >
+              {getDriverTripDisplayNumber(item, driverTripNumberById)}
+              <Text style={{ color: isDark ? colors.borderSubtle : Theme.borderLight }}>{"  •  "}</Text>
+              {formatDate(item.pickup_date ?? item.created_at)}
+            </Text>
+            <View style={styles.cardRefTopRight}>
               <Text
                 style={[
-                  styles.cardRefId,
-                  isDark
-                    ? { color: colors.text, opacity: 0.85 }
-                    : { color: colors.textMuted },
+                  styles.tripTypeBadge,
+                  historyLane === "marketplace"
+                    ? styles.tripTypeBadgeMarket
+                    : historyLane === "fleet"
+                      ? styles.tripTypeBadgeFleet
+                      : styles.tripTypeBadgeOffline,
+                ]}
+                numberOfLines={1}
+              >
+                {laneLabel}
+              </Text>
+              <View
+                style={[
+                  styles.badgeRef,
+                  completed ? styles.badgeRefCompleted : { backgroundColor: colors.emerald },
                 ]}
               >
-                {getDriverTripDisplayNumber(item, driverTripNumberById)}{" "}
-                <Text style={{ color: isDark ? colors.borderSubtle : "#e2e8f0" }}> • </Text>{" "}
-                {formatDate(item.pickup_date ?? item.created_at)}
-              </Text>
-              <View style={styles.routeRowRef}>
                 <Text
-                  style={[styles.routeRefPickup, { color: colors.text }]}
+                  style={[styles.badgeRefText, { color: colors.textOnPrimary }]}
                   numberOfLines={1}
                 >
-                  {pickupParts.primary}
-                </Text>
-                <View style={styles.routeArrowWrap}>
-                  <AnimatedCardArrow
-                    pressed={pressedCardId === item.id}
-                    color={colors.emerald}
-                  />
-                </View>
-                <Text
-                  style={[styles.routeRefDrop, { color: colors.text }]}
-                  numberOfLines={1}
-                >
-                  {dropParts.primary}
+                  {badgeLabel}
                 </Text>
               </View>
-              {corridorHint.length > 0 ? (
-                <Text
-                  style={[styles.routeCorridorHint, { color: colors.textMuted }]}
-                  numberOfLines={1}
-                >
-                  {corridorHint}
-                </Text>
-              ) : null}
-              <View style={styles.cardRefLaneRow}>
+            </View>
+          </View>
+          <TripRouteSplit
+            originCity={pickupParts.primary}
+            destinationCity={dropParts.primary}
+            originState={resolveIndianState(pickupParts.secondary)}
+            destinationState={resolveIndianState(dropParts.secondary)}
+            pressed={pressedCardId === item.id}
+            inkColor={isDark ? colors.text : undefined}
+            mutedColor={isDark ? colors.textMuted : undefined}
+          />
+          <TripCardActionPanel
+            capture={
+              showCaptureStrip
+                ? {
+                    received: captureReceived,
+                    due: captureDue,
+                    tripId: item.id,
+                    lane: driverCaptureLaneForTrip(item, isFleetTrip),
+                    partyName:
+                      isTripTaggedToParty(item) || historyLane === "marketplace"
+                        ? tripReceivablePartyName(item)
+                        : undefined,
+                    canCapture:
+                      !needsPartyTag &&
+                      captureDue > 0 &&
+                      (historyLane === "marketplace" || isTripTaggedToParty(item)),
+                    needsTag: needsPartyTag,
+                    onTagPress: needsPartyTag
+                      ? () => {
+                          suppressCardPress.current = true;
+                          setTagTrip(item);
+                        }
+                      : undefined,
+                  }
+                : null
+            }
+            onActionTouchStart={() => {
+              suppressCardPress.current = true;
+            }}
+            onLogExpense={() => {
+              suppressCardPress.current = true;
+              router.push(ROUTES.tripOtherExpenseEntry(item.id) as Href);
+            }}
+          />
+          <TripListAssignerRow
+            assigner={assignerPayload}
+            mutedColor={needsPartyTag ? colors.textMuted : Theme.driverOnForestMuted}
+            textColor={needsPartyTag ? colors.text : Theme.driverOnForest}
+            ruleColor={needsPartyTag ? undefined : Theme.driverOnForestRule}
+            needsTag={needsPartyTag}
+            onTagPress={
+              needsPartyTag
+                ? () => {
+                    suppressCardPress.current = true;
+                    setTagTrip(item);
+                  }
+                : undefined
+            }
+            taggedParty={
+              tripHistoryLane(item) === "offline" && isTripTaggedToParty(item)
+                ? tripReceivablePartyName(item)
+                : null
+            }
+            style={[
+              styles.cardRefAssignerFooter,
+              !needsPartyTag && styles.cardRefAssignerFooterForest,
+            ]}
+            endSlot={
+              <View style={styles.yieldWrapRef}>
                 <Text
                   style={[
-                    styles.tripTypeBadge,
-                    historyLane === "marketplace"
-                      ? styles.tripTypeBadgeMarket
-                      : historyLane === "fleet"
-                        ? styles.tripTypeBadgeFleet
-                        : styles.tripTypeBadgeOffline,
-                  ]}
-                >
-                  {laneLabel}
-                </Text>
-                {distanceLabel ? (
-                  <Text style={[styles.manifestValue, { color: colors.textMuted }]}>
-                    {distanceLabel}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-            <View
-              style={[
-                styles.badgeRef,
-                completed
-                  ? { backgroundColor: isDark ? "#0f172a" : "#0f172a" }
-                  : { backgroundColor: colors.emerald },
-              ]}
-            >
-              <Text
-                style={[styles.badgeRefText, { color: colors.textOnPrimary }]}
-              >
-                {badgeLabel}
-              </Text>
-            </View>
-          </View>
-          <View
-            style={[styles.cardRefBottom, { borderTopColor: isDark ? colors.borderSubtle : "#f8fafc" }]}
-          >
-            <TripListAssignerRow
-              assigner={assignerPayload}
-              mutedColor={colors.textMuted}
-              textColor={colors.text}
-              needsTag={tripNeedsPartyTag(item, isFleetTrip)}
-              onTagPress={
-                tripNeedsPartyTag(item, isFleetTrip)
-                  ? () => {
-                      suppressCardPress.current = true;
-                      setTagTrip(item);
-                    }
-                  : undefined
-              }
-              taggedParty={
-                tripHistoryLane(item) === "offline" && isTripTaggedToParty(item)
-                  ? tripReceivablePartyName(item)
-                  : null
-              }
-              style={styles.cardRefAssignerFooter}
-              endSlot={
-                <View style={styles.yieldWrapRef}>
-                  <Text
-                    style={[
-                      styles.yieldLabelRef,
-                      isDark
+                    styles.yieldLabelRef,
+                    !needsPartyTag
+                      ? { color: Theme.driverOnForestMuted }
+                      : isDark
                         ? { color: colors.text, opacity: 0.85 }
                         : { color: colors.textMuted },
-                    ]}
-                  >
-                    Yield
-                  </Text>
-                  <Text
-                    style={[
-                      styles.yieldValueRef,
-                      { color: completed ? colors.emerald : colors.textMuted },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {getEarning(item)}
-                  </Text>
-                </View>
-              }
-            />
-          </View>
+                  ]}
+                >
+                  Yield
+                </Text>
+                <Text
+                  style={[
+                    styles.yieldValueRef,
+                    !needsPartyTag
+                      ? {
+                          color: completed
+                            ? Theme.driverOnForestYield
+                            : Theme.driverOnForestMuted,
+                        }
+                      : { color: completed ? colors.emerald : colors.textMuted },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {getEarning(item)}
+                </Text>
+              </View>
+            }
+          />
         </AnimatedCardScale>
       </TouchableOpacity>
     );
@@ -1696,7 +1695,7 @@ const styles = StyleSheet.create({
     borderColor: TRIP_CARD_REF.border,
     borderRadius: 16,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingTop: 10,
     marginBottom: 12,
     overflow: "hidden",
     position: "relative",
@@ -1708,8 +1707,8 @@ const styles = StyleSheet.create({
   },
   cardWatermark: {
     position: "absolute",
-    right: -8,
-    top: "22%",
+    right: -6,
+    top: 34,
     opacity: 0.04,
     zIndex: 0,
   },
@@ -1724,61 +1723,24 @@ const styles = StyleSheet.create({
   cardRefTop: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 10,
+    alignItems: "center",
+    marginBottom: 8,
     gap: 8,
   },
-  cardRefTopLeft: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
+  cardRefTopRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
   },
   cardRefId: {
+    flex: 1,
+    minWidth: 0,
     fontSize: 9,
     fontWeight: "700",
     color: TRIP_CARD_REF.label,
     letterSpacing: 1.4,
     textTransform: "uppercase",
-    marginBottom: 5,
-    lineHeight: 12,
-  },
-  routeRowRef: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    minWidth: 0,
-  },
-  routeRefPickup: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: TRIP_CARD_REF.title,
-    letterSpacing: -0.25,
-    textTransform: "uppercase",
-    lineHeight: 16,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  routeRefDrop: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: TRIP_CARD_REF.title,
-    letterSpacing: -0.25,
-    textTransform: "uppercase",
-    lineHeight: 16,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  routeArrowWrap: {
-    marginHorizontal: 0,
-    paddingTop: 1,
-  },
-  routeCorridorHint: {
-    marginTop: 2,
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    opacity: 0.72,
     lineHeight: 12,
   },
   cardAssignedByLine: {
@@ -1790,13 +1752,12 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   badgeRef: {
+    height: 20,
     paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
+    borderRadius: 999,
     flexShrink: 0,
-    marginLeft: 0,
-    alignSelf: "flex-start",
-    maxWidth: "36%",
+    alignItems: "center",
+    justifyContent: "center",
   },
   badgeRefCompleted: {
     backgroundColor: TRIP_CARD_REF.badgeCompletedBg,
@@ -1812,21 +1773,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
     lineHeight: 11,
   },
-  cardRefLaneRow: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-  },
   cardRefAssignerFooter: {
-    marginTop: 0,
-  },
-  cardRefBottom: {
-    paddingTop: 12,
-    marginTop: 3,
+    marginTop: 10,
+    marginHorizontal: -14,
+    width: "auto",
+    alignSelf: "stretch",
+    borderRadius: 0,
+    borderWidth: 0,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: TRIP_CARD_REF.divider,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  cardRefAssignerFooterForest: {
+    backgroundColor: Theme.driverForest,
+    borderTopColor: Theme.driverForest,
   },
   cardRefDistanceRow: {
     flexDirection: "row",
@@ -1852,13 +1812,14 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   tripTypeBadge: {
-    alignSelf: "flex-start",
+    height: 20,
     fontSize: 8,
     fontWeight: "800",
     letterSpacing: 1,
+    lineHeight: 18,
+    textAlignVertical: "center",
     textTransform: "uppercase",
     paddingHorizontal: 8,
-    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
     overflow: "hidden",

@@ -208,6 +208,7 @@ export function FullscreenNumericEntry({
         placeholder={resolvedPlaceholder}
         variant={isPayLayout ? payDisplayVariant : 'default'}
         tone={vsTarget?.tone ?? 'default'}
+        accentPrefix={isPayLayout && type === 'currency'}
       />
       {vsTarget ? (
         <BidVsTargetHint caption={vsTarget.caption} tone={vsTarget.tone} />
@@ -255,7 +256,9 @@ export function FullscreenNumericEntry({
           accessibilityRole="button"
           accessibilityLabel="Close"
         >
-          <Text style={styles.payCloseText}>✕</Text>
+          <View style={styles.payCloseFace}>
+            <X size={16} color={Theme.textPrimaryDark} strokeWidth={2.4} />
+          </View>
         </TouchableOpacity>
         {footerLink ? <View style={styles.headerTrailing}>{footerLink}</View> : null}
       </View>
@@ -277,6 +280,7 @@ export function FullscreenNumericEntry({
                 label.trim().split(/\s+/).length <= 2
               }
               compact
+              accent
             />
           ) : (
             <View style={styles.payLabelOnly}>
@@ -312,7 +316,7 @@ export function FullscreenNumericEntry({
             >
               <ArrowRight
                 size={22}
-                color={hasValue ? '#ffffff' : Theme.textMuted}
+                color={hasValue ? Theme.textOnPrimary : Theme.textMuted}
                 strokeWidth={2.4}
               />
             </TouchableOpacity>
@@ -500,6 +504,7 @@ const styles = StyleSheet.create({
   },
   innerPay: {
     justifyContent: 'space-between',
+    backgroundColor: Theme.driverEmeraldWash,
   },
   entryOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -520,11 +525,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  payCloseText: {
-    fontSize: 24,
-    fontWeight: '300',
-    color: Theme.textPrimary,
-    lineHeight: 24,
+  payCloseFace: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.borderInput,
   },
   payBody: {
     flex: 1,
@@ -625,9 +634,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...Platform.select({
       ios: {
-        shadowColor: Theme.driverEmeraldDark,
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.28,
+        shadowOpacity: 0.18,
         shadowRadius: 10,
       },
       android: { elevation: 5 },
@@ -635,13 +644,14 @@ const styles = StyleSheet.create({
     }),
   },
   payFabDisabled: {
-    backgroundColor: 'rgba(148,163,184,0.22)',
+    backgroundColor: Theme.driverEmeraldMuted,
     shadowOpacity: 0,
     elevation: 0,
   },
   validationErrorPay: {
     paddingTop: 4,
     paddingBottom: 0,
+    color: Theme.negative,
   },
 
   // ── Header ──

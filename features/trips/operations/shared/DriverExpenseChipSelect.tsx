@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   LayoutChangeEvent,
   Pressable,
@@ -6,6 +13,11 @@ import {
   Text,
   View,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { ChevronDown } from "lucide-react-native";
 
 import Theme from "@/constants/Theme";
@@ -35,8 +47,11 @@ type Props<T extends string> = {
   label: string;
   hint?: string;
   options: ReadonlyArray<DriverExpenseChipOption<T>>;
-  value: T;
+  value: T | null;
   onChange: (value: T) => void;
+  /** Tap the selected chip again to clear it. */
+  clearable?: boolean;
+  onClear?: () => void;
   /** Equal-width tile columns (2 for categories, 3 for payment). */
   columns?: 2 | 3;
   /** Auto-resolve Lucide icons + tints from value. */
@@ -48,13 +63,66 @@ type Props<T extends string> = {
   collapseAfterSelect?: boolean;
   /** Locked selection — summary only, no Change. */
   disabled?: boolean;
+  /**
+   * Visual presentation only.
+   * - tiles: compact equal-width icon cells
+   * - pills: fleet-app filter chips (default for payment)
+   */
+  presentation?: "tiles" | "pills";
 };
 
 const GRID_GAP = 6;
+const PILL_GAP = 6;
+/** Driver emerald active (restored brand green). */
+const ACTIVE = Theme.driverEmeraldDark;
+const ACTIVE_SOFT = Theme.driverEmeraldMuted;
+const MUTED = "#64748B";
+const INK = "#0F172A";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+function SelectableChip({
+  active,
+  disabled,
+  onPress,
+  style,
+  children,
+  accessibilityLabel,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+  style: object | object[];
+  children: ReactNode;
+  accessibilityLabel?: string;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={() => {
+        scale.value = withSpring(0.96, { damping: 18, stiffness: 320 });
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 16, stiffness: 260 });
+      }}
+      style={[style, animStyle]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active, disabled }}
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+    >
+      {children}
+    </AnimatedPressable>
+  );
+}
 
 /**
- * Equal-width icon tiles + minimize-after-select summary.
- * Shared by driver and business trip expense entry.
+ * Compact fleet-style chips — shared by driver and business trip expense entry.
  */
 export function DriverExpenseChipSelect<T extends string>({
   label,
@@ -66,9 +134,16 @@ export function DriverExpenseChipSelect<T extends string>({
   visualGroup = "generic",
   collapseAfterSelect = true,
   disabled = false,
+  presentation,
+  clearable = false,
+  onClear,
 }: Props<T>) {
-  // When collapse is on, start minimized so a pre-selected value (and remounts
-  // after category nav) don't leave the full grid open.
+  const mode =
+    presentation ??
+    (visualGroup === "payment_mode" || visualGroup === "payment_owner"
+      ? "pills"
+      : "tiles");
+
   const [expanded, setExpanded] = useState(!collapseAfterSelect);
   const [gridWidth, setGridWidth] = useState(0);
 
@@ -86,7 +161,7 @@ export function DriverExpenseChipSelect<T extends string>({
   }, [value, collapseAfterSelect]);
 
   const selected = useMemo(
-    () => options.find((option) => option.value === value) ?? options[0] ?? null,
+    () => options.find((option) => option.value === value) ?? null,
     [options, value],
   );
 
@@ -103,12 +178,15 @@ export function DriverExpenseChipSelect<T extends string>({
   const handleSelect = useCallback(
     (next: T) => {
       if (disabled) return;
-      // Collapse immediately so selection always minimizes in one tap,
-      // even when parent navigation remounts shortly after.
+      if (clearable && next === value) {
+        onClear?.();
+        setExpanded(true);
+        return;
+      }
       if (collapseAfterSelect) setExpanded(false);
       if (next !== value) onChange(next);
     },
-    [collapseAfterSelect, disabled, onChange, value],
+    [clearable, collapseAfterSelect, disabled, onChange, onClear, value],
   );
 
   const onGridLayout = useCallback((event: LayoutChangeEvent) => {
@@ -132,29 +210,69 @@ export function DriverExpenseChipSelect<T extends string>({
       {hint ? <Text style={styles.hint}>{hint}</Text> : null}
 
       {showCollapsed ? (
-        <Pressable
+        <SelectableChip
+          active
+          disabled={disabled}
           onPress={() => {
             if (!disabled) setExpanded(true);
           }}
-          style={({ pressed }) => [
-            styles.summaryRow,
-            pressed && !disabled && styles.summaryPressed,
-            disabled && styles.disabled,
-          ]}
-          accessibilityRole="button"
+          style={[styles.summaryRow, disabled && styles.disabled]}
           accessibilityLabel={`${label}: ${selected?.label ?? ""}. Change`}
-          disabled={disabled}
         >
-          {SelectedIcon ? (
-            <SelectedIcon size={15} color={Theme.textMuted} strokeWidth={2} />
-          ) : null}
+          <View style={styles.summaryAvatar}>
+            {SelectedIcon ? (
+              <SelectedIcon size={14} color="#fff" strokeWidth={2.2} />
+            ) : (
+              <Text style={styles.summaryAvatarText}>
+                {(selected?.label ?? "?").slice(0, 1).toUpperCase()}
+              </Text>
+            )}
+          </View>
           <Text style={styles.summaryTitle} numberOfLines={1}>
             {selected?.label ?? "—"}
           </Text>
           {!disabled ? (
-            <ChevronDown size={14} color={Theme.textMuted} strokeWidth={2.2} />
+            <View style={styles.summaryChange}>
+              <Text style={styles.summaryChangeText}>Change</Text>
+              <ChevronDown size={12} color={MUTED} strokeWidth={2.4} />
+            </View>
           ) : null}
-        </Pressable>
+        </SelectableChip>
+      ) : mode === "pills" ? (
+        <View style={styles.pillRow}>
+          {options.map((option) => {
+            const active = option.value === value;
+            const visual = resolveVisual(option);
+            const Icon = visual?.Icon;
+            return (
+              <SelectableChip
+                key={option.value}
+                active={active}
+                disabled={disabled}
+                onPress={() => handleSelect(option.value)}
+                style={[
+                  styles.pill,
+                  active && styles.pillActive,
+                  disabled && styles.disabled,
+                ]}
+              >
+                {Icon ? (
+                  <Icon
+                    size={12}
+                    color={active ? "#fff" : MUTED}
+                    strokeWidth={2.2}
+                  />
+                ) : null}
+                <Text
+                  style={[styles.pillText, active && styles.pillTextActive]}
+                  numberOfLines={1}
+                >
+                  {option.label}
+                </Text>
+              </SelectableChip>
+            );
+          })}
+        </View>
       ) : (
         <View style={styles.grid} onLayout={onGridLayout}>
           {options.map((option) => {
@@ -163,39 +281,42 @@ export function DriverExpenseChipSelect<T extends string>({
             const Icon = visual?.Icon;
 
             return (
-              <Pressable
+              <SelectableChip
                 key={option.value}
+                active={active}
+                disabled={disabled}
                 onPress={() => handleSelect(option.value)}
-                style={({ pressed }) => [
+                style={[
                   styles.tile,
                   tileWidth != null
                     ? { width: tileWidth }
                     : columns === 2
                       ? styles.tileFallbackHalf
                       : styles.tileFallback,
-                  columns === 2 ? styles.tileTall : null,
                   active && styles.tileActive,
-                  pressed && !active && styles.tilePressed,
                   disabled && styles.disabled,
                 ]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active, disabled }}
-                disabled={disabled}
               >
-                {Icon ? (
-                  <Icon
-                    size={14}
-                    color={active ? Theme.driverEmeraldDark : Theme.textMuted}
-                    strokeWidth={2.1}
-                  />
-                ) : null}
+                <View style={[styles.tileAvatar, active && styles.tileAvatarActive]}>
+                  {Icon ? (
+                    <Icon
+                      size={13}
+                      color={active ? ACTIVE : MUTED}
+                      strokeWidth={2.2}
+                    />
+                  ) : (
+                    <Text style={[styles.tileAvatarText, active && styles.tileAvatarTextActive]}>
+                      {option.label.slice(0, 1).toUpperCase()}
+                    </Text>
+                  )}
+                </View>
                 <Text
                   style={[styles.tileText, active && styles.tileTextActive]}
                   numberOfLines={1}
                 >
                   {option.label}
                 </Text>
-              </Pressable>
+              </SelectableChip>
             );
           })}
         </View>
@@ -206,13 +327,13 @@ export function DriverExpenseChipSelect<T extends string>({
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 5,
+    gap: 6,
   },
   label: {
     ...Typography.headerTitle,
-    fontSize: 9,
-    letterSpacing: 0.55,
-    color: Theme.textMuted,
+    fontSize: 10,
+    letterSpacing: 0.7,
+    color: MUTED,
     textTransform: "uppercase",
     fontWeight: "700",
   },
@@ -220,7 +341,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
     color: Theme.textSecondary,
-    lineHeight: 15,
+    lineHeight: 14,
     marginTop: -2,
   },
   summaryRow: {
@@ -228,43 +349,91 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     minHeight: 40,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 12,
+    backgroundColor: ACTIVE_SOFT,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(148,163,184,0.28)",
-    backgroundColor: Theme.surfaceGray,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
-  summaryPressed: {
-    backgroundColor: "rgba(241,245,249,1)",
+  summaryAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: ACTIVE,
+  },
+  summaryAvatarText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#fff",
   },
   summaryTitle: {
     flex: 1,
     minWidth: 0,
     fontSize: 13,
     fontWeight: "700",
-    color: Theme.textPrimaryDark,
-    letterSpacing: -0.1,
+    color: INK,
+    letterSpacing: -0.15,
+  },
+  summaryChange: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#fff",
+  },
+  summaryChangeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: MUTED,
   },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: GRID_GAP,
   },
+  pillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: PILL_GAP,
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    minHeight: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#EEF2F7",
+  },
+  pillActive: {
+    backgroundColor: ACTIVE,
+  },
+  pillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: INK,
+    letterSpacing: -0.1,
+  },
+  pillTextActive: {
+    color: "#fff",
+  },
   tile: {
     minHeight: 52,
     paddingHorizontal: 4,
     paddingTop: 7,
     paddingBottom: 7,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(148,163,184,0.26)",
-    backgroundColor: Theme.cardWhite,
+    borderRadius: 12,
+    backgroundColor: "#F5F7FA",
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
   },
-  /** Before first layout measure — keep roughly equal widths. */
   tileFallback: {
     flexGrow: 1,
     flexBasis: "30%",
@@ -275,32 +444,44 @@ const styles = StyleSheet.create({
     flexBasis: "47%",
     maxWidth: "48.5%",
   },
-  tileTall: {
-    minHeight: 56,
-  },
   tileActive: {
-    backgroundColor: Theme.driverEmeraldMuted,
-    borderColor: Theme.driverEmerald,
-    borderWidth: 1.5,
+    backgroundColor: ACTIVE_SOFT,
+    borderWidth: 1,
+    borderColor: Theme.driverEmeraldBorderSoft,
   },
-  tilePressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.985 }],
+  tileAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  tileAvatarActive: {
+    backgroundColor: "#fff",
+  },
+  tileAvatarText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: MUTED,
+  },
+  tileAvatarTextActive: {
+    color: ACTIVE,
   },
   tileText: {
     fontSize: 10,
     fontWeight: "700",
-    color: Theme.textPrimaryDark,
+    color: INK,
     textAlign: "center",
     lineHeight: 12,
     letterSpacing: -0.1,
     width: "100%",
   },
   tileTextActive: {
-    color: Theme.driverEmeraldDark,
+    color: ACTIVE,
     fontWeight: "800",
   },
   disabled: {
-    opacity: 0.55,
+    opacity: 0.5,
   },
 });

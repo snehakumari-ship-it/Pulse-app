@@ -1,6 +1,6 @@
 import { memo } from "react";
-import { Pressable, View, Text, StyleSheet } from "react-native";
-import { ChevronRight } from "lucide-react-native";
+import { Platform, Pressable, View, Text, StyleSheet } from "react-native";
+import { Calendar, ChevronRight, CreditCard, Hash, Navigation } from "lucide-react-native";
 import Theme from "@/constants/Theme";
 import { PartyAvatar } from "@/components/PartyAvatar";
 import { PulseImage } from "@/components/PulseImage";
@@ -24,6 +24,10 @@ export interface NumericEntryRecipientHeroProps {
   dense?: boolean;
   /** Tap recipient (e.g. change partner). */
   onPress?: () => void;
+  /**
+   * Expense keypad chrome: card, icons, and the driver emerald used on Log expense.
+   */
+  accent?: boolean;
 }
 
 /** Split corridor-style subtitle into hero route + quieter detail. */
@@ -68,13 +72,123 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
   compact = false,
   dense = false,
   onPress,
+  accent = false,
 }: NumericEntryRecipientHeroProps) {
-  const avatarSize = party.mark === "pulse" ? 64 : dense ? 36 : compact ? 44 : 64;
+  const avatarSize =
+    party.mark === "pulse"
+      ? 64
+      : accent
+        ? dense
+          ? 36
+          : 40
+        : dense
+          ? 36
+          : compact
+            ? 44
+            : 64;
   const title =
     caption && nameInline ? `${caption} ${party.name}`.trim() : party.name;
   const { hero, detail } = resolveHeroDetail(party);
 
-  const content = (
+  const detailChips = accent && detail
+    ? detail.split(" · ").map((part) => part.trim()).filter(Boolean)
+    : [];
+
+  const avatarNode = (
+    <View
+      style={[
+        styles.avatarSlot,
+        accent && styles.avatarSlotAccent,
+        { width: avatarSize, height: avatarSize },
+      ]}
+    >
+      {party.mark === "pool" ? (
+        <PoolIndentMark size={avatarSize} />
+      ) : party.mark === "pulse" ? (
+        <View
+          accessibilityLabel="Pulse"
+          style={[
+            styles.pulseWell,
+            { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
+          ]}
+        >
+          <PulseImage
+            source={PULSE_MASCOT}
+            style={{ width: avatarSize * 0.86, height: avatarSize * 0.86 }}
+            contentFit="contain"
+            accessibilityElementsHidden
+          />
+        </View>
+      ) : (
+        <PartyAvatar
+          name={party.name}
+          avatarUrl={party.avatarUrl ?? null}
+          avatarSeed={party.avatarSeed ?? null}
+          organizationImageUrl={party.organizationImageUrl ?? null}
+          organizationAvatarSeed={party.organizationAvatarSeed ?? null}
+          entityType={party.entityType ?? "client"}
+          isIntegrated={party.isIntegrated}
+          size={avatarSize}
+          shape="circle"
+        />
+      )}
+    </View>
+  );
+
+  const content = accent ? (
+    <View style={[styles.rootAccent, compact && styles.rootAccentCompact]}>
+      <View style={styles.accentRow}>
+        {avatarNode}
+        <View style={styles.accentCopy}>
+          {caption && !nameInline ? (
+            <View style={styles.accentCaptionRow}>
+              <CreditCard size={12} color={Theme.driverEmeraldDark} strokeWidth={2.4} />
+              <Text style={styles.accentCaption} numberOfLines={1}>
+                {caption}
+              </Text>
+            </View>
+          ) : null}
+          <View style={styles.accentTitleRow}>
+            <Text style={styles.accentName} numberOfLines={2}>
+              {title}
+            </Text>
+            {onPress ? (
+              <ChevronRight size={14} color={Theme.textMuted} style={styles.chevron} />
+            ) : null}
+          </View>
+          {hero ? (
+            <View style={styles.routeRow}>
+              <Navigation size={12} color={Theme.driverEmeraldDark} strokeWidth={2.4} />
+              <Text style={styles.routeLabel} numberOfLines={2}>
+                {hero}
+              </Text>
+            </View>
+          ) : null}
+          {detailChips.length > 0 ? (
+            <View style={styles.chipRow}>
+              {detailChips.map((chip) => {
+                const isDate =
+                  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(chip);
+                const Icon = isDate ? Calendar : Hash;
+                return (
+                  <View key={chip} style={styles.metaChip}>
+                    <Icon size={10} color={Theme.driverEmeraldDark} strokeWidth={2.4} />
+                    <Text style={styles.metaChipText} numberOfLines={1}>
+                      {chip}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : detail ? (
+            <Text style={styles.accentDetail} numberOfLines={2}>
+              {detail}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  ) : (
     <View
       style={[
         styles.root,
@@ -82,43 +196,7 @@ export const NumericEntryRecipientHero = memo(function NumericEntryRecipientHero
         dense && styles.rootDense,
       ]}
     >
-      <View
-        style={[
-          styles.avatarSlot,
-          { width: avatarSize, height: avatarSize },
-        ]}
-      >
-        {party.mark === "pool" ? (
-          <PoolIndentMark size={avatarSize} />
-        ) : party.mark === "pulse" ? (
-          <View
-            accessibilityLabel="Pulse"
-            style={[
-              styles.pulseWell,
-              { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 },
-            ]}
-          >
-            <PulseImage
-              source={PULSE_MASCOT}
-              style={{ width: avatarSize * 0.86, height: avatarSize * 0.86 }}
-              contentFit="contain"
-              accessibilityElementsHidden
-            />
-          </View>
-        ) : (
-          <PartyAvatar
-            name={party.name}
-            avatarUrl={party.avatarUrl ?? null}
-            avatarSeed={party.avatarSeed ?? null}
-            organizationImageUrl={party.organizationImageUrl ?? null}
-            organizationAvatarSeed={party.organizationAvatarSeed ?? null}
-            entityType={party.entityType ?? "client"}
-            isIntegrated={party.isIntegrated}
-            size={avatarSize}
-            shape="circle"
-          />
-        )}
-      </View>
+      {avatarNode}
       {caption && !nameInline ? (
         <Text
           style={[
@@ -226,6 +304,124 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     paddingHorizontal: 16,
     gap: 3,
+  },
+  rootAccent: {
+    marginHorizontal: 16,
+    marginTop: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: Theme.cardWhite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Theme.driverEmeraldBorderSoft,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#0f172a",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+      },
+      android: { elevation: 1 },
+      default: {},
+    }),
+  },
+  rootAccentCompact: {
+    marginTop: 0,
+    paddingVertical: 10,
+  },
+  accentRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+  },
+  avatarSlotAccent: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  accentCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+    alignItems: "flex-start",
+  },
+  accentCaptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 5,
+    width: "100%",
+  },
+  accentCaption: {
+    flexShrink: 1,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.65,
+    textTransform: "uppercase",
+    color: Theme.driverEmeraldDark,
+    textAlign: "left",
+  },
+  accentTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 2,
+    width: "100%",
+  },
+  accentName: {
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: "700",
+    color: Theme.textPrimaryDark,
+    textAlign: "left",
+    letterSpacing: -0.25,
+  },
+  routeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 6,
+    width: "100%",
+  },
+  routeLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 17,
+    letterSpacing: -0.15,
+    color: Theme.textPrimaryDark,
+    textAlign: "left",
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 6,
+    width: "100%",
+  },
+  metaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Theme.driverEmeraldMuted,
+  },
+  metaChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Theme.driverEmeraldDark,
+  },
+  accentDetail: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.textSecondary,
+    textAlign: "left",
+    lineHeight: 16,
+    width: "100%",
   },
   pressed: {
     opacity: 0.88,
