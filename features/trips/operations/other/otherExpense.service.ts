@@ -173,7 +173,7 @@ export async function createTripOtherExpense(
   const idempotencyKey = toNullableText(input.idempotencyKey);
   const insertRow = (row: typeof payload) =>
     supabase().from("trip_other_expenses").insert(row).select("*").single();
-  // idempotency_key is added by 20271117120400 (not in generated types yet).
+  // idempotency_key is added by 20271119055000 (not in generated types yet).
   const firstTry = await insertRow(
     (idempotencyKey ? { ...payload, idempotency_key: idempotencyKey } : payload) as typeof payload,
   );

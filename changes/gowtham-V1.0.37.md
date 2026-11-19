@@ -22,13 +22,13 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - Driver map (APK / MapLibre): map host no longer overrides the caller's `absoluteFill`, which collapsed the dashboard preview and full-screen map to 0 height (grey box).
 - Map tiles (all platforms): Carto keyless basemaps now return "API KEY REQUIRED" watermark tiles to apps/WebViews, so every driver map — native MapLibre (APK / dev client), Expo Go WebView (Leaflet) and web (maplibre-gl) — uses Mapbox Light raster tiles with the existing `EXPO_PUBLIC_MAPBOX_TOKEN` (`lib/maps/nativeBasemapStyle.ts`); plain light background if the token is missing.
 - Odometer photo slot (web): Remove/Retake are no longer nested inside the preview `Pressable` (fixes `<button>` inside `<button>` hydration warning).
-- Migration `20271115101500_ocr_jobs_insert_allow_trip_access`: restore trip-linked INSERT on `ocr_jobs` so assigned drivers (not only `organization_members`) can create OCR jobs — fixes RLS 403 / “new row violates row-level security policy for table ocr_jobs”.
+- Migration `20271119053000_ocr_jobs_insert_allow_trip_access`: restore trip-linked INSERT on `ocr_jobs` so assigned drivers (not only `organization_members`) can create OCR jobs — fixes RLS 403 / “new row violates row-level security policy for table ocr_jobs”.
 - Driver app operating-mode / DCO Self batch: tab bar and driver home routes, trip flow / completed modal, multi-order job card, trip history, control / profile / party receivable / level screens, and related tests.
 - Operating-mode helpers and query wiring so Self / DCO / fleet surfaces pick the right book and gates.
 - DCO Self offline + receivable issue paths (clearer errors, sync/offline util tweaks) and exchange payment test coverage for DCO Self book routing.
 - Assigner display util + unit test; RBAC operating-model changelog note; DCO operating-model boundary SQL test updates.
-- Migration `20271115091500_booking_ref_skip_taken_refs`: booking_ref trigger skips refs already on `trips` and can walk past a lagged sequence (paid DCO award confirm failure).
-- Migration `20271115093000_dco_allow_offline_market_hire_trip`: allow Aggregate/market-hire FLEET trips to assign a `tracking_only` DCO driver (offline hire by phone); employee/fleet DCO assignment stays blocked.
+- Migration `20271119051000_booking_ref_skip_taken_refs`: booking_ref trigger skips refs already on `trips` and can walk past a lagged sequence (paid DCO award confirm failure).
+- Migration `20271119051500_dco_allow_offline_market_hire_trip`: allow Aggregate/market-hire FLEET trips to assign a `tracking_only` DCO driver (offline hire by phone); employee/fleet DCO assignment stays blocked.
 - Fleet disconnect: themed confirm warns about pending trip pay / open salary requests before leave; `leave_fleet` notifies the fleet org (`driver_disconnected` network inbox) and soft-closes driver membership; DCO request is refused while still employed (admin approve already required disconnect).
 - Fleet owner bell card for a driver who left reads "<Driver> left your fleet · Disconnected" (tag "Left fleet"); driver name from the payload, or parsed from the legacy "<Name> disconnected from your fleet" title.
 - DCO status screen: disconnect-first CTA (Wallet Self) then request; copy matches two-gate order (fleet leave → admin approve).
@@ -52,7 +52,7 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `lib/crypto/sha256File.util.ts` (+ unit test) — web odometer / Pulse Scan fingerprint
 - `features/trips/verification/hooks/useOdometerPhotoOcr.ts`, `features/ocr/services/ocrQuota.service.ts`
 - `features/trips/operations/shared/OpsEntryBodyPhotoSlot.tsx`
-- `supabase/migrations/20271115101500_ocr_jobs_insert_allow_trip_access.sql`
+- `supabase/migrations/20271119053000_ocr_jobs_insert_allow_trip_access.sql`
 - `app/(driver)/**`, `components/driver/DriverTabBar.tsx`
 - `features/driver/**`, `features/drivers/**`, `features/dco-self/**`
 - `features/marketplace/services/exchangePayments.service.ts` (+ tests)
@@ -62,19 +62,19 @@ Open questions for Vasanth: "DIRECT TRIP" card label renamed to "OFFLINE TRIP" �
 - `components/AlertRegistryPanel.tsx`, `lib/globalSync/registryFeed.util.ts`
 - `lib/queries/useDriverOperatingModeQuery.ts`
 - `docs/RBAC_OPERATING_MODEL_CHANGELOG.md`
-- `supabase/migrations/20271115091500_booking_ref_skip_taken_refs.sql`
-- `supabase/migrations/20271115093000_dco_allow_offline_market_hire_trip.sql`
-- `supabase/migrations/20271115094500_fleet_disconnect_notify_and_dco_request_gate.sql`
-- `supabase/migrations/20271115100000_dco_require_verified_kyc.sql`, `features/driver/components/DcoStatusScreen.tsx`, `lib/queryKeys.ts`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `analytics/src/components/queue/DriverKycPanel.tsx`, `analytics/src/lib/driverKyc.ts`, `features/drivers/screens/DriverDocumentsScreen.tsx`, `features/drivers/services/driverKycDocuments.service.ts`
+- `supabase/migrations/20271119051000_booking_ref_skip_taken_refs.sql`
+- `supabase/migrations/20271119051500_dco_allow_offline_market_hire_trip.sql`
+- `supabase/migrations/20271119052000_fleet_disconnect_notify_and_dco_request_gate.sql`
+- `supabase/migrations/20271119052500_dco_require_verified_kyc.sql`, `features/driver/components/DcoStatusScreen.tsx`, `lib/queryKeys.ts`, `analytics/src/lib/dco.ts`, `analytics/src/components/queue/DcoReviewPanel.tsx`, `analytics/src/components/queue/DriverKycPanel.tsx`, `analytics/src/lib/driverKyc.ts`, `features/drivers/screens/DriverDocumentsScreen.tsx`, `features/drivers/services/driverKycDocuments.service.ts`
 - `supabase/tests/dco_operating_model_boundary.sql`
 - `features/tracking/**` (driverLiveTracking.service, driverLiveLocationTask.service, useDriverLiveTracking, constants, flags, movement filter, map store, checkpoint service + tests), `features/driver/communication/hooks/useDriverLocationStream.ts`, `features/trips/components/trip-detail/hooks/useTripDetail.ts`, `app/_layout.tsx`, `app.config.js` (expo-location plugin: background + foreground service), `types/expo-location.d.ts`, `package.json` (`expo-task-manager`)
 
 ## Migrations
-- `20271115091500_booking_ref_skip_taken_refs.sql`
-- `20271115093000_dco_allow_offline_market_hire_trip.sql`
-- `20271115094500_fleet_disconnect_notify_and_dco_request_gate.sql`
-- `20271115100000_dco_require_verified_kyc.sql`
-- `20271115101500_ocr_jobs_insert_allow_trip_access.sql`
+- `20271119051000_booking_ref_skip_taken_refs.sql`
+- `20271119051500_dco_allow_offline_market_hire_trip.sql`
+- `20271119052000_fleet_disconnect_notify_and_dco_request_gate.sql`
+- `20271119052500_dco_require_verified_kyc.sql`
+- `20271119053000_ocr_jobs_insert_allow_trip_access.sql`
 - Not applied from this branch. Nihas applies to preprod after merge; Vasanth applies to prod on release.
 - `lib/maps/placeSearch.util.ts` (`cleanOsmAreaName`), `lib/placesService.ts`, `lib/placeCityState.util.ts`, `lib/mapLocationLabel.service.ts` (+ `lib/__tests__/placeWardName.test.ts`)
 - `lib/placesService.ts` (`searchGooglePlaces` → Places API (New), `resolvePlaceSelection`, `isPendingGooglePlace`), `features/trips/components/add-trip/LocationSearchField.tsx` (+ `lib/__tests__/placesGoogleNew.test.ts`)
